@@ -20,7 +20,7 @@
 The only system prerequisite is `ffmpeg` (`brew install ffmpeg` on macOS or `sudo apt install ffmpeg` on Linux) and Python 3.10+.
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/canvas-forge.git
+git clone https://github.com/J-Reed700/canvas-forge.git
 cd canvas-forge
 ./run.sh
 ```
