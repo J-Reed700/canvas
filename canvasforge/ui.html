@@ -1,0 +1,1671 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Canvas Forge v2.5 · 2026 Audio-Reactive Spotify Canvas Studio</title>
+  <style>
+    :root {
+      --bg-page: #07090B;
+      --surface-well: #0C0F12;
+      --surface-0: #101215;
+      --surface-1: #181B1F;
+      --surface-2: #202429;
+      --surface-3: #282D33;
+      --surface-4: #343B43;
+
+      --accent-mint: #62E6BD;
+      --accent-violet: #B18CFF;
+      --accent-amber: #FFBD66;
+      --accent-indigo: #6E78FF;
+      --status-pos: #5BE49B;
+      --status-warn: #FFC04D;
+      --status-danger: #FF4D5E;
+
+      --text-primary: #EEF1F4;
+      --text-secondary: #B0B9C3;
+      --text-tertiary: #8995A3;
+      --text-disabled: #59626E;
+
+      --hairline-subtle: rgba(255, 255, 255, 0.045);
+      --hairline: rgba(255, 255, 255, 0.075);
+      --hairline-strong: rgba(255, 255, 255, 0.14);
+
+      --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      --font-mono: 'IBM Plex Mono', 'SF Mono', Menlo, monospace;
+
+      --radius-sm: 5px;
+      --radius-md: 8px;
+      --radius-lg: 12px;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      background: var(--bg-page);
+      color: var(--text-primary);
+      font-family: var(--font-sans);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      overflow-x: hidden;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    /* -------------------------------------------------------------
+       TOP TELEMETRY BAR
+       ------------------------------------------------------------- */
+    .topbar {
+      height: 52px;
+      background: var(--surface-0);
+      border-bottom: 1px solid var(--hairline);
+      padding: 0 22px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-shrink: 0;
+    }
+
+    .brand-group {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .brand-badge {
+      font-family: var(--font-mono);
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      padding: 3px 8px;
+      border-radius: 4px;
+      background: rgba(98, 230, 189, 0.14);
+      color: var(--accent-mint);
+      border: 1px solid rgba(98, 230, 189, 0.35);
+    }
+
+    .brand-title {
+      font-size: 14px;
+      font-weight: 600;
+      letter-spacing: 0.02em;
+      color: #FFFFFF;
+    }
+
+    .brand-sub {
+      font-family: var(--font-mono);
+      font-size: 10.5px;
+      color: var(--text-tertiary);
+    }
+
+    .telemetry-pills {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .tele-pill {
+      font-family: var(--font-mono);
+      font-size: 10px;
+      color: var(--text-secondary);
+      background: var(--surface-1);
+      border: 1px solid var(--hairline);
+      padding: 4px 9px;
+      border-radius: var(--radius-sm);
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .tele-dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: var(--accent-mint);
+      box-shadow: 0 0 6px var(--accent-mint);
+    }
+
+    /* -------------------------------------------------------------
+       3-COLUMN WORKSPACE SHELL
+       ------------------------------------------------------------- */
+    .workspace {
+      flex: 1;
+      display: grid;
+      grid-template-columns: 355px 1fr 430px;
+      gap: 16px;
+      padding: 14px 20px;
+      max-width: 1700px;
+      width: 100%;
+      margin: 0 auto;
+      align-items: start;
+    }
+
+    @media (max-width: 1200px) {
+      .workspace {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    .panel {
+      background: var(--surface-0);
+      border: 1px solid var(--hairline);
+      border-radius: var(--radius-md);
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      box-shadow: 0 18px 42px rgba(0, 0, 0, 0.55);
+    }
+
+    .panel-header {
+      padding: 11px 15px;
+      background: var(--surface-1);
+      border-bottom: 1px solid var(--hairline);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .panel-title {
+      font-family: var(--font-mono);
+      font-size: 10.5px;
+      font-weight: 600;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: var(--text-secondary);
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .panel-title .accent-bar {
+      width: 3px;
+      height: 12px;
+      border-radius: 2px;
+      background: var(--accent-mint);
+    }
+
+    .panel-body {
+      padding: 13px 15px;
+      display: flex;
+      flex-direction: column;
+      gap: 13px;
+    }
+
+    /* -------------------------------------------------------------
+       LEFT COLUMN: SOURCE POOL & AUDIO SYNC ENGINE
+       ------------------------------------------------------------- */
+    .dropzone {
+      border: 1px dashed var(--hairline-strong);
+      background: var(--surface-well);
+      border-radius: var(--radius-md);
+      padding: 10px;
+      text-align: center;
+      cursor: pointer;
+      transition: all 0.15s ease;
+    }
+
+    .dropzone:hover, .dropzone.dragover {
+      border-color: var(--accent-mint);
+      background: rgba(98, 230, 189, 0.06);
+    }
+
+    .dropzone-title {
+      font-size: 11.5px;
+      font-weight: 600;
+      color: var(--text-primary);
+      margin-bottom: 2px;
+    }
+
+    .dropzone-sub {
+      font-family: var(--font-mono);
+      font-size: 9.5px;
+      color: var(--text-tertiary);
+    }
+
+    /* Audio Reactive Box */
+    .audio-box {
+      background: var(--surface-1);
+      border: 1px solid var(--hairline);
+      border-radius: var(--radius-md);
+      padding: 10px 11px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .audio-box.active-sync {
+      border-color: rgba(177, 140, 255, 0.55);
+      background: linear-gradient(180deg, rgba(177, 140, 255, 0.09) 0%, var(--surface-1) 100%);
+    }
+
+    .audio-select {
+      width: 100%;
+      background: var(--surface-well);
+      border: 1px solid var(--hairline-strong);
+      color: var(--text-primary);
+      font-family: var(--font-mono);
+      font-size: 10.5px;
+      padding: 6px 8px;
+      border-radius: var(--radius-sm);
+      outline: none;
+    }
+
+    .waveform-canvas {
+      width: 100%;
+      height: 36px;
+      background: var(--surface-well);
+      border: 1px solid var(--hairline);
+      border-radius: 4px;
+      display: block;
+    }
+
+    .clip-toolbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 6px;
+    }
+
+    .mini-btn {
+      background: var(--surface-1);
+      border: 1px solid var(--hairline);
+      color: var(--text-secondary);
+      font-family: var(--font-mono);
+      font-size: 10px;
+      padding: 4px 8px;
+      border-radius: var(--radius-sm);
+      cursor: pointer;
+      transition: all 0.12s ease;
+    }
+
+    .mini-btn:hover {
+      background: var(--surface-2);
+      color: #FFFFFF;
+      border-color: var(--hairline-strong);
+    }
+
+    .mini-btn.active-pill {
+      background: rgba(177, 140, 255, 0.18);
+      border-color: var(--accent-violet);
+      color: #FFFFFF;
+    }
+
+    .clip-list {
+      display: flex;
+      flex-direction: column;
+      gap: 7px;
+      max-height: 410px;
+      overflow-y: auto;
+      padding-right: 2px;
+    }
+
+    .clip-card {
+      display: grid;
+      grid-template-columns: 74px 1fr auto;
+      gap: 10px;
+      align-items: center;
+      padding: 7px;
+      background: var(--surface-1);
+      border: 1px solid var(--hairline);
+      border-radius: var(--radius-md);
+      cursor: pointer;
+      transition: all 0.14s ease;
+    }
+
+    .clip-card:hover {
+      background: var(--surface-2);
+    }
+
+    .clip-card.selected {
+      border-color: rgba(98, 230, 189, 0.55);
+      background: linear-gradient(90deg, rgba(98, 230, 189, 0.09) 0%, var(--surface-1) 100%);
+    }
+
+    .clip-thumb {
+      width: 74px;
+      height: 44px;
+      border-radius: 4px;
+      object-fit: cover;
+      background: var(--surface-well);
+      border: 1px solid var(--hairline);
+    }
+
+    .clip-meta {
+      min-width: 0;
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+
+    .clip-name {
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--text-primary);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .clip-specs {
+      font-family: var(--font-mono);
+      font-size: 9.5px;
+      color: var(--text-tertiary);
+    }
+
+    .clip-check {
+      width: 18px;
+      height: 18px;
+      border-radius: 4px;
+      border: 1px solid var(--hairline-strong);
+      background: var(--surface-well);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 11px;
+      color: transparent;
+      margin-right: 4px;
+    }
+
+    .clip-card.selected .clip-check {
+      background: var(--accent-mint);
+      border-color: var(--accent-mint);
+      color: #07090B;
+      font-weight: 800;
+    }
+
+    /* -------------------------------------------------------------
+       CENTER COLUMN: SPOTIFY CANVAS PHONE STAGE
+       ------------------------------------------------------------- */
+    .stage-panel {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 18px 16px;
+      background: radial-gradient(circle at 50% 35%, rgba(98, 230, 189, 0.06) 0%, rgba(16, 18, 21, 0.98) 70%);
+    }
+
+    .phone-shell {
+      width: 336px;
+      height: 597px;
+      border-radius: 26px;
+      background: #050608;
+      border: 2px solid rgba(255, 255, 255, 0.14);
+      box-shadow: 0 28px 80px rgba(0, 0, 0, 0.85), 0 0 0 1px rgba(0, 0, 0, 0.9);
+      position: relative;
+      overflow: hidden;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .phone-video {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      display: block;
+    }
+
+    /* Safe Zone Guides Overlay */
+    .safe-zone-overlay {
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+      display: none;
+      flex-direction: column;
+      justify-content: space-between;
+    }
+
+    .safe-zone-overlay.visible {
+      display: flex;
+    }
+
+    .sz-top {
+      height: 14%;
+      border-bottom: 1px dashed rgba(255, 189, 102, 0.65);
+      background: rgba(255, 189, 102, 0.08);
+      display: flex;
+      align-items: flex-end;
+      justify-content: center;
+      padding-bottom: 4px;
+      font-family: var(--font-mono);
+      font-size: 8.5px;
+      color: var(--accent-amber);
+      letter-spacing: 0.08em;
+    }
+
+    .sz-bottom {
+      height: 33%;
+      border-top: 1px dashed rgba(255, 189, 102, 0.65);
+      background: rgba(255, 189, 102, 0.08);
+      display: flex;
+      align-items: flex-start;
+      justify-content: center;
+      padding-top: 4px;
+      font-family: var(--font-mono);
+      font-size: 8.5px;
+      color: var(--accent-amber);
+      letter-spacing: 0.08em;
+    }
+
+    /* Authentic Spotify Now Playing Overlay Mock */
+    .spotify-overlay {
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      padding: 18px 18px 22px;
+      background: linear-gradient(
+        180deg,
+        rgba(0, 0, 0, 0.42) 0%,
+        rgba(0, 0, 0, 0.0) 22%,
+        rgba(0, 0, 0, 0.0) 60%,
+        rgba(0, 0, 0, 0.85) 100%
+      );
+      transition: opacity 0.2s ease;
+    }
+
+    .spotify-overlay.hidden {
+      opacity: 0;
+    }
+
+    .sp-top {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      font-family: var(--font-mono);
+      font-size: 9.5px;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: rgba(255, 255, 255, 0.8);
+    }
+
+    .sp-bottom {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .sp-track-title {
+      font-size: 16px;
+      font-weight: 700;
+      color: #FFFFFF;
+      letter-spacing: -0.01em;
+    }
+
+    .sp-artist {
+      font-size: 12px;
+      color: rgba(255, 255, 255, 0.72);
+      margin-top: -6px;
+    }
+
+    .sp-scrub {
+      height: 3px;
+      border-radius: 2px;
+      background: rgba(255, 255, 255, 0.24);
+      overflow: hidden;
+    }
+
+    .sp-scrub-fill {
+      width: 38%;
+      height: 100%;
+      background: #FFFFFF;
+    }
+
+    .sp-controls {
+      display: flex;
+      align-items: center;
+      justify-content: space-around;
+      padding-top: 4px;
+      color: #FFFFFF;
+      font-size: 14px;
+    }
+
+    .sp-play-circle {
+      width: 38px;
+      height: 38px;
+      border-radius: 50%;
+      background: #FFFFFF;
+      color: #000000;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 13px;
+      font-weight: 700;
+    }
+
+    /* Render Progress Overlay inside Phone */
+    .render-overlay {
+      position: absolute;
+      inset: 0;
+      background: rgba(7, 9, 11, 0.82);
+      backdrop-filter: blur(8px);
+      display: none;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 12px;
+      padding: 24px;
+      z-index: 10;
+    }
+
+    .render-overlay.active {
+      display: flex;
+    }
+
+    .progress-ring-text {
+      font-family: var(--font-mono);
+      font-size: 24px;
+      font-weight: 700;
+      color: var(--accent-mint);
+    }
+
+    .progress-bar-track {
+      width: 200px;
+      height: 5px;
+      background: var(--surface-3);
+      border-radius: 3px;
+      overflow: hidden;
+    }
+
+    .progress-bar-fill {
+      height: 100%;
+      width: 0%;
+      background: linear-gradient(90deg, var(--accent-mint), var(--accent-violet));
+      transition: width 0.15s ease;
+    }
+
+    .stage-caption-bar {
+      margin-top: 12px;
+      width: 100%;
+      max-width: 460px;
+      display: flex;
+      flex-direction: column;
+      gap: 7px;
+      background: var(--surface-1);
+      border: 1px solid var(--hairline);
+      padding: 9px 12px;
+      border-radius: var(--radius-md);
+    }
+
+    .stage-caption-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 6px;
+      flex-wrap: wrap;
+    }
+
+    .stage-meta {
+      font-family: var(--font-mono);
+      font-size: 10px;
+      color: var(--text-secondary);
+    }
+
+    /* Recent Renders Strip */
+    .history-strip {
+      margin-top: 10px;
+      width: 100%;
+      max-width: 460px;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .history-list {
+      display: flex;
+      gap: 7px;
+      overflow-x: auto;
+      padding-bottom: 4px;
+    }
+
+    .history-item {
+      flex-shrink: 0;
+      background: var(--surface-1);
+      border: 1px solid var(--hairline);
+      border-radius: var(--radius-sm);
+      padding: 5px 9px;
+      cursor: pointer;
+      font-family: var(--font-mono);
+      font-size: 9.5px;
+      color: var(--text-secondary);
+      transition: all 0.12s ease;
+    }
+
+    .history-item:hover, .history-item.active {
+      border-color: var(--accent-mint);
+      color: #FFFFFF;
+      background: rgba(98, 230, 189, 0.1);
+    }
+
+    /* -------------------------------------------------------------
+       RIGHT COLUMN: RECIPE & EFFECT RACK
+       ------------------------------------------------------------- */
+    .control-section {
+      display: flex;
+      flex-direction: column;
+      gap: 7px;
+    }
+
+    .section-label {
+      font-family: var(--font-mono);
+      font-size: 9.5px;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--text-tertiary);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .preset-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 7px;
+    }
+
+    .preset-btn {
+      background: var(--surface-1);
+      border: 1px solid var(--hairline);
+      border-radius: var(--radius-sm);
+      padding: 7px 10px;
+      text-align: left;
+      cursor: pointer;
+      transition: all 0.14s ease;
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+
+    .preset-btn:hover {
+      background: var(--surface-2);
+      border-color: var(--hairline-strong);
+    }
+
+    .preset-btn.active {
+      background: rgba(98, 230, 189, 0.12);
+      border-color: var(--accent-mint);
+    }
+
+    .preset-name {
+      font-size: 11.5px;
+      font-weight: 600;
+      color: #FFFFFF;
+    }
+
+    .preset-desc {
+      font-size: 9.5px;
+      color: var(--text-tertiary);
+      line-height: 1.3;
+    }
+
+    /* Knobs / Sliders Grid */
+    .param-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 8px;
+    }
+
+    .param-box {
+      background: var(--surface-1);
+      border: 1px solid var(--hairline);
+      border-radius: var(--radius-sm);
+      padding: 7px 9px;
+      display: flex;
+      flex-direction: column;
+      gap: 5px;
+    }
+
+    .param-top {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      font-family: var(--font-mono);
+      font-size: 10px;
+    }
+
+    .param-val {
+      color: var(--accent-mint);
+      font-weight: 600;
+    }
+
+    input[type="range"] {
+      -webkit-appearance: none;
+      width: 100%;
+      height: 4px;
+      background: var(--surface-3);
+      border-radius: 2px;
+      outline: none;
+    }
+
+    input[type="range"]::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      width: 13px;
+      height: 13px;
+      border-radius: 50%;
+      background: var(--accent-mint);
+      cursor: pointer;
+      box-shadow: 0 0 8px rgba(98, 230, 189, 0.6);
+    }
+
+    .seg-pills {
+      display: flex;
+      gap: 4px;
+    }
+
+    .seg-pill {
+      flex: 1;
+      background: var(--surface-well);
+      border: 1px solid var(--hairline);
+      color: var(--text-secondary);
+      font-family: var(--font-mono);
+      font-size: 9.5px;
+      padding: 4px 3px;
+      border-radius: 4px;
+      cursor: pointer;
+      text-align: center;
+      transition: all 0.12s ease;
+    }
+
+    .seg-pill.active {
+      background: rgba(177, 140, 255, 0.18);
+      border-color: var(--accent-violet);
+      color: #FFFFFF;
+    }
+
+    /* Effect Matrix Chips */
+    .fx-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 5px;
+    }
+
+    .fx-chip {
+      background: var(--surface-1);
+      border: 1px solid var(--hairline);
+      border-radius: var(--radius-sm);
+      padding: 6px 7px;
+      font-size: 10.5px;
+      font-weight: 500;
+      color: var(--text-secondary);
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      transition: all 0.12s ease;
+      user-select: none;
+    }
+
+    .fx-chip:hover {
+      background: var(--surface-2);
+      color: #FFFFFF;
+    }
+
+    .fx-chip.active {
+      background: rgba(98, 230, 189, 0.12);
+      border-color: rgba(98, 230, 189, 0.5);
+      color: #FFFFFF;
+    }
+
+    .fx-dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: var(--text-disabled);
+      flex-shrink: 0;
+    }
+
+    .fx-chip.active .fx-dot {
+      background: var(--accent-mint);
+      box-shadow: 0 0 6px var(--accent-mint);
+    }
+
+    /* Action Buttons */
+    .action-row {
+      display: flex;
+      flex-direction: column;
+      gap: 7px;
+      margin-top: 2px;
+    }
+
+    .btn-primary {
+      background: linear-gradient(135deg, #62E6BD 0%, #44C49B 100%);
+      color: #06080A;
+      border: none;
+      border-radius: var(--radius-sm);
+      padding: 11px 16px;
+      font-family: var(--font-sans);
+      font-size: 12.5px;
+      font-weight: 700;
+      letter-spacing: 0.02em;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      box-shadow: 0 8px 24px rgba(98, 230, 189, 0.25);
+      transition: all 0.15s ease;
+    }
+
+    .btn-primary:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 10px 28px rgba(98, 230, 189, 0.38);
+    }
+
+    .btn-secondary-row {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 7px;
+    }
+
+    .btn-secondary {
+      background: var(--surface-2);
+      border: 1px solid var(--hairline-strong);
+      color: var(--text-primary);
+      border-radius: var(--radius-sm);
+      padding: 8px 10px;
+      font-size: 11px;
+      font-weight: 600;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      transition: all 0.14s ease;
+    }
+
+    .btn-secondary:hover {
+      background: var(--surface-3);
+      border-color: var(--accent-violet);
+    }
+
+    .seed-input {
+      background: var(--surface-well);
+      border: 1px solid var(--hairline);
+      color: var(--accent-amber);
+      font-family: var(--font-mono);
+      font-size: 10.5px;
+      padding: 3px 6px;
+      border-radius: 4px;
+      width: 82px;
+      text-align: right;
+    }
+  </style>
+</head>
+<body>
+
+  <!-- TOP TELEMETRY BAR -->
+  <header class="topbar">
+    <div class="brand-group">
+      <span class="brand-badge">CANVAS FORGE v2.5 · 2026</span>
+      <span class="brand-title">Audio-Reactive Spotify Canvas &amp; Shader Studio</span>
+      <span class="brand-sub">9:16 Portrait · 1080×1920 · 3.0–8.0s Verified Spec · VideoToolbox HW</span>
+    </div>
+    <div class="telemetry-pills">
+      <div class="tele-pill">
+        <span class="tele-dot"></span>
+        <span id="teleStatus">ENGINE READY</span>
+      </div>
+      <div class="tele-pill" id="teleAudioBadge" style="color:var(--accent-violet);">FFT TRANSIENT ENGINE</div>
+      <div class="tele-pill" id="teleSpec">H.264 · YUV420P · 8.0s</div>
+    </div>
+  </header>
+
+  <!-- MAIN 3-COLUMN STUDIO -->
+  <main class="workspace">
+
+    <!-- COLUMN 1: AUDIO ENGINE & SOURCE VIDEO POOL -->
+    <section class="panel">
+      <div class="panel-header">
+        <div class="panel-title">
+          <span class="accent-bar"></span>
+          <span>Audio Sync &amp; Source Pool</span>
+        </div>
+        <span class="brand-sub" id="clipCountLabel">0 selected</span>
+      </div>
+      <div class="panel-body">
+
+        <!-- Real-Time Audio Transient Sync Engine -->
+        <div class="audio-box" id="audioBox">
+          <div class="section-label">
+            <span style="color:var(--accent-violet);">♫ Audio-Reactive FFT Drive</span>
+            <span id="audioMetaLabel">Manual BPM Clock</span>
+          </div>
+          <select class="audio-select" id="trackSelect">
+            <option value="">⏱ Manual BPM Clock (No Audio Track)</option>
+          </select>
+          <canvas id="waveformCanvas" class="waveform-canvas" width="310" height="36"></canvas>
+        </div>
+
+        <div class="dropzone" id="dropzone">
+          <div class="dropzone-title">+ Drop MP4 Video or WAV/MP3 Track</div>
+          <div class="dropzone-sub">Auto-loaded from ~/Downloads · Multi-clip beat montage</div>
+          <input type="file" id="fileInput" accept="video/mp4,video/quicktime,video/webm,audio/wav,audio/mpeg,audio/mp3,audio/flac" multiple style="display:none" />
+        </div>
+
+        <div class="clip-toolbar">
+          <button class="mini-btn" id="btnSelectStock">5 Stock Clips</button>
+          <button class="mini-btn" id="btnSelectAll">Select All</button>
+          <button class="mini-btn" id="btnSelectOne">Solo 1st</button>
+        </div>
+
+        <div class="clip-list" id="clipList"></div>
+      </div>
+    </section>
+
+    <!-- COLUMN 2: 9:16 SPOTIFY CANVAS VIEWPORT -->
+    <section class="panel stage-panel">
+      <div class="phone-shell">
+        <video id="canvasPlayer" class="phone-video" autoplay loop muted playsinline></video>
+
+        <!-- Safe Zone Crop Guides -->
+        <div class="safe-zone-overlay" id="safeZoneOverlay">
+          <div class="sz-top">▲ TOP HEADER CROP ZONE (14%)</div>
+          <div class="sz-bottom">▼ SPOTIFY PLAYER CONTROLS ZONE (33%)</div>
+        </div>
+
+        <!-- Spotify Now Playing HUD Mock -->
+        <div class="spotify-overlay" id="spotifyHud">
+          <div class="sp-top">
+            <span>⌄ NOW PLAYING</span>
+            <span id="hudSpecTag">8.0S · VERIFIED SPEC</span>
+          </div>
+          <div class="sp-bottom">
+            <div class="sp-track-title" id="hudTrackTitle">Midnight Resonance</div>
+            <div class="sp-artist" id="hudArtist">Lambda Audio · Spotify Canvas</div>
+            <div class="sp-scrub"><div class="sp-scrub-fill"></div></div>
+            <div class="sp-controls">
+              <span>⇄</span>
+              <span>⏮</span>
+              <div class="sp-play-circle">❚❚</div>
+              <span>⏭</span>
+              <span>↻</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Live Render Progress Overlay -->
+        <div class="render-overlay" id="renderOverlay">
+          <div class="progress-ring-text" id="renderPct">0%</div>
+          <div class="progress-bar-track">
+            <div class="progress-bar-fill" id="renderBar"></div>
+          </div>
+          <div class="brand-sub" id="renderSub">Synthesizing beat montage...</div>
+        </div>
+      </div>
+
+      <div class="stage-caption-bar">
+        <div class="stage-caption-row">
+          <span class="stage-meta" id="activeRenderInfo">Ready to forge</span>
+          <div style="display:flex; gap:5px;">
+            <button class="mini-btn" id="btnToggleAudio" title="Audition with synced audio track">🔇 Audio: OFF</button>
+            <button class="mini-btn" id="btnToggleHud">HUD: ON</button>
+            <button class="mini-btn" id="btnToggleSafe">Safe Zone</button>
+          </div>
+        </div>
+        <div class="stage-caption-row">
+          <span class="brand-sub" style="color:var(--accent-mint);">✓ Spotify Spec: Silent H.264 · 3–8s</span>
+          <div style="display:flex; gap:5px;">
+            <a id="btnDownload" class="mini-btn" href="#" download style="text-decoration:none; border-color:rgba(98,230,189,0.4); color:var(--accent-mint);">⬇ Silent Canvas MP4</a>
+            <a id="btnDownloadAudio" class="mini-btn" href="#" download style="text-decoration:none; display:none; border-color:rgba(177,140,255,0.5); color:var(--accent-violet);">⬇ +Audio Social MP4</a>
+          </div>
+        </div>
+      </div>
+
+      <div class="history-strip">
+        <div class="section-label">
+          <span>Recent Canvas Renders</span>
+          <span id="renderCountLabel">0 renders</span>
+        </div>
+        <div class="history-list" id="historyList"></div>
+      </div>
+    </section>
+
+    <!-- COLUMN 3: BEAT & 2026 SHADER RACK -->
+    <section class="panel">
+      <div class="panel-header">
+        <div class="panel-title">
+          <span class="accent-bar" style="background: var(--accent-violet);"></span>
+          <span>2026 Shader &amp; Loop Topology Rack</span>
+        </div>
+        <button class="mini-btn" id="btnDiceSeed">🎲 Roll Seed</button>
+      </div>
+
+      <div class="panel-body">
+        <!-- Curated Style Presets -->
+        <div class="control-section">
+          <div class="section-label">
+            <span>2026 Curated Presets</span>
+            <span id="activePresetBadge" style="color:var(--accent-mint);">Acid Dither 2026</span>
+          </div>
+          <div class="preset-grid" id="presetGrid"></div>
+        </div>
+
+        <!-- Beat / Loop / Montage Timing -->
+        <div class="control-section">
+          <div class="section-label">
+            <span>Timing, Loop Topology &amp; Transitions</span>
+            <span>Seed <input type="number" id="seedInput" class="seed-input" value="2026" /></span>
+          </div>
+
+          <div class="param-grid">
+            <div class="param-box">
+              <div class="param-top">
+                <span>BPM TEMPO</span>
+                <span class="param-val" id="bpmVal">125 BPM</span>
+              </div>
+              <input type="range" id="bpmSlider" min="80" max="165" step="1" value="125" />
+            </div>
+
+            <div class="param-box">
+              <div class="param-top">
+                <span>FX INTENSITY</span>
+                <span class="param-val" id="intensityVal">115%</span>
+              </div>
+              <input type="range" id="intensitySlider" min="50" max="180" step="5" value="115" />
+            </div>
+
+            <div class="param-box">
+              <div class="param-top">
+                <span>SPOTIFY DURATION</span>
+                <span class="param-val" id="durVal">8.0s</span>
+              </div>
+              <div class="seg-pills" id="durPills">
+                <div class="seg-pill" data-dur="4">4.0s</div>
+                <div class="seg-pill" data-dur="6">6.0s</div>
+                <div class="seg-pill active" data-dur="8">8.0s (Max)</div>
+              </div>
+            </div>
+
+            <div class="param-box">
+              <div class="param-top">
+                <span>LOOP TOPOLOGY</span>
+              </div>
+              <div class="seg-pills" id="loopPills">
+                <div class="seg-pill active" data-loop="crossfade">X-Fade</div>
+                <div class="seg-pill" data-loop="rebound">Rebound</div>
+                <div class="seg-pill" data-loop="hard">Hard Cut</div>
+              </div>
+            </div>
+
+            <div class="param-box">
+              <div class="param-top">
+                <span>CUT EVERY</span>
+                <span class="param-val" id="cutVal">2 Beats</span>
+              </div>
+              <div class="seg-pills" id="cutPills">
+                <div class="seg-pill" data-beats="1">1B</div>
+                <div class="seg-pill active" data-beats="2">2B</div>
+                <div class="seg-pill" data-beats="4">4B</div>
+                <div class="seg-pill" data-beats="8">8B</div>
+              </div>
+            </div>
+
+            <div class="param-box">
+              <div class="param-top">
+                <span>TRANSITION</span>
+              </div>
+              <div class="seg-pills" id="transPills">
+                <div class="seg-pill" data-trans="datamosh">Mosh</div>
+                <div class="seg-pill active" data-trans="flash">Flash</div>
+                <div class="seg-pill" data-trans="whip">Whip</div>
+                <div class="seg-pill" data-trans="glitch">Glitch</div>
+                <div class="seg-pill" data-trans="luma">Luma</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Effect Matrix -->
+        <div class="control-section">
+          <div class="section-label">
+            <span>Active Shader Stack (19 Modules)</span>
+            <button class="mini-btn" id="btnRandomFx">Shuffle Stack</button>
+          </div>
+          <div class="fx-grid" id="fxGrid"></div>
+        </div>
+
+        <!-- Render Triggers -->
+        <div class="action-row">
+          <button class="btn-primary" id="btnForgePreview">
+            <span>⚡ FORGE CANVAS PREVIEW (FAST ~3s)</span>
+          </button>
+          <div class="btn-secondary-row">
+            <button class="btn-secondary" id="btnChaosRoll">
+              <span>🎲 Chaos Roll &amp; Forge</span>
+            </button>
+            <button class="btn-secondary" id="btnExportMaster">
+              <span>✦ Export 1080×1920 Master</span>
+            </button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+  </main>
+
+  <script>
+    const state = {
+      clips: [],
+      tracks: [],
+      selectedClipIds: new Set(),
+      selectedTrackId: '',
+      presets: [],
+      effects: [],
+      activePreset: 'acid_dither',
+      activeEffects: new Set(['zoom_pulse', 'bayer_dither', 'edge_neon', 'crt_halation', 'scanlines', 'color_grade']),
+      bpm: 125,
+      intensity: 1.15,
+      duration: 8.0,
+      loopMode: 'crossfade',
+      cutBeats: 2,
+      transition: 'glitch',
+      seed: 2026,
+      renders: [],
+      currentRender: null,
+      playWithAudio: false,
+      hudVisible: true,
+      safeZoneVisible: false,
+    };
+
+    const els = {
+      clipList: document.getElementById('clipList'),
+      clipCountLabel: document.getElementById('clipCountLabel'),
+      trackSelect: document.getElementById('trackSelect'),
+      audioBox: document.getElementById('audioBox'),
+      audioMetaLabel: document.getElementById('audioMetaLabel'),
+      waveformCanvas: document.getElementById('waveformCanvas'),
+      presetGrid: document.getElementById('presetGrid'),
+      fxGrid: document.getElementById('fxGrid'),
+      bpmSlider: document.getElementById('bpmSlider'),
+      bpmVal: document.getElementById('bpmVal'),
+      intensitySlider: document.getElementById('intensitySlider'),
+      intensityVal: document.getElementById('intensityVal'),
+      seedInput: document.getElementById('seedInput'),
+      durPills: document.getElementById('durPills'),
+      durVal: document.getElementById('durVal'),
+      loopPills: document.getElementById('loopPills'),
+      cutPills: document.getElementById('cutPills'),
+      transPills: document.getElementById('transPills'),
+      cutVal: document.getElementById('cutVal'),
+      canvasPlayer: document.getElementById('canvasPlayer'),
+      spotifyHud: document.getElementById('spotifyHud'),
+      safeZoneOverlay: document.getElementById('safeZoneOverlay'),
+      hudTrackTitle: document.getElementById('hudTrackTitle'),
+      hudArtist: document.getElementById('hudArtist'),
+      hudSpecTag: document.getElementById('hudSpecTag'),
+      renderOverlay: document.getElementById('renderOverlay'),
+      renderPct: document.getElementById('renderPct'),
+      renderBar: document.getElementById('renderBar'),
+      renderSub: document.getElementById('renderSub'),
+      activeRenderInfo: document.getElementById('activeRenderInfo'),
+      btnDownload: document.getElementById('btnDownload'),
+      btnDownloadAudio: document.getElementById('btnDownloadAudio'),
+      btnToggleAudio: document.getElementById('btnToggleAudio'),
+      historyList: document.getElementById('historyList'),
+      renderCountLabel: document.getElementById('renderCountLabel'),
+      teleStatus: document.getElementById('teleStatus'),
+      teleSpec: document.getElementById('teleSpec'),
+      activePresetBadge: document.getElementById('activePresetBadge'),
+    };
+
+    async function init() {
+      const res = await fetch('/api/state');
+      const data = await res.json();
+      state.clips = data.clips || [];
+      state.tracks = data.tracks || [];
+      state.presets = data.presets || [];
+      state.effects = data.effects || [];
+      state.renders = data.renders || [];
+
+      state.clips.forEach(c => {
+        if (c.is_stock) state.selectedClipIds.add(c.id);
+      });
+      if (state.selectedClipIds.size === 0 && state.clips.length > 0) {
+        state.selectedClipIds.add(state.clips[0].id);
+      }
+
+      // Default to first detected audio track so audio reactivity is ready out of the box
+      if (state.tracks.length > 0) {
+        state.selectedTrackId = state.tracks[0].id;
+        state.bpm = state.tracks[0].detected_bpm;
+        els.bpmSlider.value = state.bpm;
+        els.bpmVal.textContent = `${state.bpm} BPM`;
+      }
+
+      renderTracksDropdown();
+      renderClips();
+      renderPresets();
+      renderEffects();
+      syncPillsUI();
+      renderHistory();
+
+      if (state.renders.length > 0) {
+        loadRenderIntoPlayer(state.renders[0]);
+      }
+
+      bindEvents();
+    }
+
+    function renderTracksDropdown() {
+      els.trackSelect.innerHTML = '<option value="">⏱ Manual BPM Clock (No Audio Track)</option>';
+      state.tracks.forEach(t => {
+        const opt = document.createElement('option');
+        opt.value = t.id;
+        opt.textContent = `♫ ${t.name} (${t.detected_bpm} BPM · drop @ ${t.best_start_sec}s)`;
+        if (t.id === state.selectedTrackId) opt.selected = true;
+        els.trackSelect.appendChild(opt);
+      });
+      updateAudioTrackUI();
+    }
+
+    function updateAudioTrackUI() {
+      const track = state.tracks.find(t => t.id === state.selectedTrackId);
+      const ctx = els.waveformCanvas.getContext('2d');
+      const w = els.waveformCanvas.width;
+      const h = els.waveformCanvas.height;
+      ctx.clearRect(0, 0, w, h);
+
+      if (!track) {
+        els.audioBox.classList.remove('active-sync');
+        els.audioMetaLabel.textContent = 'Manual BPM Clock';
+        els.hudTrackTitle.textContent = 'Midnight Resonance';
+        els.hudArtist.textContent = 'Lambda Audio · Dynamic Canvas';
+        // Draw subtle flat grid
+        ctx.fillStyle = 'rgba(255,255,255,0.08)';
+        for (let i = 0; i < 64; i++) {
+          const bh = 4 + Math.sin(i * 0.4) * 3;
+          ctx.fillRect(i * (w / 64), (h - bh) / 2, 2, bh);
+        }
+        return;
+      }
+
+      els.audioBox.classList.add('active-sync');
+      els.audioMetaLabel.textContent = `Auto-BPM: ${track.detected_bpm} · Drop @ ${track.best_start_sec}s`;
+      els.hudTrackTitle.textContent = track.name.replace(/\.(wav|mp3|flac)$/i, '');
+      els.hudArtist.textContent = `${track.detected_bpm} BPM · Audio-Reactive Canvas`;
+
+      const peaks = track.waveform_peaks || [];
+      const n = peaks.length || 1;
+      const barW = w / n;
+      const dropStartFrac = track.duration > 0 ? track.best_start_sec / track.duration : 0;
+      const dropEndFrac = track.duration > 0 ? (track.best_start_sec + state.duration) / track.duration : 0.1;
+
+      peaks.forEach((pk, idx) => {
+        const frac = idx / n;
+        const inDrop = frac >= dropStartFrac && frac <= dropEndFrac;
+        ctx.fillStyle = inDrop ? '#62E6BD' : 'rgba(177, 140, 255, 0.42)';
+        const bh = Math.max(3, pk * (h - 6));
+        ctx.fillRect(idx * barW, (h - bh) / 2, Math.max(1.5, barW - 1), bh);
+      });
+    }
+
+    function renderClips() {
+      els.clipList.innerHTML = '';
+      els.clipCountLabel.textContent = `${state.selectedClipIds.size} of ${state.clips.length} selected`;
+
+      state.clips.forEach(clip => {
+        const selected = state.selectedClipIds.has(clip.id);
+        const card = document.createElement('div');
+        card.className = `clip-card ${selected ? 'selected' : ''}`;
+        card.innerHTML = `
+          <img class="clip-thumb" src="/api/thumb/${clip.id}" alt="${clip.name}" loading="lazy" />
+          <div class="clip-meta">
+            <div class="clip-name" title="${clip.name}">${clip.name}</div>
+            <div class="clip-specs">${clip.width}×${clip.height} · ${clip.fps}fps · ${clip.duration}s</div>
+          </div>
+          <div class="clip-check">✓</div>
+        `;
+        card.addEventListener('click', () => {
+          if (state.selectedClipIds.has(clip.id)) {
+            if (state.selectedClipIds.size > 1) state.selectedClipIds.delete(clip.id);
+          } else {
+            state.selectedClipIds.add(clip.id);
+          }
+          renderClips();
+        });
+        els.clipList.appendChild(card);
+      });
+    }
+
+    function renderPresets() {
+      els.presetGrid.innerHTML = '';
+      state.presets.forEach(p => {
+        const btn = document.createElement('button');
+        btn.className = `preset-btn ${state.activePreset === p.id ? 'active' : ''}`;
+        btn.innerHTML = `
+          <div class="preset-name">${p.label}</div>
+          <div class="preset-desc">${p.desc}</div>
+        `;
+        btn.addEventListener('click', () => {
+          state.activePreset = p.id;
+          state.activeEffects = new Set(p.effects);
+          state.cutBeats = p.cut_beats;
+          state.transition = p.transition;
+          els.activePresetBadge.textContent = p.label;
+          syncPillsUI();
+          renderPresets();
+          renderEffects();
+        });
+        els.presetGrid.appendChild(btn);
+      });
+    }
+
+    function renderEffects() {
+      els.fxGrid.innerHTML = '';
+      state.effects.forEach(fx => {
+        const active = state.activeEffects.has(fx.name);
+        const chip = document.createElement('div');
+        chip.className = `fx-chip ${active ? 'active' : ''}`;
+        chip.innerHTML = `<span class="fx-dot"></span><span>${fx.label}</span>`;
+        chip.addEventListener('click', () => {
+          if (state.activeEffects.has(fx.name)) {
+            if (state.activeEffects.size > 1) state.activeEffects.delete(fx.name);
+          } else {
+            state.activeEffects.add(fx.name);
+          }
+          state.activePreset = 'custom';
+          els.activePresetBadge.textContent = 'Custom Stack';
+          renderPresets();
+          renderEffects();
+        });
+        els.fxGrid.appendChild(chip);
+      });
+    }
+
+    function syncPillsUI() {
+      els.durVal.textContent = `${state.duration.toFixed(1)}s`;
+      els.teleSpec.textContent = `H.264 · YUV420P · ${state.duration.toFixed(1)}s`;
+      els.hudSpecTag.textContent = `${state.duration.toFixed(1)}S · ${state.loopMode.toUpperCase()}`;
+
+      els.durPills.querySelectorAll('.seg-pill').forEach(el => {
+        el.classList.toggle('active', Number(el.dataset.dur) === state.duration);
+      });
+      els.loopPills.querySelectorAll('.seg-pill').forEach(el => {
+        el.classList.toggle('active', el.dataset.loop === state.loopMode);
+      });
+      els.cutVal.textContent = `${state.cutBeats} Beat${state.cutBeats > 1 ? 's' : ''}`;
+      els.cutPills.querySelectorAll('.seg-pill').forEach(el => {
+        el.classList.toggle('active', Number(el.dataset.beats) === state.cutBeats);
+      });
+      els.transPills.querySelectorAll('.seg-pill').forEach(el => {
+        el.classList.toggle('active', el.dataset.trans === state.transition);
+      });
+      updateAudioTrackUI();
+    }
+
+    function renderHistory() {
+      els.historyList.innerHTML = '';
+      els.renderCountLabel.textContent = `${state.renders.length} renders`;
+      state.renders.forEach((r, idx) => {
+        const item = document.createElement('div');
+        item.className = `history-item ${idx === 0 ? 'active' : ''}`;
+        const label = r.seed ? `${r.preset} · s${r.seed} (${r.resolution})` : r.filename;
+        item.textContent = label;
+        item.addEventListener('click', () => {
+          els.historyList.querySelectorAll('.history-item').forEach(x => x.classList.remove('active'));
+          item.classList.add('active');
+          loadRenderIntoPlayer(r);
+        });
+        els.historyList.appendChild(item);
+      });
+    }
+
+    function loadRenderIntoPlayer(r) {
+      state.currentRender = r;
+      const useAudio = state.playWithAudio && r.audio_url;
+      els.canvasPlayer.src = useAudio ? r.audio_url : r.url;
+      els.canvasPlayer.muted = !useAudio;
+      els.canvasPlayer.play().catch(() => {});
+
+      els.btnDownload.href = r.url;
+      els.btnDownload.download = r.filename;
+
+      if (r.audio_url) {
+        els.btnDownloadAudio.style.display = 'inline-flex';
+        els.btnDownloadAudio.href = r.audio_url;
+        els.btnDownloadAudio.download = r.audio_filename || ('audio-' + r.filename);
+      } else {
+        els.btnDownloadAudio.style.display = 'none';
+      }
+
+      const timeStr = r.elapsed_s ? ` in ${r.elapsed_s}s` : '';
+      els.activeRenderInfo.textContent = `${r.filename} · ${r.size_mb} MB${timeStr}`;
+    }
+
+    async function triggerRender(quality = 'preview') {
+      els.renderOverlay.classList.add('active');
+      els.renderPct.textContent = '0%';
+      els.renderBar.style.width = '4%';
+      els.renderSub.textContent = quality === 'master'
+        ? 'Encoding 1080×1920 Master Canvas...'
+        : 'Synthesizing 540×960 Fast Canvas...';
+      els.teleStatus.textContent = 'RENDERING...';
+
+      const payload = {
+        clip_ids: Array.from(state.selectedClipIds),
+        track_id: state.selectedTrackId || null,
+        preset: state.activePreset,
+        effects: Array.from(state.activeEffects),
+        bpm: Number(els.bpmSlider.value),
+        intensity: Number(els.intensitySlider.value) / 100,
+        duration: state.duration,
+        loop_mode: state.loopMode,
+        cut_beats: state.cutBeats,
+        transition: state.transition,
+        seed: Number(els.seedInput.value),
+        quality,
+      };
+
+      const res = await fetch('/api/render', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      if (!res.ok) {
+        els.renderOverlay.classList.remove('active');
+        els.teleStatus.textContent = 'BUSY';
+        return;
+      }
+
+      const poll = setInterval(async () => {
+        const stRes = await fetch('/api/status');
+        const stData = await stRes.json();
+        const job = stData.job;
+        if (!job) return;
+        if (job.status === 'rendering') {
+          els.renderPct.textContent = `${job.progress}%`;
+          els.renderBar.style.width = `${Math.max(5, job.progress)}%`;
+          els.renderSub.textContent = `Frame ${job.frame || 0} / ${job.total_frames || 240}`;
+        } else if (job.status === 'done') {
+          clearInterval(poll);
+          els.renderOverlay.classList.remove('active');
+          els.teleStatus.textContent = 'ENGINE READY';
+          state.renders = stData.renders || state.renders;
+          renderHistory();
+          if (job.result) loadRenderIntoPlayer(job.result);
+        } else if (job.status === 'error') {
+          clearInterval(poll);
+          els.renderOverlay.classList.remove('active');
+          els.teleStatus.textContent = 'ERROR';
+          alert('Render error: ' + job.error);
+        }
+      }, 200);
+    }
+
+    function bindEvents() {
+      els.trackSelect.addEventListener('change', () => {
+        state.selectedTrackId = els.trackSelect.value;
+        const track = state.tracks.find(t => t.id === state.selectedTrackId);
+        if (track) {
+          state.bpm = track.detected_bpm;
+          els.bpmSlider.value = state.bpm;
+          els.bpmVal.textContent = `${state.bpm} BPM`;
+        }
+        updateAudioTrackUI();
+      });
+
+      els.bpmSlider.addEventListener('input', () => {
+        els.bpmVal.textContent = `${els.bpmSlider.value} BPM`;
+      });
+
+      els.intensitySlider.addEventListener('input', () => {
+        els.intensityVal.textContent = `${els.intensitySlider.value}%`;
+      });
+
+      els.durPills.querySelectorAll('.seg-pill').forEach(el => {
+        el.addEventListener('click', () => {
+          state.duration = Number(el.dataset.dur);
+          syncPillsUI();
+        });
+      });
+
+      els.loopPills.querySelectorAll('.seg-pill').forEach(el => {
+        el.addEventListener('click', () => {
+          state.loopMode = el.dataset.loop;
+          syncPillsUI();
+        });
+      });
+
+      els.cutPills.querySelectorAll('.seg-pill').forEach(el => {
+        el.addEventListener('click', () => {
+          state.cutBeats = Number(el.dataset.beats);
+          syncPillsUI();
+        });
+      });
+
+      els.transPills.querySelectorAll('.seg-pill').forEach(el => {
+        el.addEventListener('click', () => {
+          state.transition = el.dataset.trans;
+          syncPillsUI();
+        });
+      });
+
+      document.getElementById('btnSelectStock').addEventListener('click', () => {
+        state.selectedClipIds.clear();
+        state.clips.forEach(c => { if (c.is_stock) state.selectedClipIds.add(c.id); });
+        renderClips();
+      });
+
+      document.getElementById('btnSelectAll').addEventListener('click', () => {
+        state.clips.forEach(c => state.selectedClipIds.add(c.id));
+        renderClips();
+      });
+
+      document.getElementById('btnSelectOne').addEventListener('click', () => {
+        state.selectedClipIds.clear();
+        if (state.clips[0]) state.selectedClipIds.add(state.clips[0].id);
+        renderClips();
+      });
+
+      els.btnToggleAudio.addEventListener('click', () => {
+        state.playWithAudio = !state.playWithAudio;
+        els.btnToggleAudio.textContent = state.playWithAudio ? '🔊 Audio: ON' : '🔇 Audio: OFF';
+        els.btnToggleAudio.classList.toggle('active-pill', state.playWithAudio);
+        if (state.currentRender) loadRenderIntoPlayer(state.currentRender);
+      });
+
+      document.getElementById('btnToggleHud').addEventListener('click', (e) => {
+        state.hudVisible = !state.hudVisible;
+        els.spotifyHud.classList.toggle('hidden', !state.hudVisible);
+        e.target.textContent = `HUD: ${state.hudVisible ? 'ON' : 'OFF'}`;
+      });
+
+      document.getElementById('btnToggleSafe').addEventListener('click', (e) => {
+        state.safeZoneVisible = !state.safeZoneVisible;
+        els.safeZoneOverlay.classList.toggle('visible', state.safeZoneVisible);
+        e.target.classList.toggle('active-pill', state.safeZoneVisible);
+      });
+
+      document.getElementById('btnDiceSeed').addEventListener('click', () => {
+        els.seedInput.value = Math.floor(100 + Math.random() * 999000);
+      });
+
+      document.getElementById('btnRandomFx').addEventListener('click', () => {
+        const names = state.effects.map(x => x.name);
+        const picked = new Set(['zoom_pulse']);
+        while (picked.size < 6) {
+          picked.add(names[Math.floor(Math.random() * names.length)]);
+        }
+        state.activeEffects = picked;
+        state.activePreset = 'custom';
+        els.activePresetBadge.textContent = 'Shuffled Stack';
+        renderPresets();
+        renderEffects();
+      });
+
+      document.getElementById('btnForgePreview').addEventListener('click', () => {
+        triggerRender('preview');
+      });
+
+      document.getElementById('btnExportMaster').addEventListener('click', () => {
+        triggerRender('master');
+      });
+
+      document.getElementById('btnChaosRoll').addEventListener('click', () => {
+        els.seedInput.value = Math.floor(100 + Math.random() * 999000);
+        const randomPreset = state.presets[Math.floor(Math.random() * state.presets.length)];
+        if (randomPreset) {
+          state.activePreset = randomPreset.id;
+          state.activeEffects = new Set(randomPreset.effects);
+          state.cutBeats = randomPreset.cut_beats;
+          state.transition = randomPreset.transition;
+          els.activePresetBadge.textContent = randomPreset.label;
+          syncPillsUI();
+          renderPresets();
+          renderEffects();
+        }
+        triggerRender('preview');
+      });
+
+      const dz = document.getElementById('dropzone');
+      const fi = document.getElementById('fileInput');
+      dz.addEventListener('click', () => fi.click());
+      dz.addEventListener('dragover', (e) => { e.preventDefault(); dz.classList.add('dragover'); });
+      dz.addEventListener('dragleave', () => dz.classList.remove('dragover'));
+      dz.addEventListener('drop', async (e) => {
+        e.preventDefault();
+        dz.classList.remove('dragover');
+        if (e.dataTransfer.files.length) await uploadFiles(e.dataTransfer.files);
+      });
+      fi.addEventListener('change', async () => {
+        if (fi.files.length) await uploadFiles(fi.files);
+      });
+    }
+
+    async function uploadFiles(fileList) {
+      for (const file of fileList) {
+        els.teleStatus.textContent = `UPLOADING ${file.name}...`;
+        const buf = await file.arrayBuffer();
+        const res = await fetch('/api/upload', {
+          method: 'POST',
+          headers: { 'X-Filename': encodeURIComponent(file.name) },
+          body: buf,
+        });
+        const out = await res.json();
+        if (out.ok) {
+          if (out.kind === 'audio') {
+            state.selectedTrackId = out.id;
+          } else {
+            state.selectedClipIds.add(out.id);
+          }
+        }
+      }
+      const st = await (await fetch('/api/state')).json();
+      state.clips = st.clips || [];
+      state.tracks = st.tracks || [];
+      renderTracksDropdown();
+      renderClips();
+      els.teleStatus.textContent = 'ENGINE READY';
+    }
+
+    init();
+  </script>
+</body>
+</html>
