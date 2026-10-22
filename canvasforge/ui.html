@@ -1042,7 +1042,7 @@
         <div class="control-section">
           <div class="section-label">
             <span>2026 Curated Presets</span>
-            <span id="activePresetBadge" style="color:var(--accent-mint);">Acid Dither 2026</span>
+            <span id="activePresetBadge" style="color:var(--accent-mint);">Hypnotic Tunnel</span>
           </div>
           <div class="preset-grid" id="presetGrid"></div>
         </div>
@@ -1066,9 +1066,9 @@
             <div class="param-box">
               <div class="param-top">
                 <span>FX INTENSITY</span>
-                <span class="param-val" id="intensityVal">115%</span>
+                <span class="param-val" id="intensityVal">85%</span>
               </div>
-              <input type="range" id="intensitySlider" min="50" max="180" step="5" value="115" />
+              <input type="range" id="intensitySlider" min="50" max="180" step="5" value="85" />
             </div>
 
             <div class="param-box">
@@ -1097,12 +1097,12 @@
             <div class="param-box">
               <div class="param-top">
                 <span>CUT EVERY</span>
-                <span class="param-val" id="cutVal">2 Beats</span>
+                <span class="param-val" id="cutVal">4 Beats</span>
               </div>
               <div class="seg-pills" id="cutPills">
                 <div class="seg-pill" data-beats="1">1B</div>
-                <div class="seg-pill active" data-beats="2">2B</div>
-                <div class="seg-pill" data-beats="4">4B</div>
+                <div class="seg-pill" data-beats="2">2B</div>
+                <div class="seg-pill active" data-beats="4">4B</div>
                 <div class="seg-pill" data-beats="8">8B</div>
               </div>
             </div>
@@ -1113,10 +1113,10 @@
               </div>
               <div class="seg-pills" id="transPills">
                 <div class="seg-pill" data-trans="datamosh">Mosh</div>
-                <div class="seg-pill active" data-trans="flash">Flash</div>
+                <div class="seg-pill" data-trans="flash">Dissolve</div>
                 <div class="seg-pill" data-trans="whip">Whip</div>
                 <div class="seg-pill" data-trans="glitch">Glitch</div>
-                <div class="seg-pill" data-trans="luma">Luma</div>
+                <div class="seg-pill active" data-trans="luma">Luma</div>
               </div>
             </div>
           </div>
@@ -1158,14 +1158,14 @@
       selectedTrackId: '',
       presets: [],
       effects: [],
-      activePreset: 'acid_dither',
-      activeEffects: new Set(['zoom_pulse', 'bayer_dither', 'edge_neon', 'crt_halation', 'scanlines', 'color_grade']),
+      activePreset: 'hypnotic',
+      activeEffects: new Set(['zoom_pulse', 'prism_echo', 'neon_bloom', 'chroma_pulse', 'color_grade', 'vignette']),
       bpm: 125,
-      intensity: 1.15,
+      intensity: 0.85,
       duration: 8.0,
       loopMode: 'crossfade',
-      cutBeats: 2,
-      transition: 'glitch',
+      cutBeats: 4,
+      transition: 'luma',
       seed: 2026,
       renders: [],
       currentRender: null,

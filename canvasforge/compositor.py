@@ -83,22 +83,28 @@ def _blend_transition(
 
     if mode == "glitch":
         h, w = frame_a.shape[:2]
-        out = frame_a.copy() if alpha < 0.5 else frame_b.copy()
-        other = frame_b if alpha < 0.5 else frame_a
-        rng = np.random.default_rng(int(alpha * 1000) + 41)
+        smooth_alpha = float(alpha * alpha * (3.0 - 2.0 * alpha))
+        base = cv2.addWeighted(frame_a, 1.0 - smooth_alpha, frame_b, smooth_alpha, 0)
+        out = base.copy()
+        # Stable RNG seed prevents 30Hz flicker / strobe jumps
+        rng = np.random.default_rng(41)
+        mid_surge = float(max(0.0, 1.0 - abs(alpha - 0.5) * 2.0))
         for _ in range(8):
-            y0 = int(rng.integers(0, h - 80))
+            y0 = int(rng.integers(0, max(1, h - 80)))
             y1 = min(h, y0 + int(rng.integers(25, 110)))
-            dx = int(rng.integers(-90, 91))
-            out[y0:y1] = np.roll(other[y0:y1], dx, axis=1)
+            max_dx = int(rng.integers(-90, 91))
+            dx = int(round(max_dx * mid_surge))
+            if dx != 0:
+                out[y0:y1] = np.roll(out[y0:y1], dx, axis=1)
         return out
 
-    # Default: "flash" (additive exposure spike at the cut boundary)
-    base = cv2.addWeighted(frame_a, 1.0 - alpha, frame_b, alpha, 0)
-    spike = max(0.0, 1.0 - abs(alpha - 0.5) * 2.0)
-    boost = int(round(135 * (spike ** 1.5)))
-    if boost > 0:
-        base = cv2.add(base, (boost, boost, boost, 0))
+    # Default: "flash" (and alias "dissolve"): buttery-smooth S-curve cross-dissolve with zero white flash
+    smooth_alpha = float(alpha * alpha * (3.0 - 2.0 * alpha))
+    base = cv2.addWeighted(frame_a, 1.0 - smooth_alpha, frame_b, smooth_alpha, 0)
+    mid_bell = max(0.0, 1.0 - abs(alpha - 0.5) * 2.0)
+    cushion = int(round(10 * (mid_bell ** 2)))
+    if cushion > 0:
+        base = cv2.add(base, (int(round(cushion * 0.6)), int(round(cushion * 0.8)), cushion, 0))
     return base
 
 
@@ -121,10 +127,39 @@ class RenderPlan:
     width: int = CANVAS_W
     height: int = CANVAS_H
     audio_curves: FrameAudioCurves | None = None
+    _last_frame: np.ndarray | None = dataclasses.field(default=None, init=False, repr=False)
+    _last_luma: float = dataclasses.field(default=-1.0, init=False, repr=False)
+    _last_frame_idx: int = dataclasses.field(default=-1, init=False, repr=False)
 
     @property
     def duration(self) -> float:
         return self.n_frames / CANVAS_FPS
+
+    def reset_limiter(self) -> None:
+        """Reset stateful temporal smoothing cache."""
+        self._last_frame = None
+        self._last_luma = -1.0
+        self._last_frame_idx = -1
+
+    def limit_luminance_slew(self, frame: np.ndarray, i: int, max_delta: float = 18.0) -> np.ndarray:
+        """Photosensitive luminance slew limiter: prevents frame-to-frame luminance jumps > 18 units."""
+        if i == 0:
+            self.reset_limiter()
+
+        b, g, r, _ = cv2.mean(frame)
+        curr_luma = float(0.114 * b + 0.587 * g + 0.299 * r)
+
+        if self._last_frame is not None and self._last_frame_idx == i - 1 and self._last_luma >= 0:
+            delta = curr_luma - self._last_luma
+            if abs(delta) > max_delta:
+                blend_alpha = float(max_delta / abs(delta))
+                frame = cv2.addWeighted(frame, blend_alpha, self._last_frame, 1.0 - blend_alpha, 0)
+                curr_luma = self._last_luma + (max_delta if delta > 0 else -max_delta)
+
+        self._last_frame = frame
+        self._last_luma = curr_luma
+        self._last_frame_idx = i
+        return frame
 
     def _raw_frame_at(self, i: int) -> np.ndarray:
         """Return the base portrait frame at canvas frame `i`, including loop topology & cut transitions."""
@@ -149,7 +184,7 @@ class RenderPlan:
         frame_curr = seg.frames[min(len(seg.frames) - 1, int(local_i * seg.speed) % len(seg.frames))]
 
         # Check if we are in a transition window near the start of a cut
-        trans_frames = 6  # 200ms transition
+        trans_frames = 12  # 400ms transition
         if len(self.segments) > 1 and local_i < trans_frames and eff_i >= trans_frames:
             prev_seg = self.segments[(seg_idx - 1) % len(self.segments)]
             prev_local = (prev_seg.end_canvas_frame - prev_seg.start_canvas_frame) + local_i
@@ -187,7 +222,7 @@ class RenderPlan:
                 frame = fn(frame, t, self.beat_dur, **merged)
             else:
                 frame = fn(frame, t, self.beat_dur, **kw)
-        return frame
+        return self.limit_luminance_slew(frame, i)
 
 
 def build_plan(
@@ -253,7 +288,7 @@ def build_plan(
         src = source_list[clip_idx % len(source_list)]
         clip_idx += 1
 
-        seg_speed = speed * (rng.choice([1.0, 1.15, 1.35]) if len(source_list) > 1 else 1.0)
+        seg_speed = speed
         pool_frames = source_pool[src.path]
         cycle = (clip_idx - 1) // len(source_list)
         offset = (cycle * 12) % max(1, len(pool_frames) // 3)

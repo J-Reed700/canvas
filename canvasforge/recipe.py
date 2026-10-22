@@ -34,13 +34,13 @@ PRESETS = {
         "desc": "Beat-synced zoom kicks, prismatic echoes, neon bloom & seamless multi-clip cuts",
         "effects": ["zoom_pulse", "prism_echo", "neon_bloom", "chroma_pulse", "color_grade", "vignette"],
         "cut_beats": 4,
-        "transition": "flash",
+        "transition": "luma",
     },
     "acid_dither": {
         "label": "Acid Dither 2026",
         "desc": "Ordered 4x4 Bayer matrix dithering, glowing cyber-sigil contours, CRT halation & scanlines",
         "effects": ["zoom_pulse", "bayer_dither", "edge_neon", "crt_halation", "scanlines", "color_grade"],
-        "cut_beats": 2,
+        "cut_beats": 4,
         "transition": "glitch",
     },
     "crt_melt": {
@@ -53,29 +53,29 @@ PRESETS = {
     "kaleido": {
         "label": "Kaleido Rave",
         "desc": "4-way symmetrical geometry flips on the bar with acid hue drift & strobe impacts",
-        "effects": ["zoom_pulse", "mirror_quad", "neon_bloom", "hue_cycle", "chroma_pulse", "flash"],
-        "cut_beats": 2,
+        "effects": ["zoom_pulse", "mirror_quad", "neon_bloom", "hue_cycle", "chroma_pulse", "vignette"],
+        "cut_beats": 4,
         "transition": "whip",
     },
     "cyber_glitch": {
         "label": "Cyber Glitch",
         "desc": "Aggressive slice displacement, RGB split, cyber contours & rapid 2-beat datamosh cuts",
         "effects": ["zoom_pulse", "beat_bounce", "glitch", "edge_neon", "chroma_pulse", "color_grade"],
-        "cut_beats": 2,
+        "cut_beats": 4,
         "transition": "datamosh",
     },
     "liquid_dream": {
         "label": "Liquid Acid",
         "desc": "Fluid UV wave warp, solarize highlights, prism trails & warm analog halation",
         "effects": ["zoom_pulse", "liquid_warp", "prism_echo", "crt_halation", "solarize_pulse", "color_grade"],
-        "cut_beats": 4,
+        "cut_beats": 8,
         "transition": "luma",
     },
     "dark_cinema": {
         "label": "Dark Cinema",
         "desc": "Moody anamorphic contrast grade, subtle beat shake, film halation glow & heavy vignette",
         "effects": ["zoom_pulse", "beat_bounce", "crt_halation", "color_grade", "grain", "vignette"],
-        "cut_beats": 4,
+        "cut_beats": 8,
         "transition": "luma",
     },
 }
@@ -88,34 +88,34 @@ def _params(name: str, rng: random.Random, intensity: float = 1.0) -> dict:
             cx=round(rng.uniform(0.42, 0.58), 2),
             cy=round(rng.uniform(0.42, 0.58), 2),
             period=rng.choice([2.0, 4.0]),
-            kick=round(rng.uniform(0.18, 0.30) * scale, 2),
+            kick=round(rng.uniform(0.07, 0.12) * scale, 2),
             sharp=round(rng.uniform(5.0, 7.5), 1),
         ),
         "beat_bounce": dict(
-            amp=round(rng.uniform(0.04, 0.08) * scale, 3),
+            amp=round(rng.uniform(0.018, 0.032) * scale, 3),
             sharp=round(rng.uniform(5.0, 7.5), 1),
         ),
         "liquid_warp": dict(
-            amp=round(rng.uniform(14.0, 24.0) * scale, 1),
+            amp=round(rng.uniform(6.0, 12.0) * scale, 1),
             freq=round(rng.uniform(0.009, 0.016), 4),
         ),
         "mirror_quad": dict(
             mode=rng.choice(["quad", "horiz"]),
-            beat_toggle=True,
+            beat_toggle=False,
         ),
         "prism_echo": dict(
-            strength=round(rng.uniform(0.32, 0.52) * min(scale, 1.3), 2),
+            strength=round(rng.uniform(0.18, 0.28) * min(scale, 1.3), 2),
             expand=round(rng.uniform(0.18, 0.32) * scale, 2),
         ),
         "neon_bloom": dict(
-            intensity=round(rng.uniform(0.6, 0.95) * scale, 2),
+            intensity=round(rng.uniform(0.32, 0.52) * scale, 2),
             threshold=rng.randint(80, 115),
         ),
         "crt_halation": dict(
-            strength=round(rng.uniform(0.65, 0.95) * scale, 2),
+            strength=round(rng.uniform(0.32, 0.50) * scale, 2),
         ),
         "chroma_pulse": dict(
-            max_shift=round(rng.uniform(12.0, 26.0) * scale, 1),
+            max_shift=round(rng.uniform(5.0, 11.0) * scale, 1),
         ),
         "bayer_dither": dict(
             levels=rng.choice([5, 6, 7]),
@@ -149,8 +149,8 @@ def _params(name: str, rng: random.Random, intensity: float = 1.0) -> dict:
             amount=int(rng.randint(10, 18) * min(scale, 1.4)),
         ),
         "flash": dict(
-            amount=int(rng.randint(75, 130) * min(scale, 1.3)),
-            period_beats=rng.choice([1.0, 2.0, 4.0]),
+            amount=int(rng.randint(14, 24) * min(scale, 1.3)),
+            period_beats=4.0,
             sharp=round(rng.uniform(9.0, 14.0), 1),
         ),
         "letterbox": dict(

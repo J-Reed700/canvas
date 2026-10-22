@@ -127,7 +127,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--duration", type=float, default=8.0, help="Spotify Canvas duration in seconds (3.0 to 8.0, default: 8.0)")
     ap.add_argument("--loop-mode", choices=["crossfade", "rebound", "hard"], default="crossfade", help="loop topology")
     ap.add_argument("--cut-beats", type=int, default=None, help="cut between clips every N beats (e.g. 2 or 4)")
-    ap.add_argument("--transition", choices=["datamosh", "flash", "whip", "glitch", "luma"], default=None, help="cut transition")
+    ap.add_argument("--transition", choices=["datamosh", "flash", "dissolve", "whip", "glitch", "luma"], default=None, help="cut transition")
     ap.add_argument("--intensity", type=float, default=1.0, help="effect intensity multiplier (default: 1.0)")
     ap.add_argument("--speed", type=float, default=1.0, help="source playback speed multiplier")
     ap.add_argument("--effects", type=int, default=6, help="max effects in the random stack")

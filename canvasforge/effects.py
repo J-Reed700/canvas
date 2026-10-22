@@ -63,10 +63,11 @@ def _pulse(
     t: float,
     beat_dur: float,
     period_beats: float = 1.0,
-    sharp: float = 5.0,
+    sharp: float = 3.2,
     kw: dict | None = None,
 ) -> float:
-    """1.0 on the downbeat decaying exponentially, or driven by real audio sub-bass/transients."""
+    """Smooth beat swell decaying gently, or driven by real audio sub-bass/transients."""
+    sharp = min(float(sharp), 3.2)
     clock = 0.0
     if beat_dur > 0:
         phase = (t / beat_dur) % period_beats
@@ -74,8 +75,8 @@ def _pulse(
     if kw is not None and "_sub" in kw:
         sub = float(kw.get("_sub", 0.0))
         trans = float(kw.get("_transient", 0.0))
-        audio_drive = min(1.25, 0.65 * sub + 0.55 * trans)
-        return max(clock * 0.45, audio_drive)
+        audio_drive = min(0.75, 0.55 * sub + 0.25 * trans)
+        return 0.4 * clock + 0.6 * audio_drive
     return clock
 
 
@@ -111,33 +112,34 @@ def _warp_grid(h: int, w: int) -> tuple[np.ndarray, np.ndarray]:
 # ---------------------------------------------------------------- effects
 
 def zoom_pulse(frame: np.ndarray, t: float, beat_dur: float, **kw) -> np.ndarray:
-    """Breathing camera zoom + punchy kick zoom-in on every beat or sub-bass hit."""
+    """Breathing camera zoom + smooth kick swell on beat or sub-bass hit."""
     cx = float(kw.get("cx", 0.5))
     cy = float(kw.get("cy", 0.5))
     period = float(kw.get("period", 4.0))
-    kick_amp = float(kw.get("kick", 0.22))
-    base = 1.06 + 0.05 * float(np.sin(2.0 * np.pi * t / period))
-    kick = kick_amp * _pulse(t, beat_dur, 1.0, sharp=float(kw.get("sharp", 6.5)), kw=kw)
+    kick_amp = min(float(kw.get("kick", 0.09)), 0.14)
+    base = 1.04 + 0.03 * float(np.sin(2.0 * np.pi * t / period))
+    sharp = min(float(kw.get("sharp", 3.0)), 3.2)
+    kick = kick_amp * _pulse(t, beat_dur, 1.0, sharp=sharp, kw=kw)
     return _zoom_in(frame, cx, cy, base + kick)
 
 
 def beat_bounce(frame: np.ndarray, t: float, beat_dur: float, **kw) -> np.ndarray:
-    """Punchy camera shake / bounce on the beat using zoomed crop window (zero border artifacts)."""
-    amp = float(kw.get("amp", 0.055))
-    p = _pulse(t, beat_dur, 1.0, sharp=float(kw.get("sharp", 6.0)), kw=kw)
-    if p < 0.02:
+    """Smooth camera shake / drift on the beat using zoomed crop window."""
+    amp = min(float(kw.get("amp", 0.022)), 0.035)
+    sharp = min(float(kw.get("sharp", 2.5)), 3.2)
+    p = _pulse(t, beat_dur, 1.0, sharp=sharp, kw=kw)
+    if p < 0.01:
         return frame
-    beat_idx = int(t / max(beat_dur, 0.01))
-    direction = -1.0 if (beat_idx % 2 == 0) else 1.0
-    dx = direction * amp * 0.4 * p
-    dy = -amp * p
-    return _zoom_in(frame, 0.5 + dx, 0.5 + dy, 1.12 + 0.06 * p)
+    beat_phase = 2.0 * np.pi * (t / max(beat_dur, 0.01))
+    dx = amp * 0.5 * float(np.sin(beat_phase * 0.5)) * p
+    dy = -amp * float(np.cos(beat_phase)) * p
+    return _zoom_in(frame, 0.5 + dx, 0.5 + dy, 1.06 + 0.03 * p)
 
 
 def mirror_quad(frame: np.ndarray, t: float, beat_dur: float, **kw) -> np.ndarray:
     """Symmetrical mirror / 4-way kaleidoscope geometry."""
     mode = kw.get("mode", "quad")
-    beat_toggle = bool(kw.get("beat_toggle", True))
+    beat_toggle = bool(kw.get("beat_toggle", False))
     if beat_toggle:
         bar_idx = int((t / max(beat_dur, 0.01)) // 2)
         if bar_idx % 2 == 1:
@@ -153,25 +155,28 @@ def mirror_quad(frame: np.ndarray, t: float, beat_dur: float, **kw) -> np.ndarra
 
 
 def prism_echo(frame: np.ndarray, t: float, beat_dur: float, **kw) -> np.ndarray:
-    """Additive zoomed ghost layer that expands outward on each beat."""
-    p = _pulse(t, beat_dur, 1.0, sharp=4.5, kw=kw)
-    strength = float(kw.get("strength", 0.42)) * (0.35 + 0.65 * p)
-    zoom_amt = 1.14 + float(kw.get("expand", 0.24)) * (1.0 - p)
+    """Additive zoomed ghost layer that expands outward gently on each beat."""
+    p = _pulse(t, beat_dur, 1.0, sharp=2.5, kw=kw)
+    base_strength = min(float(kw.get("strength", 0.22)), 0.25)
+    strength = base_strength * (0.5 + 0.5 * p)
+    expand = min(float(kw.get("expand", 0.10)), 0.12)
+    zoom_amt = 1.08 + expand * (1.0 - p)
     ghost = _zoom_in(frame, 0.5, 0.5, zoom_amt)
     ghost_shifted = np.empty_like(ghost)
-    ghost_shifted[..., 0] = np.roll(ghost[..., 0], 6, axis=1)
+    ghost_shifted[..., 0] = np.roll(ghost[..., 0], 4, axis=1)
     ghost_shifted[..., 1] = ghost[..., 1]
-    ghost_shifted[..., 2] = np.roll(ghost[..., 2], -6, axis=1)
+    ghost_shifted[..., 2] = np.roll(ghost[..., 2], -4, axis=1)
     return cv2.addWeighted(frame, 1.0, ghost_shifted, strength, 0)
 
 
 def neon_bloom(frame: np.ndarray, t: float, beat_dur: float, **kw) -> np.ndarray:
     """Extract bright highlights, Gaussian-blur them, and screen-blend for glowing halation."""
-    p = _pulse(t, beat_dur, 1.0, sharp=4.0, kw=kw)
-    intensity = float(kw.get("intensity", 0.75)) * (0.65 + 0.55 * p)
+    p = _pulse(t, beat_dur, 1.0, sharp=2.5, kw=kw)
+    base_intensity = min(float(kw.get("intensity", 0.35)), 0.38)
+    intensity = base_intensity * (0.85 + 0.15 * p)
     h, w = frame.shape[:2]
     small = cv2.resize(frame, (w // 4, h // 4), interpolation=cv2.INTER_AREA)
-    bright = np.clip((small.astype(np.int16) - int(kw.get("threshold", 95))) * 2, 0, 255).astype(np.uint8)
+    bright = np.clip((small.astype(np.int16) - int(kw.get("threshold", 110))) * 2, 0, 255).astype(np.uint8)
     blurred = cv2.GaussianBlur(bright, (25, 25), 0)
     glow = cv2.resize(blurred, (w, h), interpolation=cv2.INTER_LINEAR)
     return cv2.addWeighted(frame, 1.0, glow, intensity, 0)
@@ -179,12 +184,13 @@ def neon_bloom(frame: np.ndarray, t: float, beat_dur: float, **kw) -> np.ndarray
 
 def crt_halation(frame: np.ndarray, t: float, beat_dur: float, **kw) -> np.ndarray:
     """2026 Analog Film & CRT Phosphor Halation: warm red-orange aura bleed around bright highlights."""
-    p = _pulse(t, beat_dur, 1.0, sharp=3.8, kw=kw)
-    strength = float(kw.get("strength", 0.78)) * (0.65 + 0.5 * p)
+    p = _pulse(t, beat_dur, 1.0, sharp=2.5, kw=kw)
+    base_strength = min(float(kw.get("strength", 0.35)), 0.38)
+    strength = base_strength * (0.85 + 0.15 * p)
     h, w = frame.shape[:2]
     small = cv2.resize(frame, (w // 4, h // 4), interpolation=cv2.INTER_AREA)
     luma = small.max(axis=2)
-    mask = np.clip((luma.astype(np.int16) - 125) * 2.2, 0, 255).astype(np.uint8)
+    mask = np.clip((luma.astype(np.int16) - 130) * 2.0, 0, 255).astype(np.uint8)
     blur = cv2.GaussianBlur(mask, (31, 31), 0)
     halo_small = np.zeros_like(small)
     # BGR: warm analog red-orange halation (Red=100%, Green=38%, Blue=12%)
@@ -275,30 +281,27 @@ def chroma_pulse(frame: np.ndarray, t: float, beat_dur: float, **kw) -> np.ndarr
 
 
 def glitch(frame: np.ndarray, t: float, beat_dur: float, **kw) -> np.ndarray:
-    """Digital slice displacement + color inversion blocks on beat transients."""
-    p = _pulse(t, beat_dur, 1.0, sharp=6.5, kw=kw)
-    if p < float(kw.get("trigger", 0.32)):
+    """Digital slice displacement on beat transients (photosensitive-safe, no strobe inversions)."""
+    p = _pulse(t, beat_dur, 1.0, sharp=3.0, kw=kw)
+    if p < float(kw.get("trigger", 0.38)):
         return frame
-    rng = np.random.default_rng(int(t * 30) * 104729 + 17)
+    # 4-frame holds (7.5 Hz instead of 30 Hz) so slices hold smoothly for ~133ms
+    rng = np.random.default_rng(int(t * 7.5) * 104729 + 17)
     out = frame.copy()
     h, w = frame.shape[:2]
-    n_slices = int(rng.integers(4, 10))
+    n_slices = int(rng.integers(2, 6))
     for _ in range(n_slices):
-        y0 = int(rng.integers(0, h - 40))
-        slice_h = int(rng.integers(10, 75))
+        y0 = int(rng.integers(0, max(1, h - 40)))
+        slice_h = int(rng.integers(12, 60))
         y1 = min(h, y0 + slice_h)
-        dx = int(rng.integers(-65, 66))
+        dx = int(rng.integers(-28, 29))
         out[y0:y1] = np.roll(out[y0:y1], dx, axis=1)
-        if rng.random() < 0.35:
-            ch = int(rng.integers(0, 3))
-            out[y0:y1, :, ch] = 255 - out[y0:y1, :, ch]
     return out
 
 
 def color_grade(frame: np.ndarray, t: float, beat_dur: float, **kw) -> np.ndarray:
-    """High-contrast cinema grade with beat-synced saturation & contrast pump."""
-    p = _pulse(t, beat_dur, 2.0, sharp=3.5, kw=kw)
-    contrast = float(kw.get("contrast", 1.18)) + 0.08 * p
+    """High-contrast cinema grade with steady, smooth tone curve."""
+    contrast = float(kw.get("contrast", 1.18))
     warm = float(kw.get("warm", 14.0))
     cool = float(kw.get("cool", -10.0))
 
@@ -310,15 +313,20 @@ def color_grade(frame: np.ndarray, t: float, beat_dur: float, **kw) -> np.ndarra
 
 
 def solarize_pulse(frame: np.ndarray, t: float, beat_dur: float, **kw) -> np.ndarray:
-    """Psychedelic partial highlight inversion on every 2nd beat."""
-    p = _pulse(t, beat_dur, 2.0, sharp=6.0, kw=kw)
-    if p < 0.35:
+    """Smooth psychedelic pastel tint shift on bright highlights (never inverts luminance)."""
+    period_beats = float(kw.get("period_beats", 4.0))
+    p = _pulse(t, beat_dur, period_beats=period_beats, sharp=2.5, kw=kw)
+    if p < 0.05:
         return frame
-    thresh = int(255 - 110 * p)
-    inv = 255 - frame
-    mask = frame > thresh
-    out = np.where(mask, inv, frame)
-    return cv2.addWeighted(frame, 1.0 - 0.65 * p, out, 0.65 * p, 0)
+    blend = min(0.25, 0.25 * p)
+    luma = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+    mask = np.clip((luma.astype(np.float32) - 130.0) / 100.0, 0.0, 1.0)[..., None]
+    tinted = frame.astype(np.float32).copy()
+    tinted[..., 0] = np.clip(tinted[..., 0] * 1.12 + 12.0, 0, 255)  # B
+    tinted[..., 1] = np.clip(tinted[..., 1] * 0.96, 0, 255)         # G
+    tinted[..., 2] = np.clip(tinted[..., 2] * 1.10 + 16.0, 0, 255)  # R
+    shifted = frame.astype(np.float32) * (1.0 - mask * blend) + tinted * (mask * blend)
+    return np.clip(shifted, 0, 255).astype(np.uint8)
 
 
 def hue_cycle(frame: np.ndarray, t: float, beat_dur: float, **kw) -> np.ndarray:
@@ -364,12 +372,18 @@ def grain(frame: np.ndarray, t: float, beat_dur: float, **kw) -> np.ndarray:
 
 
 def flash(frame: np.ndarray, t: float, beat_dur: float, **kw) -> np.ndarray:
-    """Strobe impact flash on downbeats or transient peaks."""
-    p = _pulse(t, beat_dur, float(kw.get("period_beats", 2.0)), sharp=float(kw.get("sharp", 11.0)), kw=kw)
-    if p < 0.45:
+    """Photosensitive-safe warm exposure swell on downbeats."""
+    period_beats = float(kw.get("period_beats", 4.0))
+    sharp = min(float(kw.get("sharp", 2.5)), 2.5)
+    p = _pulse(t, beat_dur, period_beats=period_beats, sharp=sharp, kw=kw)
+    if p < 0.05:
         return frame
-    amt = int(float(kw.get("amount", 95)) * (p - 0.45) / 0.55)
-    return cv2.add(frame, (amt, amt, amt, 0))
+    max_boost = min(float(kw.get("amount", 22.0)), 22.0)
+    boost = max_boost * p
+    b_amt = int(round(boost * 0.65))
+    g_amt = int(round(boost * 0.85))
+    r_amt = int(round(boost))
+    return cv2.add(frame, (b_amt, g_amt, r_amt, 0))
 
 
 def letterbox(frame: np.ndarray, t: float, beat_dur: float, **kw) -> np.ndarray:
@@ -405,6 +419,6 @@ EFFECTS = {
     "vignette": {"fn": vignette, "label": "Vignette", "category": "texture"},
     "scanlines": {"fn": scanlines, "label": "CRT Scanlines", "category": "texture"},
     "grain": {"fn": grain, "label": "35mm Grain", "category": "texture"},
-    "flash": {"fn": flash, "label": "Beat Strobe", "category": "impact"},
+    "flash": {"fn": flash, "label": "Warm Pulse", "category": "impact"},
     "letterbox": {"fn": letterbox, "label": "Cinema Bars", "category": "texture"},
 }

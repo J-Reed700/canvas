@@ -105,6 +105,31 @@ def _normalize_curve(arr: np.ndarray, p_low: float = 10.0, p_high: float = 98.0)
     return np.clip((arr - lo) / (hi - lo), 0.0, 1.0).astype(np.float32)
 
 
+def _smooth_envelope(arr: np.ndarray, attack: float = 0.45, release: float = 0.88) -> np.ndarray:
+    """One-pole attack/release envelope follower + 3-point moving average.
+
+    Prevents 30fps audio curves from jumping 0->1->0 in a single 33ms frame.
+    """
+    if arr.size == 0:
+        return arr.astype(np.float32)
+    out = np.zeros_like(arr, dtype=np.float32)
+    env = float(arr[0])
+    out[0] = env
+    for i in range(1, arr.size):
+        val = float(arr[i])
+        if val > env:
+            env = (1.0 - attack) * env + attack * val
+        else:
+            env = release * env + (1.0 - release) * val
+        out[i] = env
+
+    if out.size >= 3:
+        kernel = np.ones(3, dtype=np.float32) / 3.0
+        padded = np.pad(out, (1, 1), mode="edge")
+        out = np.convolve(padded, kernel, mode="valid").astype(np.float32)
+    return out
+
+
 def analyze_track(path: str) -> AudioProfile:
     """Probe and analyze an audio file for BPM, best drop window, and UI waveform."""
     path = os.path.abspath(os.path.expanduser(path))
@@ -236,11 +261,18 @@ def extract_frame_curves(
     for i in range(1, n_frames):
         sub_smooth[i] = max(sub_arr[i], sub_smooth[i - 1] * 0.72)
 
+    # Smooth envelopes with one-pole attack/release + 3-point moving average (flicker-safe)
+    sub_smooth = _smooth_envelope(sub_smooth, attack=0.45, release=0.88)
+    flux = _smooth_envelope(flux, attack=0.5, release=0.84)
+    air_arr = _smooth_envelope(air_arr, attack=0.45, release=0.88)
+    rms_arr = _smooth_envelope(rms_arr, attack=0.45, release=0.88)
+
+    # Scale normalized curves to [0.0, 0.85] for smooth, non-flickering visual breathing
     return FrameAudioCurves(
-        sub_bass=_normalize_curve(sub_smooth, 12.0, 96.0),
-        transient=_normalize_curve(flux, 25.0, 97.0),
-        high_air=_normalize_curve(air_arr, 15.0, 96.0),
-        rms=_normalize_curve(rms_arr, 10.0, 97.0),
+        sub_bass=(_normalize_curve(sub_smooth, 12.0, 96.0) * 0.85).astype(np.float32),
+        transient=(_normalize_curve(flux, 25.0, 97.0) * 0.85).astype(np.float32),
+        high_air=(_normalize_curve(air_arr, 15.0, 96.0) * 0.85).astype(np.float32),
+        rms=(_normalize_curve(rms_arr, 10.0, 97.0) * 0.85).astype(np.float32),
         bpm=prof.detected_bpm,
         start_sec=start_sec,
     )
