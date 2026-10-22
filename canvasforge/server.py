@@ -441,9 +441,42 @@ class StudioHandler(BaseHTTPRequestHandler):
         self.send_error(HTTPStatus.NOT_FOUND)
 
 
+class ReusableThreadingHTTPServer(ThreadingHTTPServer):
+    allow_reuse_address = True
+
+
+def _is_canvas_forge_running(host: str, port: int) -> bool:
+    import urllib.request
+    try:
+        with urllib.request.urlopen(f"http://{host}:{port}/api/status", timeout=0.6) as resp:
+            return resp.status == 200
+    except Exception:
+        return False
+
+
 def serve_studio(host: str = "127.0.0.1", port: int = 8765, open_browser: bool = True) -> None:
-    server = ThreadingHTTPServer((host, port), StudioHandler)
-    url = f"http://{host}:{port}"
+    if _is_canvas_forge_running(host, port):
+        url = f"http://{host}:{port}"
+        print(f"\n  ✦ Canvas Forge Studio is already running at {url}")
+        if open_browser:
+            print("  ✦ Opening Studio in your browser...\n")
+            webbrowser.open(url)
+        return
+
+    server = None
+    chosen_port = port
+    for candidate in range(port, port + 15):
+        try:
+            server = ReusableThreadingHTTPServer((host, candidate), StudioHandler)
+            chosen_port = candidate
+            break
+        except OSError:
+            continue
+
+    if server is None:
+        raise RuntimeError(f"Could not bind any port in range {port}..{port + 14}")
+
+    url = f"http://{host}:{chosen_port}"
     print(f"\n  ✦ Canvas Forge Studio running at {url}")
     print(f"  ✦ Loaded {len(STATE.clips)} video clips & {len(STATE.tracks)} audio tracks from ~/Downloads")
     print("  ✦ Press Ctrl+C to stop\n")
