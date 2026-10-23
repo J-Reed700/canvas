@@ -1,7 +1,7 @@
 // Canvas Forge Studio — UI controller.
 import { Engine } from './engine.js';
-import { Transport, makeSampler } from './audio.js';
-import { DIRECTIONS, RHYTHMS, planTimeline, rng } from './timeline.js';
+import { ENV_POINTS, SEQ_STEPS, Transport, defaultEnv, defaultSeq, envAt, makeSampler } from './audio.js';
+import { DIRECTIONS, RHYTHMS, VELOCITY, planTimeline, rng } from './timeline.js';
 import { LOOKS, chaosLook, clamp, cloneLook, evolveLook, mutate, randomLook } from './looks.js';
 import { CAMERA, CATEGORIES, FINISH_DEF, MODULES, MOD_SOURCES, defaults } from './modules.js';
 import { TRANSITIONS } from './shaders.js';
@@ -50,9 +50,9 @@ const S = {
   seed: 2026, direction: 'forward', lockEdit: false,
   intensity: 1, clipMode: 'one', clipLooks: {}, editClip: null, evolveAmt: 0.45,
   rollOpts: { look: true, edit: true, perClip: true, clips: false, loop: false },
-  customCuts: null, segOverrides: {},
+  customCuts: null, segOverrides: {}, clipFrame: {}, gridNudge: {},
   hud: true, safe: false, muted: false, tab: 'looks',
-  exporting: false, exportOpts: { size: 'master', audio: true },
+  exporting: false, exportOpts: { size: 'master', audio: true, format: 'spotify', promo: 0 },
 };
 let engine, bank, ctx = null;
 let version = 0; // bumped on every edit, so a paused frame re-renders exactly once per change
@@ -66,15 +66,18 @@ function save() {
       trackId: S.trackId, selected: S.selected, look: S.look, lookId: S.lookId, saved: S.saved, bars: S.bars, loopStart: S.loopStart,
       bpmManual: S.bpmManual, bpmOverride: S.bpmOverride, seed: S.seed, direction: S.direction, lockEdit: S.lockEdit, customCuts: S.customCuts, segOverrides: S.segOverrides,
       hud: S.hud, safe: S.safe, muted: S.muted, tab: S.tab, mode: transport.mode, exportOpts: S.exportOpts,
-      intensity: S.intensity, clipMode: S.clipMode, clipLooks: S.clipLooks, evolveAmt: S.evolveAmt, rollOpts: S.rollOpts,
+      intensity: S.intensity, clipMode: S.clipMode, clipLooks: S.clipLooks, evolveAmt: S.evolveAmt, rollOpts: S.rollOpts, clipFrame: S.clipFrame, gridNudge: S.gridNudge,
     }));
   } catch { /* storage unavailable: session-only */ }
+  queueHistory();
 }
 function restore() {
   try { return JSON.parse(localStorage.getItem(KEY)) || {}; } catch { return {}; }
 }
 
 const bpm = () => S.features?.bpm || S.bpmManual;
+// where the loop's audio starts: the detected downbeat plus the user's grid nudge
+const audioStart = () => S.loopStart + (S.gridNudge[S.trackId] || 0);
 const beatDur = () => 60 / bpm();
 const barDur = () => beatDur() * 4;
 const validBars = () => BAR_CHOICES.filter((b) => b * barDur() >= 3 - 1e-6 && b * barDur() <= 8 + 1e-6);
@@ -179,33 +182,36 @@ function rebuild() {
   const L = loopLen();
   const bd = beatDur();
   const clips = S.selected.map((id) => S.clips.find((c) => c.id === id)).filter(Boolean)
-    .map((c) => ({ id: c.id, duration: Math.max(0.5, Math.min(c.duration, 60)) }));
+    .map((c) => ({ id: c.id, duration: Math.max(0.5, Math.min(c.duration, 60)), focus: S.clipFrame[c.id] || null }));
   clips.forEach((c) => clipDur.set(c.id, c.duration));
   $('#emptyStage').hidden = clips.length > 0;
   if (!clips.length) { ctx = null; drawTimeline(); renderChips(); return; }
   let hit = null;
   if (S.features) {
     const k = S.features.curves.kick, sn = S.features.curves.snare;
-    const a = Math.round(S.loopStart * 30);
+    const a = Math.round(audioStart() * 30);
     hit = Array.from({ length: Math.round(L * 30) + 3 }, (_, i) => (k[a + i] || 0) + 0.6 * (sn[a + i] || 0));
   }
   const cut = S.look.cut;
   const tl = planTimeline({
     L, beatDur: bd, clips, rhythm: S.customCuts ? 'custom' : cut.rhythm, custom: S.customCuts, transitions: cut.transitions,
     transBeats: cut.beats, seed: S.seed, speed: S.look.camera.p.speed ?? 1, direction: S.direction, order: cut.order, hitCurve: hit,
+    velocity: cut.velocity || 'none',
   });
   for (const [i, o] of Object.entries(S.segOverrides)) {
     const s = tl.segs[+i];
     if (!s) continue;
     if (o.clipId && clips.some((c) => c.id === o.clipId)) s.clipId = o.clipId;
     if (o.trans) s.trans = o.trans;
+    if (o.vel) s.vel = o.vel;
+    if (o.in != null) s.in = clamp(o.in, 0, Math.max(0, clipDur.get(s.clipId) - 0.1));
   }
   ctx = {
     look: S.look, tl, L, beatDur: bd, seed: S.seed, clipDur: (id) => clipDur.get(id) || 10,
     intensity: S.intensity, clipLook: S.clipMode === 'one' ? null : clipLookOf,
-    sampler: makeSampler({ features: S.features, loopStart: S.loopStart, beatDur: bd, seed: S.seed }),
+    sampler: makeSampler({ features: S.features, loopStart: audioStart(), beatDur: bd, seed: S.seed, L }),
   };
-  transport.setLoop(S.loopStart, L);
+  transport.setLoop(Math.max(0, audioStart()), L);
   drawTimeline();
   renderChips();
   renderBars();
@@ -319,6 +325,11 @@ function updateLive(t, fr) {
     g.el.style.left = `${((v - g.def.min) / (g.def.max - g.def.min)) * 100}%`;
   }
   if (frameNo % 2 === 0 && S.features && transport.mode === 'listen') drawOverview();
+  if (modUI && frameNo % 2 === 0 && modUI.steps[0]?.isConnected && S.tab === 'layers') {
+    modUI.drawEnv(t / L);
+    const st = Math.floor((((t / ctx.beatDur) / 4) % 1) * SEQ_STEPS);
+    modUI.steps.forEach((b, i) => b.classList.toggle('cur', i === st));
+  }
 }
 
 // Top chips + transport
@@ -343,6 +354,9 @@ function renderTransport() {
   $('#tSafe').classList.toggle('on', S.safe);
   $('#tMute').classList.toggle('on', !S.muted);
   $('#tMute').style.display = S.features ? '' : 'none';
+  $('#tOffSync').style.display = S.features && transport.mode === 'listen' ? '' : 'none';
+  $('#tOffSync').classList.toggle('on', transport.phase !== 0);
+  $('#tOffSync').textContent = transport.phase ? `Off-sync +${transport.phase.toFixed(2)}s` : 'Off-sync';
   $('#hud').classList.toggle('hidden', !S.hud);
   $('#safe').classList.toggle('on', S.safe);
 }
@@ -386,8 +400,37 @@ function renderTrack() {
       h('button', { class: 'mini', title: 'Half tempo', onclick: () => setTempo(f.bpm / 2) }, '½×'),
       h('button', { class: 'mini', title: 'Double tempo', onclick: () => setTempo(f.bpm * 2) }, '2×'),
       S.bpmOverride[S.trackId] ? h('button', { class: 'mini', title: 'Back to the detected tempo', onclick: () => setTempo(null) }, 'auto') : null,
-      h('span', { style: 'margin-left:auto' }, h('b', {}, fmt(f.duration)))].filter(Boolean)
+      h('button', { class: 'mini', title: 'Tap tempo — tap along to the beat (or press T)', onclick: tapTempo }, 'Tap'),
+      h('span', { style: 'margin-left:auto' }, h('b', {}, fmt(f.duration))),
+      h('div', { class: 'grid-row', title: 'If cuts and pulses land a little early or late, slide the beat grid' },
+        h('span', {}, 'Beat grid'),
+        h('button', { class: 'mini', title: 'Earlier by 10 ms (Shift: 1 ms)', onclick: (e) => nudgeGrid(e.shiftKey ? -0.001 : -0.01) }, '◂'),
+        h('span', { class: 'nudge', title: 'Click to reset', onclick: () => nudgeGrid(null) }, `${(S.gridNudge[S.trackId] || 0) > 0 ? '+' : ''}${Math.round((S.gridNudge[S.trackId] || 0) * 1000)} ms`),
+        h('button', { class: 'mini', title: 'Later by 10 ms (Shift: 1 ms)', onclick: (e) => nudgeGrid(e.shiftKey ? 0.001 : 0.01) }, '▸'))].filter(Boolean)
     : [h('span', {}, 'Visuals follow a synthetic beat at the tempo set in Edit')]));
+}
+
+// Tap tempo: average the last taps; a pause of 2 s starts a new count.
+let taps = [];
+function tapTempo() {
+  const now = performance.now() / 1000;
+  if (taps.length && now - taps.at(-1) > 2) taps = [];
+  taps.push(now);
+  if (taps.length > 12) taps.shift();
+  if (taps.length < 4) { toast(`Tap ${4 - taps.length} more…`, 1200); return; }
+  const span = (taps.at(-1) - taps[0]) / (taps.length - 1);
+  const v = Math.round((60 / span) * 10) / 10;
+  if (!S.trackId) { S.bpmManual = clamp(Math.round(v), 60, 180); rebuild(); renderEdit(); toast(`${S.bpmManual} BPM`, 1200); return; }
+  clearTimeout(tapTempo.t);
+  toast(`${v.toFixed(1)} BPM — keep tapping or wait to apply`, 1400);
+  tapTempo.t = setTimeout(() => { setTempo(v); taps = []; }, 1600);
+}
+
+function nudgeGrid(d) {
+  if (!S.trackId) return;
+  if (d === null) delete S.gridNudge[S.trackId];
+  else S.gridNudge[S.trackId] = clamp(Math.round(((S.gridNudge[S.trackId] || 0) + d) * 1000) / 1000, -0.25, 0.25);
+  rebuild(); renderTrack();
 }
 
 async function setTempo(v) {
@@ -461,7 +504,7 @@ function renderClips() {
       },
     }, idx >= 0 ? h('span', { class: 'num' }, String(idx + 1)) : null, busy ? h('span', { class: 'busy', title: 'Preparing playback proxy' }) : null,
     idx >= 0 && S.clipMode !== 'one' ? clipTag(c.id) : null,
-    h('div', { class: 'cap' }, `${c.duration.toFixed(1)}s · ${c.name}`));
+    h('div', { class: 'cap' }, c.still ? `Still · ${c.name.replace(/\.still\.mp4$/, '')}` : `${c.duration.toFixed(1)}s · ${c.name}`));
   }));
   $('#clipCount').textContent = `${S.selected.length} of ${S.clips.length}`;
 }
@@ -495,6 +538,7 @@ function renderExports() {
       h('div', { class: 'm' }, [r.resolution?.replace('x', '×'), r.duration ? `${(+r.duration).toFixed(2)}s` : null, `${r.size_mb} MB`].filter(Boolean).join(' · '), ' ', badge),
       h('div', { class: 'acts' },
         h('a', { class: 'btn sm icon', href: r.url, download: r.filename, title: 'Download' }, '↓'),
+        r.promo_url ? h('a', { class: 'btn sm icon', href: r.promo_url, download: '', title: 'Download the promo with the song' }, '♫') : null,
         h('button', { class: 'btn sm icon', title: 'Reveal in Finder', onclick: () => reveal(r.filename) }, '⌕')));
   }) : [h('div', { class: 'note' }, 'Exports appear here, each checked against the Spotify Canvas spec.')]));
 }
@@ -518,7 +562,7 @@ function renderLooks() {
     $('#looks').replaceChildren(...all.flatMap((l, i) => {
       const group = l.mine ? 'mine' : l.group || 'curated';
       const prev = i ? (all[i - 1].mine ? 'mine' : all[i - 1].group || 'curated') : null;
-      const head = group !== prev ? h('div', { class: 'look-group' }, { mine: 'Your looks', curated: 'Studio looks', classic: 'Classic stacks' }[group]) : null;
+      const head = group !== prev ? h('div', { class: 'look-group' }, { mine: 'Your looks', curated: 'Studio looks', art: 'Album art & stills', classic: 'Classic stacks' }[group]) : null;
       const cv = h('canvas', { width: 144, height: 256 });
       const card = h('div', { class: 'look', onclick: () => applyLook(l) }, cv,
         h('div', { class: 'lbl' }, h('b', {}, l.mine ? `★ ${l.name}` : l.name), h('span', {}, l.vibe)));
@@ -605,12 +649,17 @@ function paramRow(p, holder, readLive) {
         amtRow.append(h('input', { type: 'range', min: -1, max: 1, step: 0.01, value: m.amt, style: 'accent-color:var(--accent)',
           oninput: (e) => { m.amt = +e.target.value; o.textContent = m.amt.toFixed(2); paintMod(); touch(); save(); } }), o);
       };
-      for (const [k, s] of Object.entries(MOD_SOURCES)) {
-        box.append(h('button', { class: `pi ${mods[p.id]?.src === k ? 'on' : ''}`, style: `--c:${s.color}`, onclick: (e) => {
-          mods[p.id] = { src: k, amt: mods[p.id]?.amt ?? 0.25 };
-          $$('.pi', box).forEach((b) => b.classList.remove('on')); e.currentTarget.classList.add('on');
-          paintMod(); drawAmt(); touch(); save();
-        } }, h('span', { class: 'sd' }), s.name, ['kick', 'snare', 'hats', 'bass', 'energy', 'bright'].includes(k) ? h('small', {}, S.features ? 'audio' : 'synthetic') : h('small', {}, 'clock')));
+      const kinds = { audio: S.features ? 'From the song' : 'Audio (synthetic beat — no track)', clock: 'Tempo clocks · loop-locked', user: 'Yours · Modulators card' };
+      for (const [kind, label] of Object.entries(kinds)) {
+        box.append(h('div', { class: 'ph' }, label));
+        for (const [k, s] of Object.entries(MOD_SOURCES)) {
+          if (s.kind !== kind) continue;
+          box.append(h('button', { class: `pi ${mods[p.id]?.src === k ? 'on' : ''}`, style: `--c:${s.color}`, onclick: (e) => {
+            mods[p.id] = { src: k, amt: mods[p.id]?.amt ?? (kind === 'user' ? 0.5 : 0.25) };
+            $$('.pi', box).forEach((b) => b.classList.remove('on')); e.currentTarget.classList.add('on');
+            paintMod(); drawAmt(); touch(); save();
+          } }, h('span', { class: 'sd' }), s.name));
+        }
       }
       box.append(amtRow);
       box.append(h('button', { class: 'pi', onclick: () => { delete mods[p.id]; paintMod(); closePop(); touch(); save(); } }, h('span', { class: 'muted' }, 'Remove modulation')));
@@ -706,6 +755,7 @@ function renderLayers() {
     S.clipMode !== 'one' ? h('button', { class: 'btn sm', title: 'Drop the per-clip looks', onclick: () => { S.clipLooks = {}; setClipMode('one'); toast('Main look on every clip'); } }, 'Same look on all') : null,
     clipEdit ? h('button', { class: 'btn sm', title: 'This clip follows the main look again', onclick: () => { delete S.clipLooks[S.editClip]; S.editClip = null; touch(); rebuild(); relayer(); renderLooks(); } }, `Reset clip ${clipNo}`) : null));
   kids.push(card({ title: clipEdit ? `Clip ${clipNo} · ${look.name}` : 'Master', sub: clipEdit ? 'this clip’s own stack' : 'intensity · per-clip looks', color: '#FF7AE6' }, master));
+  kids.push(modulatorsCard(look));
 
   // ---- layer tools
   const add = h('button', { class: 'btn sm', 'data-pop': true, title: 'Add an effect layer' }, '+ Add effect');
@@ -771,6 +821,74 @@ function renderLayers() {
   $('#layerCount').textContent = String(look.layers.length);
 }
 
+// Modulators: per-look macro knobs, a drawn envelope across the loop and a one-bar step sequencer.
+// Any parameter can follow them through its ● modulation button.
+let modUI = null;
+const SEQ_PRESETS = {
+  Four: () => Array.from({ length: SEQ_STEPS }, (_, i) => +(i % 4 === 0)),
+  Offbeat: () => Array.from({ length: SEQ_STEPS }, (_, i) => +(i % 4 === 2)),
+  Clave: () => [1, 0, 0, 1, 0, 0, 1, 0, 0, 0, 1, 0, 1, 0, 0, 0],
+  Rolls: () => [1, 0, 1, 0, 1, 0, 1, 1, 1, 0, 1, 0, 1, 1, 1, 1],
+  Random: () => Array.from({ length: SEQ_STEPS }, (_, i) => +(i % 4 === 0 || Math.random() < 0.3)),
+};
+const ENV_PRESETS = {
+  Arc: defaultEnv,
+  Ramp: () => Array.from({ length: ENV_POINTS }, (_, i) => +(i / (ENV_POINTS - 1)).toFixed(3)),
+  Dip: () => defaultEnv().map((v) => +(1 - v).toFixed(3)),
+  Pulses: () => Array.from({ length: ENV_POINTS }, (_, i) => (i % 4 === 0 ? 1 : i % 4 === 1 ? 0.45 : 0.1)),
+  Random: () => Array.from({ length: ENV_POINTS }, () => +Math.random().toFixed(3)),
+};
+function modulatorsCard(look) {
+  const macro = look.macro || (look.macro = { a: 0, b: 0 });
+  const bump = () => { touch(); save(); };
+  const env = look.env || (look.env = defaultEnv());
+  const seq = look.seq || (look.seq = defaultSeq());
+  const cv = h('canvas', { class: 'envcv', width: 600, height: 128, title: 'Drag to draw · double-click for the default arc' });
+  const drawEnv = (u = null) => {
+    const g = cv.getContext('2d'), W = cv.width, H = cv.height;
+    g.clearRect(0, 0, W, H);
+    g.strokeStyle = 'rgba(255,255,255,0.06)';
+    for (let i = 1; i < 4; i++) { g.beginPath(); g.moveTo((W * i) / 4, 0); g.lineTo((W * i) / 4, H); g.stroke(); }
+    g.beginPath();
+    for (let x = 0; x <= W; x += 4) {
+      const v = envAt(env, x / W);
+      const y = H - 8 - v * (H - 16);
+      x ? g.lineTo(x, y) : g.moveTo(x, y);
+    }
+    g.strokeStyle = MOD_SOURCES.env.color; g.lineWidth = 3; g.stroke();
+    g.fillStyle = MOD_SOURCES.env.color;
+    env.forEach((v, i) => { g.beginPath(); g.arc(((i + 0.0) / env.length) * W, H - 8 - v * (H - 16), 5, 0, Math.PI * 2); g.fill(); });
+    if (u !== null) { g.fillStyle = 'rgba(255,255,255,0.7)'; g.fillRect(u * W - 1, 0, 2, H); }
+  };
+  let drawing = false;
+  const setPt = (e) => {
+    const r = cv.getBoundingClientRect();
+    const i = clamp(Math.round(((e.clientX - r.left) / r.width) * env.length), 0, env.length - 1);
+    env[i] = +clamp(1 - (e.clientY - r.top - 4) / (r.height - 8), 0, 1).toFixed(3);
+    drawEnv(); bump();
+  };
+  cv.addEventListener('pointerdown', (e) => { drawing = true; cv.setPointerCapture(e.pointerId); setPt(e); });
+  cv.addEventListener('pointermove', (e) => { if (drawing) setPt(e); });
+  cv.addEventListener('pointerup', () => { drawing = false; });
+  cv.addEventListener('dblclick', () => { env.splice(0, env.length, ...defaultEnv()); drawEnv(); bump(); });
+  const steps = seq.map((on, i) => h('button', { class: on ? 'on' : '', title: `Step ${i + 1}`, onclick: (e) => { seq[i] = seq[i] ? 0 : 1; e.currentTarget.classList.toggle('on', !!seq[i]); bump(); } }));
+  const presets = (obj, apply) => h('div', { class: 'mini-presets' }, ...Object.entries(obj).map(([name, fn]) => h('button', { class: 'mini', onclick: () => apply(fn()) }, name)));
+  modUI = { look, drawEnv, steps };
+  drawEnv();
+  return card({ title: 'Modulators', sub: 'macros · envelope · step sequencer — route any ● to them', color: '#FFD36E', collapsed: !look.macro?.a && !look.macro?.b && !usesUserMods(look) }, [
+    sliderRow('Macro A', { min: 0, max: 1, step: 0.01, value: macro.a, def: 0, fmt: (v) => `${Math.round(v * 100)}%`, title: 'One knob for many parameters: set a parameter’s ● to Macro A' }, (v) => { macro.a = v; bump(); }),
+    sliderRow('Macro B', { min: 0, max: 1, step: 0.01, value: macro.b, def: 0, fmt: (v) => `${Math.round(v * 100)}%` }, (v) => { macro.b = v; bump(); }),
+    h('div', { class: 'mod-h' }, h('span', {}, 'Envelope · whole loop'), presets(ENV_PRESETS, (v) => { env.splice(0, env.length, ...v); drawEnv(); bump(); })),
+    cv,
+    h('div', { class: 'mod-h' }, h('span', {}, 'Step sequencer · 1 bar'), presets(SEQ_PRESETS, (v) => { seq.splice(0, seq.length, ...v); steps.forEach((b, i) => b.classList.toggle('on', !!seq[i])); bump(); })),
+    h('div', { class: 'seqgrid' }, ...steps),
+  ]);
+}
+function usesUserMods(look) {
+  const all = [look.camera, look.finish, ...look.layers];
+  return all.some((x) => Object.values(x?.mods || {}).some((m) => MOD_SOURCES[m.src]?.kind === 'user'));
+}
+
 function saveLook(e) {
   const anchor = e?.currentTarget || $('#pane-layers');
   openPop(anchor, (box) => {
@@ -833,6 +951,11 @@ function renderEdit() {
     field('Transition length (beats)', seg(TRANS_BEATS.map(([b, l]) => [b, l]), cut.beats, (b) => { cut.beats = b; rebuild(); renderEdit(); })),
     field('Transition order', seg([['cycle', 'Cycle'], ['random', 'Shuffle']], cut.order || 'cycle', (o) => { cut.order = o; rebuild(); renderEdit(); })),
     field('Clip direction', seg(Object.entries(DIRECTIONS), S.direction, (d) => { S.direction = d; rebuild(); renderEdit(); })),
+    field('Speed ramp', h('div', { class: 'seg wrap' }, ...Object.entries(VELOCITY).map(([k, v]) => h('button', {
+      class: (cut.velocity || 'none') === k ? 'on' : '', title: v.desc || 'Constant clip speed',
+      onclick: () => { cut.velocity = k; rebuild(); renderEdit(); },
+    }, v.name))),
+    h('div', { class: 'note', style: 'margin-top:6px' }, 'Velocity-edit curves locked to the beat. Each averages out to the clip speed, so the loop stays seamless. Double-click a segment to ramp just that one.')),
     field('Edit seed', h('div', { class: 'row' },
       h('input', { class: 'numin', type: 'number', value: S.seed, onchange: (e) => { S.seed = Math.round(+e.target.value) || 1; rebuild(); } }),
       h('button', { class: 'btn sm', onclick: () => { S.seed = Math.floor(Math.random() * 1e6); S.segOverrides = {}; rebuild(); renderEdit(); } }, '⚄ Re-roll in-points & order'))),
@@ -1011,8 +1134,17 @@ function segAt(t) { return ctx.tl.segs.findIndex((s) => t >= s.t0 && t < s.t1); 
 function bindTimeline() {
   const lane = $('#lane');
   let drag = null;
+  let slip = null;
   lane.addEventListener('pointermove', (e) => {
     if (!ctx) return;
+    if (slip) {
+      const s = ctx.tl.segs[slip.i];
+      const dur = clipDur.get(s.clipId) || 10;
+      const v = clamp(slip.in0 - (laneTime(e) - slip.t0) * s.speed, 0, Math.max(0, dur - s.dur * s.speed - 0.1));
+      (S.segOverrides[slip.i] ||= {}).in = v;
+      rebuild();
+      return;
+    }
     if (drag) {
       const bd = ctx.beatDur;
       const cuts = S.customCuts;
@@ -1021,10 +1153,19 @@ function bindTimeline() {
       if (snapped !== cuts[drag.i - 1]) { cuts[drag.i - 1] = snapped; drag.moved = true; rebuild(); }
       return;
     }
-    lane.style.cursor = nearestCut(e) > 0 ? 'ew-resize' : 'pointer';
+    lane.style.cursor = e.altKey ? 'grab' : nearestCut(e) > 0 ? 'ew-resize' : 'pointer';
   });
   lane.addEventListener('pointerdown', (e) => {
     if (!ctx) return;
+    if (e.altKey) {
+      // Alt-drag slips the footage under a segment: same cut points, different moment of the clip
+      const si = segAt(laneTime(e));
+      if (si < 0) return;
+      slip = { i: si, t0: laneTime(e), in0: ctx.tl.segs[si].in };
+      lane.setPointerCapture(e.pointerId);
+      lane.style.cursor = 'grabbing';
+      return;
+    }
     const i = nearestCut(e);
     if (i > 0) {
       S.customCuts = ctx.tl.segs.slice(1).map((s) => s.t0);
@@ -1034,7 +1175,10 @@ function bindTimeline() {
     }
     transport.seek(laneTime(e));
   });
-  lane.addEventListener('pointerup', () => { if (drag) { drag = null; renderRhythm(); save(); } });
+  lane.addEventListener('pointerup', () => {
+    if (slip) { slip = null; lane.style.cursor = ''; save(); }
+    if (drag) { drag = null; renderRhythm(); save(); }
+  });
   lane.addEventListener('dblclick', (e) => {
     if (!ctx) return;
     const i = segAt(laneTime(e));
@@ -1050,6 +1194,18 @@ function bindTimeline() {
         box.append(h('button', { class: `pi ${s.clipId === id ? 'on' : ''}`, onclick: () => { (S.segOverrides[i] ||= {}).clipId = id; rebuild(); closePop(); } },
           h('span', { class: 'sd', style: '--c:#C8FF4D' }), `#${k + 1} ${c?.name || id}`));
       });
+      const dur = clipDur.get(s.clipId) || 10;
+      const maxIn = Math.max(0, dur - s.dur * s.speed - 0.1);
+      const inLabel = h('span', { class: 'muted' }, `${s.in.toFixed(2)} s`);
+      box.append(h('div', { class: 'ph' }, 'In-point · which moment of the clip plays'),
+        h('div', { class: 'row', style: 'padding:2px 10px 6px;gap:8px' },
+          h('input', { type: 'range', min: 0, max: maxIn.toFixed(2), step: 0.01, value: Math.min(s.in, maxIn), style: 'flex:1;accent-color:var(--accent)',
+            oninput: (e) => { (S.segOverrides[i] ||= {}).in = +e.target.value; inLabel.textContent = `${(+e.target.value).toFixed(2)} s`; transport.seek(s.t0 + Math.min(s.dur / 2, 0.25)); rebuild(); } }),
+          inLabel),
+        h('div', { class: 'ph' }, 'Speed ramp for this segment'),
+        h('div', { class: 'tgrid', style: 'padding:4px 6px 6px' }, ...Object.entries(VELOCITY).map(([k, v]) => h('button', {
+          class: s.vel === k ? 'on' : '', title: v.desc || 'Constant clip speed', onclick: () => { (S.segOverrides[i] ||= {}).vel = k; rebuild(); closePop(); },
+        }, v.name))));
       box.append(h('div', { class: 'ph' }, i === 0 ? 'Transition into this segment (loop seam)' : 'Transition into this segment'));
       const g = h('div', { class: 'tgrid', style: 'padding:4px 6px 6px' }, ...Object.entries(TRANSITIONS).map(([k, t]) => h('button', {
         class: s.trans === k ? 'on' : '', onclick: () => { (S.segOverrides[i] ||= {}).trans = k; rebuild(); closePop(); },
@@ -1115,7 +1271,18 @@ function closeModals() {
 }
 
 // Export sheet
+const FORMATS = {
+  spotify: { name: 'Spotify Canvas', short: 'Spotify Canvas', sub: '9:16 · 3–8 s · silent' },
+  apple_tall: { name: 'Apple Music · 3:4', short: 'Apple 3:4', sub: 'Motion artwork 2048 × 2732', size: [2048, 2732] },
+  apple_square: { name: 'Apple Music · 1:1', short: 'Apple 1:1', sub: 'Square motion art · rendered at 2048, delivered at 3840 × 3840', size: [2048, 2048] },
+};
+const SIZES = { master: [1080, 1920], lite: [720, 1280], strict: [608, 1080] };
 let exportAbort = null;
+function exportSize() {
+  const o = S.exportOpts;
+  return FORMATS[o.format]?.size || SIZES[o.size] || SIZES.master;
+}
+
 function openExport() {
   if (!ctx) { toast('Select at least one clip first'); return; }
   const pending = S.clips.filter((c) => S.selected.includes(c.id) && c.proxy && c.proxy !== 'ready');
@@ -1125,34 +1292,53 @@ function openExport() {
   const sheet = $('#exportSheet');
   sheet.classList.add('on');
   const o = S.exportOpts;
+  o.format ||= 'spotify';
+  o.promo ??= 0;
+  const spotify = o.format === 'spotify';
   const L = ctx.L, frames = Math.round(L * 30);
-  const sizeCard = (key, title, sub) => h('div', { class: `opt-card ${o.size === key ? 'on' : ''}`, onclick: () => { o.size = key; save(); openExport(); } },
-    h('span', { class: 'radio' }), h('div', {}, h('b', {}, title), h('span', {}, sub)));
+  const redraw = () => { save(); openExport(); };
+  const optCard = (on, title, sub, pick) => h('div', { class: `opt-card ${on ? 'on' : ''}`, onclick: pick }, h('span', { class: 'radio' }), h('div', {}, h('b', {}, title), h('span', {}, sub)));
+  // Spotify asks to "avoid rapid video cuts": flag edits that cut faster than ~3 per second
+  const minSeg = Math.min(...ctx.tl.segs.map((x) => x.dur));
+  const rapid = ctx.tl.segs.length > 1 && (minSeg < 0.3 || ctx.tl.segs.length / L > 2.5);
+  const [W, H] = exportSize();
   sheet.replaceChildren(...[
-    h('div', { class: 'row', style: 'justify-content:space-between' }, h('h2', {}, 'Export Canvas'), h('button', { class: 'btn icon', onclick: () => sheet.classList.remove('on') }, '✕')),
-    h('div', { class: 'note' }, 'Every frame is rendered on the GPU, frame-exact, encoded to H.264 in hardware and verified against the Spotify Canvas spec.'),
-    sizeCard('master', '1080 × 1920 · Master', 'The widely used Canvas size, sharpest on modern phones'),
-    sizeCard('lite', '720 × 1280 · Lite', 'Smaller file, still crisp on most phones'),
-    sizeCard('strict', '608 × 1080 · Spec-literal', 'Fits Spotify’s listed “720–1080 px tall” — use if an upload is rejected'),
-    S.features ? h('label', { class: 'check' }, h('input', { type: 'checkbox', checked: o.audio, onchange: (e) => { o.audio = e.target.checked; save(); } }),
-      'Also save a copy with the audio slice (Reels / TikTok / previews)') : null,
+    h('div', { class: 'row', style: 'justify-content:space-between' }, h('h2', {}, 'Export'), h('button', { class: 'btn icon', onclick: () => sheet.classList.remove('on') }, '✕')),
+    h('div', { class: 'seg fmt-seg' }, ...Object.entries(FORMATS).map(([k, f]) => h('button', { class: o.format === k ? 'on' : '', title: f.sub, onclick: () => { o.format = k; redraw(); } }, f.short))),
+    h('div', { class: 'note' }, spotify
+      ? 'Every frame is rendered on the GPU, frame-exact, encoded to H.264 in hardware and verified against the Spotify Canvas spec.'
+      : 'Apple Music motion artwork: the same edit re-framed for Apple’s aspect ratio, silent, seamless and repeated to at least 15 s. Square art is rendered at 2048 px, then upscaled to Apple’s 3840 × 3840.'),
+    ...(spotify ? [
+      optCard(o.size === 'master', '1080 × 1920 · Master', 'The widely used Canvas size, sharpest on modern phones', () => { o.size = 'master'; redraw(); }),
+      optCard(o.size === 'lite', '720 × 1280 · Lite', 'Smaller file, still crisp on most phones', () => { o.size = 'lite'; redraw(); }),
+      optCard(o.size === 'strict', '608 × 1080 · Spec-literal', 'Fits Spotify’s listed “720–1080 px tall” — use if an upload is rejected', () => { o.size = 'strict'; redraw(); }),
+      S.features ? h('label', { class: 'check' }, h('input', { type: 'checkbox', checked: o.audio, onchange: (e) => { o.audio = e.target.checked; save(); } }),
+        'Also save a copy with the audio slice') : null,
+      S.features ? h('div', { class: 'field', style: 'margin:8px 0 0' }, h('label', {}, 'Promo copy with the song · Reels / TikTok / Spotify countdown'),
+        h('div', { class: 'seg' }, ...[[0, 'Off'], [15, '15 s'], [30, '30 s']].map(([v, l]) => h('button', { class: o.promo === v ? 'on' : '', onclick: () => { o.promo = v; redraw(); } }, l)))) : null,
+    ] : []),
+    h('label', { class: 'check' }, h('input', { type: 'checkbox', checked: o.autoSave !== false, onchange: (e) => { o.autoSave = e.target.checked; save(); } }),
+      'Save to my Downloads folder when it’s done'),
+    rapid ? h('div', { class: 'warn-note' }, h('b', {}, '⚠ Rapid cuts. '), `The shortest segment is ${minSeg.toFixed(2)} s. Spotify asks Canvases to avoid rapid video cuts. Try a slower rhythm (½ bar or Bar) in Edit.`) : null,
     h('div', { class: 'summary' },
       h('span', {}, 'Look'), h('b', {}, S.look.name),
+      h('span', {}, 'Size'), h('b', {}, o.format === 'apple_square' ? '3840 × 3840 (rendered at 2048)' : `${W} × ${H} · ${FORMATS[o.format].name}`),
       h('span', {}, 'Length'), h('b', {}, `${L.toFixed(3)} s · ${frames} frames @ 30 fps`),
       h('span', {}, 'Tempo'), h('b', {}, `${bpm().toFixed(2)} BPM · ${S.bars || '—'} bars`),
       h('span', {}, 'Edit'), h('b', {}, `${ctx.tl.segs.length} cuts · ${S.selected.length} clips`),
-      h('span', {}, 'Audio'), h('b', {}, S.features ? `${fmt(S.loopStart)} → ${fmt(S.loopStart + L)}` : 'none (silent canvas)')),
+      h('span', {}, 'Audio'), h('b', {}, S.features ? `${fmt(audioStart())} → ${fmt(audioStart() + L)}` : 'none (silent canvas)')),
     h('div', { class: 'actions' }, h('button', { class: 'btn primary', onclick: runExport }, 'Render & verify'), h('button', { class: 'btn', onclick: () => sheet.classList.remove('on') }, 'Cancel')),
+    h('div', { class: 'batch' }, h('div', { class: 'ph' }, 'Batch'),
+      h('div', { class: 'row', style: 'gap:6px;flex-wrap:wrap' },
+        h('button', { class: 'btn sm', title: 'Roll 4 times and export each roll; the studio returns to this edit afterwards', onclick: () => runBatch('rolls') }, '🎲 Export 4 rolls'),
+        S.tracks.length > 1 ? h('button', { class: 'btn sm', title: 'This look and edit on every track in the library, each at its top loop suggestion: one theme across a release', onclick: () => runBatch('tracks') }, `♫ This look on all ${S.tracks.length} tracks`) : null)),
   ].filter(Boolean));
 }
 
-async function runExport() {
-  const sheet = $('#exportSheet');
-  const [W, H] = { master: [1080, 1920], lite: [720, 1280], strict: [608, 1080] }[S.exportOpts.size] || [1080, 1920];
-  const pct = h('div', { class: 'pct' }, '0%'), bar = h('i'), info = h('div', { class: 'note' }, 'Preparing clips…');
-  exportAbort = new AbortController();
-  sheet.replaceChildren(h('h2', {}, 'Rendering…'), h('div', { class: 'progress' }, pct, h('div', { class: 'pbar' }, bar), info),
-    h('div', { class: 'actions' }, h('button', { class: 'btn', onclick: () => exportAbort.abort() }, 'Cancel')));
+// Renders the current edit once and returns the server's export entry. The caller owns the UI.
+async function renderOnce(onProgress) {
+  const [W, H] = exportSize();
+  const o = S.exportOpts;
   const was = transport.playing;
   transport.pause(); renderTransport();
   S.exporting = true;
@@ -1162,23 +1348,18 @@ async function runExport() {
   badge.style.display = 'block';
   badge.textContent = `Rendering ${W}×${H} · frame-exact`;
   try {
-    const res = await exportLoop({
+    return await exportLoop({
       engine, bank, ctx: snapshot, width: W, height: H,
-      meta: { look: S.look.name, bpm: bpm(), duration: ctx.L, track_id: S.trackId || null, audio_start: S.loopStart, with_audio: !!S.features && S.exportOpts.audio },
-      signal: exportAbort.signal,
-      onProgress: ({ frame, total, speed }) => {
-        const p = Math.round((frame / total) * 100);
-        pct.textContent = `${p}%`; bar.style.width = `${p}%`;
-        info.textContent = `Frame ${frame} / ${total} · ${speed.toFixed(1)}× real-time`;
+      // Apple asks for a much higher bitrate than Spotify's small Canvas files
+      bitrate: (o.format || 'spotify') === 'spotify' ? undefined : 50_000_000,
+      meta: {
+        look: S.look.name, bpm: bpm(), duration: ctx.L, track_id: S.trackId || null, audio_start: Math.max(0, audioStart()),
+        format: o.format || 'spotify',
+        with_audio: !!S.features && o.audio && (o.format || 'spotify') === 'spotify',
+        promo_seconds: S.features && (o.format || 'spotify') === 'spotify' ? o.promo || 0 : 0,
       },
+      signal: exportAbort.signal, onProgress,
     });
-    S.renders = [res, ...S.renders.filter((r) => r.filename !== res.filename)];
-    renderExports();
-    showResult(res);
-  } catch (e) {
-    console.error(e);
-    sheet.replaceChildren(h('h2', {}, e.name === 'AbortError' ? 'Export cancelled' : 'Export failed'), h('div', { class: 'note' }, String(e.message || e)),
-      h('div', { class: 'actions' }, h('button', { class: 'btn', onclick: () => sheet.classList.remove('on') }, 'Close')));
   } finally {
     S.exporting = false;
     document.body.classList.remove('exporting');
@@ -1189,34 +1370,125 @@ async function runExport() {
   }
 }
 
+function progressUI(title) {
+  const pct = h('div', { class: 'pct' }, '0%'), bar = h('i'), info = h('div', { class: 'note' }, 'Preparing clips…');
+  $('#exportSheet').replaceChildren(h('h2', {}, title), h('div', { class: 'progress' }, pct, h('div', { class: 'pbar' }, bar), info),
+    h('div', { class: 'actions' }, h('button', { class: 'btn', onclick: () => exportAbort.abort() }, 'Cancel')));
+  return ({ frame, total, speed }, prefix = '') => {
+    const p = Math.round((frame / total) * 100);
+    pct.textContent = `${p}%`; bar.style.width = `${p}%`;
+    info.textContent = `${prefix}Frame ${frame} / ${total} · ${speed.toFixed(1)}× real-time`;
+  };
+}
+
+function exportFailed(e) {
+  console.error(e);
+  $('#exportSheet').replaceChildren(h('h2', {}, e.name === 'AbortError' ? 'Export cancelled' : 'Export failed'), h('div', { class: 'note' }, String(e.message || e)),
+    h('div', { class: 'actions' }, h('button', { class: 'btn', onclick: () => $('#exportSheet').classList.remove('on') }, 'Close')));
+}
+
+// Saves a finished export to the browser's Downloads folder, like any normal download.
+function saveToDownloads(url, filename) {
+  const a = h('a', { href: url, download: filename || '' });
+  document.body.append(a);
+  a.click();
+  a.remove();
+}
+function autoSave(res) {
+  if (S.exportOpts.autoSave === false) return;
+  saveToDownloads(res.url, res.filename);
+  if (res.promo_url) setTimeout(() => saveToDownloads(res.promo_url, ''), 400);
+}
+
+function addRender(res) {
+  S.renders = [res, ...S.renders.filter((r) => r.filename !== res.filename)];
+  renderExports();
+}
+
+async function runExport() {
+  exportAbort = new AbortController();
+  const show = progressUI('Rendering…');
+  try {
+    const res = await renderOnce(show);
+    addRender(res);
+    autoSave(res);
+    showResult(res);
+  } catch (e) { exportFailed(e); }
+}
+
+async function runBatch(kind) {
+  exportAbort = new AbortController();
+  const before = snapshot();
+  const trackBefore = S.trackId;
+  const jobs = kind === 'tracks' ? S.tracks.map((t) => t.id) : [1, 2, 3, 4];
+  const show = progressUI(kind === 'tracks' ? 'Rendering every track…' : 'Rendering 4 rolls…');
+  const done = [];
+  try {
+    for (let i = 0; i < jobs.length; i++) {
+      if (exportAbort.signal.aborted) throw new DOMException('Export cancelled', 'AbortError');
+      if (kind === 'tracks') { await selectTrack(jobs[i]); S.loopStart = S.features?.loops?.[0]?.start ?? S.loopStart; rebuild(); }
+      else rollAll();
+      await waitClipsReady();
+      const res = await renderOnce((p) => show(p, `${i + 1} / ${jobs.length} · ${S.look.name} · `));
+      addRender(res);
+      autoSave(res);
+      done.push(res);
+    }
+  } catch (e) {
+    if (!done.length) { exportFailed(e); return; }
+  } finally {
+    if (kind === 'tracks' && S.trackId !== trackBefore) await selectTrack(trackBefore, { keepLoop: true });
+    applySnapshot(before);
+  }
+  const ok = done.filter((r) => !(r.checks || []).some((c) => c.level === 'fail')).length;
+  $('#exportSheet').replaceChildren(
+    h('div', { class: 'row', style: 'justify-content:space-between' }, h('h2', {}, `Batch done · ${done.length} exports`), h('button', { class: 'btn icon', onclick: () => $('#exportSheet').classList.remove('on') }, '✕')),
+    h('div', { class: 'note' }, `${ok} of ${done.length} passed every check. They’re all in Exports on the left; the studio is back on your edit.`),
+    h('div', { class: 'checks' }, ...done.map((r) => h('div', { class: `ck ${(r.checks || []).some((c) => c.level === 'fail') ? 'fail' : 'ok'}` },
+      h('span', { class: 'ic' }, '↓'), h('a', { href: r.url, download: r.filename }, r.filename), h('span', {}, `${r.size_mb} MB`)))));
+}
+
+// Waits until the clips the current edit needs can be decoded (after a roll or track switch).
+async function waitClipsReady(ms = 20000) {
+  const t0 = performance.now();
+  while (performance.now() - t0 < ms) {
+    const fr = compose(ctx, 0);
+    if (fr.needs.every((n) => bank.get(n.vkey, n.clipId).readyState >= 2)) return;
+    await new Promise((r) => setTimeout(r, 150));
+  }
+}
+
 function showResult(r) {
   const checks = r.checks || [];
   const fails = checks.filter((c) => c.level === 'fail').length;
   const ic = { ok: '✓', warn: '!', fail: '✕' };
+  const apple = r.format && r.format !== 'spotify';
   $('#exportSheet').replaceChildren(
-    h('div', { class: 'row', style: 'justify-content:space-between' }, h('h2', {}, fails ? 'Exported — needs attention' : 'Spotify-ready'), h('button', { class: 'btn icon', onclick: () => $('#exportSheet').classList.remove('on') }, '✕')),
+    h('div', { class: 'row', style: 'justify-content:space-between' }, h('h2', {}, fails ? 'Exported — needs attention' : apple ? 'Apple Music-ready' : 'Spotify-ready'), h('button', { class: 'btn icon', onclick: () => $('#exportSheet').classList.remove('on') }, '✕')),
     h('div', { class: 'note' }, `${r.filename} · ${r.size_mb} MB · rendered in ${r.seconds.toFixed(1)} s (${r.codec})`),
     h('div', { class: 'checks' }, ...checks.map((c) => h('div', { class: `ck ${c.level}` }, h('span', { class: 'ic' }, ic[c.level]), h('b', {}, c.label), h('span', {}, c.detail)))),
     h('div', { class: 'actions' },
       h('a', { class: 'btn primary', href: r.url, download: r.filename }, '↓ Download MP4'),
       r.audio_url ? h('a', { class: 'btn', href: r.audio_url, download: '' }, '↓ With audio') : null,
+      r.promo_url ? h('a', { class: 'btn', href: r.promo_url, download: '' }, '↓ Promo with song') : null,
       h('button', { class: 'btn', onclick: () => reveal(r.filename) }, 'Reveal in Finder')),
   );
 }
 
 // Uploads + polling
 async function uploadFiles(files) {
-  let n = 0;
+  let n = 0, stills = 0;
   for (const f of files) {
     toast(`Uploading ${f.name}…`, 6000);
     const r = await fetch('/api/upload', { method: 'POST', headers: { 'X-Filename': encodeURIComponent(f.name) }, body: f }).then((x) => x.json()).catch(() => ({}));
     if (!r.ok) { toast(`Could not add ${f.name}`); continue; }
     n++;
+    if (r.still) stills++;
     await refreshState();
     if (r.kind === 'video' && !S.selected.includes(r.id)) S.selected.push(r.id);
     if (r.kind === 'audio') await selectTrack(r.id);
   }
-  if (n) { renderClips(); renderTrack(); rebuild(); toast(`Added ${n} file${n > 1 ? 's' : ''}`); }
+  if (n) { renderClips(); renderTrack(); rebuild(); toast(stills ? `Added ${n} file${n > 1 ? 's' : ''} — stills come alive with the “Album art & stills” looks` : `Added ${n} file${n > 1 ? 's' : ''}`, stills ? 4200 : 2400); }
 }
 
 async function refreshState() {
@@ -1239,6 +1511,14 @@ function bindUI() {
   $$('#modeSeg button').forEach((b) => b.addEventListener('click', () => { transport.setMode(b.dataset.mode); renderTransport(); save(); }));
   $('#tHud').addEventListener('click', () => { S.hud = !S.hud; renderTransport(); save(); });
   $('#tSafe').addEventListener('click', () => { S.safe = !S.safe; renderTransport(); save(); });
+  $('#tOffSync').addEventListener('click', () => {
+    const was = transport.playing;
+    if (was) transport.pause();
+    transport.phase = transport.phase ? 0 : Math.max(0.05, Math.random() * transport.len);
+    if (was) transport.play();
+    renderTransport();
+    toast(transport.phase ? `Canvas starts ${transport.phase.toFixed(2)} s out of step with the song — as it can on Spotify` : 'Canvas back in step with the song');
+  });
   $('#tMute').addEventListener('click', () => { S.muted = !S.muted; transport.setMuted(S.muted); renderTransport(); save(); });
   $('#trackSelect').addEventListener('change', (e) => selectTrack(e.target.value));
   const reorder = (fn, msg) => { if (!S.selected.length) return; fn(); S.segOverrides = {}; renderClips(); rebuild(); renderLayers(); if (msg) toast(msg); };
@@ -1249,6 +1529,7 @@ function bindUI() {
   $('#btnAllClips').addEventListener('click', () => { S.selected = [...S.selected, ...S.clips.map((c) => c.id).filter((id) => !S.selected.includes(id))]; reorder(() => {}, `Using all ${S.selected.length} clips`); });
   $('#btnSoloClip').addEventListener('click', () => { if (S.selected.length) { S.selected = [S.selected[0]]; reorder(() => {}, 'Solo: first clip only'); } });
   $('#btnAddMedia').addEventListener('click', () => $('#fileInput').click());
+  $('#btnAutoFrame').addEventListener('click', autoFrame);
   $('#fileInput').addEventListener('change', (e) => { const files = [...e.target.files]; e.target.value = ''; if (files.length) uploadFiles(files); });
   $('#btnRoll').addEventListener('click', rollAll);
   $('#btnRollOpts').addEventListener('click', (e) => openRollOpts(e.currentTarget));
@@ -1261,7 +1542,13 @@ function bindUI() {
   $$('.modal-bg').forEach((m) => m.addEventListener('click', (e) => { if (e.target === m || e.target.closest('[data-close]')) closeModals(); }));
 
   addEventListener('keydown', (e) => {
-    if (e.target.closest('input, select, textarea, [contenteditable]') || e.metaKey || e.ctrlKey) return;
+    if ((e.metaKey || e.ctrlKey) && (e.key === 'z' || e.key === 'Z' || e.key === 'y') && !e.target.closest?.('input[type=text], input[type=number], textarea, [contenteditable]')) {
+      if (S.exporting) return;
+      e.preventDefault();
+      if (e.key === 'y' || e.shiftKey) redo(); else undo();
+      return;
+    }
+    if (e.target.closest?.('input, select, textarea, [contenteditable]') || e.metaKey || e.ctrlKey) return;
     if (S.exporting) return;
     const k = e.key;
     if (k === ' ') { e.preventDefault(); transport.toggle(); renderTransport(); }
@@ -1270,6 +1557,7 @@ function bindUI() {
     else if (k === 'm' || k === 'M') varState.open ? buildVariations() : openVariations();
     else if (k === 'r' || k === 'R') surprise();
     else if (k === 'd') rollAll();
+    else if (k === 't' || k === 'T') tapTempo();
     else if (k === 'D') undoRoll();
     else if (k === 'e' || k === 'E') openExport();
     else if (k === 'h' || k === 'H') { S.hud = !S.hud; renderTransport(); save(); }
@@ -1299,6 +1587,89 @@ function bindUI() {
   });
 }
 
+// Reframe: drag the preview to move the crop of the clip under the playhead, scroll to zoom it,
+// double-click to reset. Stored per clip as [x, y, zoom] around which the camera drifts.
+function bindReframe() {
+  const view = $('#view');
+  let rf = null;
+  const target = () => {
+    const n = lastFrame?.needs[0];
+    const c = n && S.clips.find((x) => x.id === n.clipId);
+    return c ? { c, n } : null;
+  };
+  const room = (c, zoom) => {
+    const ca = 9 / 16, va = c.width / Math.max(1, c.height);
+    const frac = va > ca ? [ca / va, 1] : [1, va / ca];
+    return { frac, room: frac.map((f) => Math.max(0, (1 - f / zoom) / 2)) };
+  };
+  view.addEventListener('pointerdown', (e) => {
+    const tg = !S.exporting && target();
+    if (!tg) return;
+    const f = S.clipFrame[tg.c.id] || [0.5, 0.5, 1];
+    rf = { id: tg.c.id, c: tg.c, x: e.clientX, y: e.clientY, f0: [...f], zoom: tg.n.cam.zoom, moved: false };
+    view.setPointerCapture(e.pointerId);
+    view.style.cursor = 'grabbing';
+  });
+  view.addEventListener('pointermove', (e) => {
+    if (!rf) return;
+    const r = view.getBoundingClientRect();
+    const { frac, room: rm } = room(rf.c, rf.zoom);
+    const x = clamp(rf.f0[0] - ((e.clientX - rf.x) / r.width) * (frac[0] / rf.zoom), 0.5 - rm[0], 0.5 + rm[0]);
+    const y = clamp(rf.f0[1] + ((e.clientY - rf.y) / r.height) * (frac[1] / rf.zoom), 0.5 - rm[1], 0.5 + rm[1]);
+    if (Math.abs(e.clientX - rf.x) + Math.abs(e.clientY - rf.y) > 3) rf.moved = true;
+    S.clipFrame[rf.id] = [x, y, rf.f0[2]];
+    rebuild();
+  });
+  const end = () => {
+    if (!rf) return;
+    if (rf.moved) { save(); toast(`Reframed ${rf.c.name} · double-click the preview to reset`); }
+    rf = null;
+    view.style.cursor = '';
+  };
+  view.addEventListener('pointerup', end);
+  view.addEventListener('pointercancel', end);
+  view.addEventListener('wheel', (e) => {
+    const tg = !S.exporting && target();
+    if (!tg) return;
+    e.preventDefault();
+    const f = S.clipFrame[tg.c.id] || [0.5, 0.5, 1];
+    S.clipFrame[tg.c.id] = [f[0], f[1], clamp(f[2] * Math.exp(-e.deltaY * 0.0015), 1, 3)];
+    rebuild();
+  }, { passive: false });
+  view.addEventListener('dblclick', () => {
+    const tg = target();
+    if (!tg || !S.clipFrame[tg.c.id]) return;
+    delete S.clipFrame[tg.c.id];
+    rebuild();
+    toast(`Framing reset for ${tg.c.name}`);
+  });
+}
+
+// Auto-frame: the server finds faces (or the busiest, most contrasted region) in each clip and
+// the crop centres on it. Image y runs downward; texture y runs upward.
+async function autoFrame() {
+  if (!S.selected.length) { toast('Pick a few clips first'); return; }
+  const btn = $('#btnAutoFrame');
+  btn.disabled = true;
+  btn.textContent = '⌖ Finding subjects…';
+  const found = { faces: 0, subject: 0, center: 0 };
+  try {
+    await Promise.all(S.selected.map(async (id) => {
+      const r = await fetchJSON(`/api/autoframe/${id}`).catch(() => null);
+      if (!r?.ok) return;
+      found[r.method] = (found[r.method] || 0) + 1;
+      if (r.method === 'center') { delete S.clipFrame[id]; return; }
+      S.clipFrame[id] = [r.focus[0], 1 - r.focus[1], S.clipFrame[id]?.[2] || 1];
+    }));
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '⌖ Auto-frame subjects';
+  }
+  rebuild();
+  const parts = [found.faces && `${found.faces} on faces`, found.subject && `${found.subject} on the subject`, found.center && `${found.center} centred`].filter(Boolean);
+  toast(parts.length ? `Auto-framed ${parts.join(', ')} · drag the preview to fine-tune` : 'Could not analyse the clips');
+}
+
 function setTab(tab) {
   S.tab = tab;
   $$('#tabs button').forEach((b) => b.classList.toggle('on', b.dataset.tab === tab));
@@ -1320,7 +1691,48 @@ let rollSeed = (Date.now() % 1e9) >>> 0;
 function snapshot() {
   return JSON.stringify({ look: S.look, lookId: S.lookId, direction: S.direction, seed: S.seed, intensity: S.intensity, clipMode: S.clipMode,
     clipLooks: S.clipLooks, editClip: S.editClip, evolveAmt: S.evolveAmt, selected: S.selected, loopStart: S.loopStart, bars: S.bars,
-    customCuts: S.customCuts, segOverrides: S.segOverrides });
+    customCuts: S.customCuts, segOverrides: S.segOverrides, clipFrame: S.clipFrame });
+}
+
+// Undo / redo for every edit: save() runs after each change; settled states (350 ms apart)
+// become history steps, so a slider drag is one step.
+const hist = [], fut = [];
+let histLast = null, histTimer = 0, histMuted = false;
+function queueHistory() {
+  if (histMuted || !S.look) return;
+  clearTimeout(histTimer);
+  histTimer = setTimeout(commitHistory, 350);
+}
+function commitHistory() {
+  clearTimeout(histTimer);
+  const snap = snapshot();
+  if (histLast !== null && snap !== histLast) {
+    hist.push(histLast);
+    if (hist.length > 100) hist.shift();
+    fut.length = 0;
+  }
+  histLast = snap;
+}
+function applySnapshot(snap) {
+  histMuted = true;
+  Object.assign(S, JSON.parse(snap));
+  refreshAll();
+  histMuted = false;
+  histLast = snap;
+}
+function undo() {
+  commitHistory();
+  if (!hist.length) { toast('Nothing to undo'); return; }
+  fut.push(histLast);
+  applySnapshot(hist.pop());
+  toast('↶ Undo');
+}
+function redo() {
+  commitHistory();
+  if (!fut.length) { toast('Nothing to redo'); return; }
+  hist.push(histLast);
+  applySnapshot(fut.pop());
+  toast('↷ Redo');
 }
 
 function refreshAll() {
@@ -1347,6 +1759,7 @@ function rollAll() {
     l.cut = {
       rhythm: pick(['hits', 'hits', 'beat', 'half', 'half', 'bar', 'bar', 'bar2', 'sync', 'build', 'varied', 'even', 'twice', 'eighth']),
       transitions: pool, beats: pick([0.25, 0.5, 0.5, 1, 1, 2]), order: pick(['cycle', 'random', 'random']),
+      velocity: pick(['none', 'none', 'none', 'none', 'surge', 'surge', 'swell', 'hold', 'wave', 'ramp']),
     };
     S.direction = pick(['forward', 'forward', 'forward', 'alternate', 'reverse', 'pingpong', 'random']);
     l.camera.p.speed = pick([0.6, 0.8, 1, 1, 1, 1.25, 1.5]);
@@ -1432,6 +1845,7 @@ async function init() {
   buildMeters();
   bindUI();
   bindTimeline();
+  bindReframe();
   setTab(S.tab || 'looks');
   renderClips(); renderTrack(); renderExports(); renderLooks(); renderLayers(); renderEdit(); renderTransport();
   await selectTrack(S.trackId, { initial: true });

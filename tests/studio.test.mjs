@@ -1,13 +1,14 @@
 // Unit tests for the GPU Studio's pure modules (run: node --test tests/).
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { planTimeline, sampleTimeline, clipTime, loopBeats, RHYTHMS, DIRECTIONS } from '../canvasforge/studio/timeline.js';
+import { planTimeline, sampleTimeline, clipTime, cameraFor, loopBeats, velocityAt, RHYTHMS, DIRECTIONS, VELOCITY } from '../canvasforge/studio/timeline.js';
 import { compose, resolveParams } from '../canvasforge/studio/composer.js';
 import { flashesPerSecond } from '../canvasforge/studio/exporter.js';
 import { LOOKS, chaosLook, evolveLook, mutate, randomLook } from '../canvasforge/studio/looks.js';
 import { CAMERA, FINISH_DEF, MODULES } from '../canvasforge/studio/modules.js';
 import { TRANSITIONS } from '../canvasforge/studio/shaders.js';
-import { makeSampler } from '../canvasforge/studio/audio.js';
+import { makeSampler, withLook } from '../canvasforge/studio/audio.js';
+import { MOD_SOURCES } from '../canvasforge/studio/modules.js';
 
 const FPS = 30;
 const clips = [{ id: 'a', duration: 12 }, { id: 'b', duration: 9 }, { id: 'c', duration: 20 }];
@@ -66,6 +67,38 @@ test('every clip direction keeps clip time inside the clip and moving at real sp
   }
   const pp = planTimeline({ ...base, rhythm: 'bar', direction: 'pingpong' }).segs[0];
   assert.ok(Math.abs(clipTime(pp, 0, 60) - clipTime(pp, pp.dur, 60)) < 1e-9, 'ping-pong returns to its in-point');
+});
+
+test('speed ramps follow their curve, use the same footage per beat and never leave the clip', () => {
+  for (const [vel, V] of Object.entries(VELOCITY)) {
+    const tl = planTimeline({ ...base, rhythm: 'bar', velocity: vel });
+    const vmax = Math.max(...Array.from({ length: 101 }, (_, i) => V.v(Math.min(0.9999, i / 100))));
+    for (const seg of tl.segs) {
+      // a whole number of ramp periods consumes exactly the footage of constant speed
+      const per = V.per * base.beatDur;
+      if (Math.abs(seg.dur / per - Math.round(seg.dur / per)) < 1e-9) {
+        assert.ok(Math.abs(clipTime(seg, seg.dur, 60) - clipTime(seg, 0, 60) - seg.dur) < 1e-6, `${vel}: footage used`);
+      }
+      for (let i = -6; i < seg.dur * FPS + 6; i++) {
+        const a = clipTime(seg, i / FPS, 12), b = clipTime(seg, (i + 1) / FPS, 12);
+        assert.ok(a >= 0 && a < 12, `${vel}: ${a}`);
+        assert.ok(b - a >= -1e-9 && b - a <= (vmax / FPS) + 1e-6, `${vel}: step ${b - a}`);
+        // the preview's playback rate is the derivative of the clip time
+        const mid = (i + 0.5) / FPS;
+        if (b - a > 1e-6 && Math.abs(clipTime(seg, (i + 1) / FPS, 60) - clipTime(seg, i / FPS, 60)) > 1e-6 && vel !== 'hold') {
+          assert.ok(Math.abs((b - a) * FPS - velocityAt(seg, mid)) < 0.35 * vmax, `${vel}: rate at ${mid}`);
+        }
+      }
+    }
+  }
+});
+
+test('clip framing moves the crop centre and zoom', () => {
+  const seg = { ...planTimeline({ ...base, rhythm: 'bar' }).segs[0], focus: [0.2, 0.7, 1.5] };
+  const cam = { zoom: 1, drift: 0, shake: 0, sway: 0 };
+  const c = cameraFor(seg, 0.1, cam, 0.1, base.L, 0.25, 1);
+  assert.deepEqual(c.center, [0.2, 0.7]);
+  assert.equal(c.zoom, 1.5);
 });
 
 test('transitions are centred on their beat (p = 0.5 exactly on the cut)', () => {
@@ -191,4 +224,21 @@ test('flash counter follows the WCAG pair-of-opposing-changes rule', () => {
   assert.equal(flashesPerSecond(gentle, FPS), 0);
   const bright = Array.from({ length: 90 }, (_, i) => (Math.floor(i / 3) % 2 ? 0.95 : 0.85)); // darker state ≥ 0.8
   assert.equal(flashesPerSecond(bright, FPS), 0);
+});
+
+test('every modulation source stays in 0..1 and the clocks repeat exactly once per loop', () => {
+  for (const L of [base.beatDur * 4, base.beatDur * 16, base.beatDur * 32]) {
+    const sampler = makeSampler({ features: null, loopStart: 0, beatDur: base.beatDur, seed: 3, L });
+    const look = { ...LOOKS[0], env: [0, 1, 0.2, 0.9, 0.5, 0, 1, 0.3], seq: Array.from({ length: 16 }, (_, i) => i % 3 === 0 ? 1 : 0), macro: { a: 0.7, b: 0.2 } };
+    const at = (t) => withLook(sampler(t), look, (t % L) / L, t / base.beatDur);
+    for (let i = 0; i < 97; i++) {
+      const t = (i / 97) * L;
+      const v = at(t), w = at(t + L);
+      for (const k of Object.keys(MOD_SOURCES)) {
+        assert.ok(v[k] >= 0 && v[k] <= 1, `${k} = ${v[k]}`);
+        if (k !== 'build' && k !== 'rand') assert.ok(Math.abs(v[k] - w[k]) < 1e-6, `${k} is not loop-periodic (L=${L})`);
+      }
+    }
+    assert.equal(at(0).macroA, 0.7);
+  }
 });

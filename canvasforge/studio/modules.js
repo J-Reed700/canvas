@@ -38,6 +38,28 @@ float beatEnv(float k) { float ph = fract(uBeat); return smoothstep(0.0, 0.06, p
 
 export const MODULES = {
   // Space
+  parallax: {
+    name: '2.5D Parallax', cat: 'space', desc: 'Fakes depth from brightness and centre, then orbits the camera — brings album art and stills to life',
+    params: [P('amount', 'Depth', 0, 1, 0.55), OPT('speed', 'Orbit', ['1 bar', '2 bars', 'Whole loop']), OPT('src', 'Depth from', ['Brightness', 'Centre', 'Both'], 2),
+      P('focus', 'Focus plane', 0, 1, 0.45), P('kick', 'Kick push', 0, 1, 0.3)],
+    glsl: `float depthAt(vec2 uv) {
+      float l = 0.0;
+      for (int i = -1; i <= 1; i++) for (int j = -1; j <= 1; j++) l += luma(texture(uSrc, mirrorUv(uv + vec2(float(i), float(j)) * 0.035)).rgb);
+      l /= 9.0; l = l / (1.0 + l) * 1.6;
+      float c = 1.0 - smoothstep(0.0, 0.8, length((uv - 0.5) * vec2(aspect(), 1.0)));
+      return p_src < 0.5 ? l : (p_src < 1.5 ? c : mix(l, c, 0.55));
+    }
+    void main() {
+      // whole orbits per loop so the seam is invisible
+      float per = p_speed < 0.5 ? 4.0 : 8.0;
+      float n = p_speed > 1.5 ? 1.0 : max(1.0, floor(uLoop / max(uBeatLen, 1e-3) / per + 0.5));
+      float a = TAU * uPhase * n;
+      vec2 orbit = vec2(sin(a), 0.6 * cos(a)) * p_amount * 0.045 * (1.0 + 1.5 * p_kick * uKick);
+      vec2 uv = vUv;
+      for (int k = 0; k < 3; k++) uv = vUv - orbit * (depthAt(uv) - p_focus);
+      outColor = vec4(texture(uSrc, mirrorUv(uv)).rgb, 1.0);
+    }`,
+  },
   kaleido: {
     name: 'Kaleidoscope', cat: 'space', desc: 'Polar mirror folds that spin on the loop',
     params: [P('slices', 'Slices', 2, 16, 6, { step: 1 }), P('spin', 'Spin / loop', -3, 3, 1, { step: 1 }),
@@ -264,6 +286,20 @@ export const MODULES = {
   },
 
   // Light (multi-pass chains in engine.js)
+  stutter: {
+    name: 'Stutter', cat: 'time', desc: 'Beat-locked frame holds: choppy low-fps motion or a freeze on every beat', feedback: true,
+    params: [OPT('mode', 'Mode', ['Choppy', 'Beat freeze', 'Kick freeze']), P('rate', 'Steps / beat', 1, 8, 3, { step: 1 }),
+      P('hold', 'Freeze length', 0.1, 0.9, 0.45)],
+    glsl: `uniform sampler2D uPrev; void main() {
+      // beat position one export frame ago; a hold releases whenever a new step / beat starts
+      float pb = (uTime - 1.0 / 30.0) / max(uBeatLen, 1e-3);
+      bool fresh;
+      if (p_mode < 0.5) fresh = floor(uBeat * p_rate + 1e-4) != floor(pb * p_rate + 1e-4);
+      else if (p_mode < 1.5) fresh = floor(uBeat + 1e-4) != floor(pb + 1e-4) || fract(uBeat) > p_hold;
+      else fresh = uKick < 0.55 || fract(uBeat) > p_hold || floor(uBeat + 1e-4) != floor(pb + 1e-4);
+      outColor = vec4(fresh ? texture(uSrc, vUv).rgb : texture(uPrev, vUv).rgb, 1.0);
+    }`,
+  },
   bloom: {
     name: 'Bloom', cat: 'light', desc: 'HDR dual-filter bloom', kind: 'bloom',
     params: [P('threshold', 'Threshold', 0, 2, 0.7), P('intensity', 'Intensity', 0, 3, 0.8), P('radius', 'Radius', 0, 1, 0.7),
@@ -749,16 +785,27 @@ export function defaults(params) {
   return Object.fromEntries(params.map((p) => [p.id, p.def]));
 }
 
-// Modulation sources (all 0..1). Audio bands come from the server analysis; the rest are clocks.
+// Modulation sources (all 0..1). Audio bands come from the server analysis; clocks are locked to
+// the loop (whole cycles per loop, so they never jump at the seam); 'user' sources are set per look.
 export const MOD_SOURCES = {
-  kick: { name: 'Kick', color: '#FF5A6E' },
-  snare: { name: 'Snare', color: '#FFB547' },
-  hats: { name: 'Hats', color: '#5AD8FF' },
-  bass: { name: 'Bass', color: '#A07BFF' },
-  energy: { name: 'Energy', color: '#7CFF9B' },
-  bright: { name: 'Brightness', color: '#FFF07A' },
-  beat: { name: 'Beat pulse', color: '#FF7AE6' },
-  bar: { name: 'Bar ramp', color: '#FF9DF0' },
-  lfo: { name: 'LFO · 1 bar', color: '#C2A6FF' },
-  rand: { name: 'Random · beat', color: '#C9CED6' },
+  kick: { name: 'Kick', color: '#FF5A6E', kind: 'audio' },
+  snare: { name: 'Snare', color: '#FFB547', kind: 'audio' },
+  hats: { name: 'Hats', color: '#5AD8FF', kind: 'audio' },
+  bass: { name: 'Bass', color: '#A07BFF', kind: 'audio' },
+  energy: { name: 'Energy', color: '#7CFF9B', kind: 'audio' },
+  bright: { name: 'Brightness', color: '#FFF07A', kind: 'audio' },
+  beat: { name: 'Beat pulse', color: '#FF7AE6', kind: 'clock' },
+  off: { name: 'Off-beat pulse', color: '#FF9FB7', kind: 'clock' },
+  bar: { name: 'Bar ramp', color: '#FF9DF0', kind: 'clock' },
+  lfoH: { name: 'LFO · ½ bar', color: '#B79CFF', kind: 'clock' },
+  lfo: { name: 'LFO · 1 bar', color: '#C2A6FF', kind: 'clock' },
+  lfo2: { name: 'LFO · 2 bars', color: '#CDB8FF', kind: 'clock' },
+  tri: { name: 'Triangle · 1 bar', color: '#9FC6FF', kind: 'clock' },
+  arc: { name: 'Loop arc', color: '#8FF0D2', kind: 'clock' },
+  build: { name: 'Loop build', color: '#6FE3B5', kind: 'clock' },
+  rand: { name: 'Random · beat', color: '#C9CED6', kind: 'clock' },
+  seq: { name: 'Step sequencer', color: '#FFD36E', kind: 'user' },
+  env: { name: 'Drawn envelope', color: '#FFA36E', kind: 'user' },
+  macroA: { name: 'Macro A', color: '#C8FF4D', kind: 'user' },
+  macroB: { name: 'Macro B', color: '#4DFFC8', kind: 'user' },
 };

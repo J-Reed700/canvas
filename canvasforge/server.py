@@ -4,6 +4,7 @@ from __future__ import annotations
 import base64
 import glob
 import json
+import math
 import mimetypes
 import os
 import random
@@ -20,14 +21,14 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import cv2
 
-from . import delivery, effects
+from . import delivery, effects, framing
 from .audio import AudioProfile, analyze_track
 from .compositor import CANVAS_FPS, CANVAS_H, CANVAS_W, build_plan
 from .encoder import Encoder
 from .features import track_features
 from .proxy import ProxyManager
 from .recipe import PRESETS, make_recipe
-from .source import GLOBAL_CACHE, Source, extract_thumbnail_jpeg, probe
+from .source import GLOBAL_CACHE, IMAGE_EXTS, Source, extract_thumbnail_jpeg, probe, still_to_clip
 
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 OUT_DIR = os.path.join(PROJECT_ROOT, "out")
@@ -73,6 +74,7 @@ class StudioState:
         self._renders: list[dict] = []
         self.active_job: dict | None = None
         self.raw_sessions: dict[str, tuple[delivery.RawSession, dict]] = {}
+        self.framing: dict[str, dict] = {}  # clip id -> autoframe result
         self._proxies: ProxyManager | None = None
         self._initialized: bool = False
 
@@ -162,14 +164,18 @@ class StudioState:
         os.makedirs(OUT_DIR, exist_ok=True)
         for path in sorted(glob.glob(os.path.join(OUT_DIR, "*.mp4")), key=os.path.getmtime, reverse=True):
             name = os.path.basename(path)
-            if name.endswith("-audio.mp4"):
+            if name.endswith("-audio.mp4") or re.search(r"-promo-\d+s\.mp4$", name):
                 continue
             size_mb = round(os.path.getsize(path) / (1024 * 1024), 2)
+            audio = path[:-4] + "-audio.mp4"
+            promos = sorted(glob.glob(glob.escape(path[:-4]) + "-promo-*s.mp4"))
             self._renders.append(
                 {
                     "filename": name,
                     "url": f"/out/{urllib.parse.quote(name)}",
-                    "audio_url": None,
+                    "audio_url": f"/out/{urllib.parse.quote(os.path.basename(audio))}" if os.path.isfile(audio) else None,
+                    "promo_url": f"/out/{urllib.parse.quote(os.path.basename(promos[-1]))}" if promos else None,
+                    "format": "apple_tall" if "-apple-tall-" in name else "apple_square" if "-apple-square-" in name else "spotify",
                     "size_mb": size_mb,
                     "created_at": int(os.path.getmtime(path)),
                     "resolution": "1080x1920" if "master" in name or "sample" in name else "540x960",
@@ -187,14 +193,17 @@ class StudioState:
     def add_export(self, dest: str, meta: dict, result: dict) -> dict:
         name = os.path.basename(dest)
         audio_path = result.get("audio_path")
+        promo_path = result.get("promo_path")
         entry = {
             "filename": name,
             "url": f"/out/{urllib.parse.quote(name)}?t={int(time.time())}",
             "audio_url": f"/out/{urllib.parse.quote(os.path.basename(audio_path))}" if audio_path else None,
+            "promo_url": f"/out/{urllib.parse.quote(os.path.basename(promo_path))}" if promo_path else None,
+            "format": _export_format(meta),
             "size_mb": result["size_mb"],
             "created_at": int(time.time()),
-            "resolution": f"{meta.get('width')}x{meta.get('height')}",
-            "duration": meta.get("duration"),
+            "resolution": f"{result.get('width') or meta.get('width')}x{result.get('height') or meta.get('height')}",
+            "duration": result.get("duration") or meta.get("duration"),
             "bpm": meta.get("bpm"),
             "preset": meta.get("look") or "canvas",
             "look": meta.get("look"),
@@ -390,11 +399,26 @@ def run_render_job(params: dict) -> dict:
         raise
 
 
+def _export_format(meta: dict) -> str:
+    fmt = str(meta.get("format") or "spotify")
+    return fmt if fmt in delivery.FORMATS else "spotify"
+
+
 def _export_dest(meta: dict) -> str:
     look = re.sub(r"[^a-z0-9]+", "-", str(meta.get("look") or "canvas").lower()).strip("-") or "canvas"
     bpm = int(round(float(meta.get("bpm") or 0)))
     stamp = time.strftime("%Y%m%d-%H%M%S")
-    name = f"canvas-{look}-{bpm}bpm-{float(meta.get('duration') or 0):.1f}s-{meta.get('width')}x{meta.get('height')}-{stamp}.mp4"
+    fmt = _export_format(meta)
+    tag = "" if fmt == "spotify" else f"{fmt.replace('_', '-')}-"
+    dur, w, h = float(meta.get("duration") or 0), meta.get("width"), meta.get("height")
+    if fmt != "spotify":
+        # name the delivered file: Apple formats are upscaled to their spec size and repeated
+        w, h = delivery.FORMATS[fmt]["size"]
+        n = max(1, math.ceil(delivery.APPLE["safe_min_seconds"] / dur - 1e-6)) if dur > 0 else 1
+        while n > 1 and n * dur > delivery.APPLE["max_seconds"] + 1e-6:
+            n -= 1
+        dur *= n
+    name = f"canvas-{look}-{tag}{bpm}bpm-{dur:.1f}s-{w}x{h}-{stamp}.mp4"
     os.makedirs(OUT_DIR, exist_ok=True)
     return os.path.join(OUT_DIR, name)
 
@@ -414,12 +438,19 @@ def _abort_raw(sid: str) -> None:
 
 def _finish_export(dest: str, meta: dict) -> dict:
     prof = STATE.tracks.get(meta.get("track_id") or "")
+    try:
+        promo = max(0.0, min(60.0, float(meta.get("promo_seconds") or 0)))
+    except (TypeError, ValueError):
+        promo = 0.0
     result = delivery.deliver(
         dest,
-        prof.path if prof and meta.get("with_audio", True) else None,
+        prof.path if prof else None,
         float(meta.get("audio_start") or 0.0),
         float(meta.get("duration") or 8.0),
         meta.get("stats"),
+        fmt=_export_format(meta),
+        promo_seconds=promo,
+        with_audio=bool(meta.get("with_audio", True)),
     )
     return STATE.add_export(dest, meta, result)
 
@@ -503,6 +534,8 @@ class StudioHandler(BaseHTTPRequestHandler):
             self._get_status()
         elif route.startswith("/api/thumb/"):
             self._get_thumb(route, query)
+        elif route.startswith("/api/autoframe/"):
+            self._get_autoframe(route)
         elif route.startswith("/api/clip_video/"):
             self._get_clip_video(route)
         elif route.startswith("/api/track_audio/"):
@@ -526,6 +559,27 @@ class StudioHandler(BaseHTTPRequestHandler):
             self.send_error(HTTPStatus.FORBIDDEN)
             return
         self._serve_file(safe_path, STATIC_TYPES.get(os.path.splitext(safe_path)[1].lower()))
+
+    def _get_autoframe(self, route: str) -> None:
+        cid = urllib.parse.unquote(route.split("/api/autoframe/", 1)[1])
+        src = STATE.clips.get(cid)
+        if not src:
+            self._send_json({"ok": False}, status=404)
+            return
+        with STATE.lock:
+            hit = STATE.framing.get(cid)
+        if hit is None:
+            # the short-GOP proxy seeks far faster than a long-GOP original; same framing
+            proxy = STATE.proxies.path_for(src)
+            path = proxy if STATE.proxies.ready(src) and os.path.isfile(proxy) else src.path
+            try:
+                hit = framing.autoframe(path)
+            except Exception as exc:
+                self._send_json({"ok": False, "error": str(exc)}, status=500)
+                return
+            with STATE.lock:
+                STATE.framing[cid] = hit
+        self._send_json({"ok": True, **hit})
 
     def _get_features(self, route: str, query: dict[str, list[str]]) -> None:
         track_id = route.split("/api/features/", 1)[1]
@@ -562,6 +616,7 @@ class StudioHandler(BaseHTTPRequestHandler):
                 "fps": round(s.fps, 1),
                 "duration": round(s.duration, 1),
                 "is_stock": s.name[0].isdigit(),
+                "still": s.path.endswith(".still.mp4"),
                 "proxy": STATE.proxies.status(s),
             }
             for s in STATE.clips.values()
@@ -843,8 +898,9 @@ class StudioHandler(BaseHTTPRequestHandler):
                     }
                 )
             else:
-                src = STATE.add_clip_path(dest)
-                self._send_json({"ok": True, "kind": "video", "id": src.id, "name": src.name})
+                still = ext in IMAGE_EXTS
+                src = STATE.add_clip_path(still_to_clip(dest) if still else dest)
+                self._send_json({"ok": True, "kind": "video", "id": src.id, "name": src.name, "still": still})
         except Exception as exc:
             self._send_json({"ok": False, "error": str(exc)}, status=400)
 

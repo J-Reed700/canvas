@@ -87,8 +87,13 @@
   .track-meta { align-items: center; }
   .bpm-edit b { color: var(--text); padding: 1px 4px; margin-left: -4px; border-radius: 5px; outline: none; cursor: text; }
   .bpm-edit b:hover, .bpm-edit b:focus { background: var(--raised-2); box-shadow: 0 0 0 1px var(--line-2) inset; }
-  .track-meta .mini { height: 20px; padding: 0 6px; border-radius: 6px; font: 600 10.5px var(--mono); color: var(--text-2); background: var(--raised); border: 1px solid var(--line); }
-  .track-meta .mini:hover { color: var(--text); border-color: var(--line-2); }
+  .track-meta .mini, .mini-presets .mini { height: 20px; padding: 0 6px; border-radius: 6px; font: 600 10.5px var(--mono); color: var(--text-2); background: var(--raised); border: 1px solid var(--line); }
+  .track-meta { flex-wrap: wrap; }
+  .track-meta .bpm-edit { white-space: nowrap; }
+  .track-meta .grid-row { flex-basis: 100%; display: flex; align-items: center; gap: 4px; margin-top: 2px; color: var(--text-3); font-size: 11px; }
+  .track-meta .grid-row > span:first-child { margin-right: auto; }
+  .track-meta .nudge { font: 600 10.5px var(--mono); color: var(--text-3); cursor: pointer; min-width: 38px; text-align: center; }
+  .track-meta .mini:hover, .mini-presets .mini:hover { color: var(--text); border-color: var(--line-2); }
   .meters { display: grid; grid-template-columns: repeat(6, 1fr); gap: 6px; margin-top: 12px; }
   .meter { display: flex; flex-direction: column; align-items: center; gap: 5px; }
   .meter .bar { width: 100%; height: 38px; border-radius: 6px; background: var(--raised); position: relative; overflow: hidden; }
@@ -138,6 +143,7 @@
   .hud.hidden { opacity: 0; }
   .safe { position: absolute; inset: 0; pointer-events: none; display: none; }
   .safe.on { display: block; }
+  .safe div.side { writing-mode: vertical-rl; background: repeating-linear-gradient(45deg, rgba(255,181,71,0.2) 0 8px, rgba(255,181,71,0.06) 8px 16px); border-color: rgba(255,181,71,0.7); font-size: 9px; }
   .safe div { position: absolute; left: 0; right: 0; background: repeating-linear-gradient(45deg, rgba(255,79,163,0.22) 0 8px, rgba(255,79,163,0.08) 8px 16px); border: 1px dashed rgba(255,79,163,0.7); font: 600 10px var(--mono); color: #fff; display: flex; align-items: center; justify-content: center; letter-spacing: 0.06em; }
   .stage-badge { position: absolute; top: 14px; left: 50%; transform: translateX(-50%); z-index: 3; font: 600 11px var(--mono); padding: 6px 12px; border-radius: 99px; background: rgba(0,0,0,0.6); border: 1px solid var(--line-2); backdrop-filter: blur(12px); display: none; }
   .empty-stage { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; color: var(--text-2); text-align: center; padding: 30px; font-size: 13px; }
@@ -156,6 +162,22 @@
   .seg button:hover { color: var(--text); }
   .seg button.on { background: var(--raised-2); color: var(--text); box-shadow: 0 0 0 1px var(--line-2) inset; }
   .seg button:disabled { opacity: 0.3; cursor: default; }
+  .seg.wrap { display: flex; flex-wrap: wrap; }
+  .fmt-seg { display: flex; margin: 10px 0 4px; }
+  .fmt-seg button { flex: 1; }
+  .warn-note { margin: 10px 0 0; padding: 9px 11px; border-radius: 10px; font-size: 12px; line-height: 1.45; color: var(--text-2); background: rgba(255,181,71,0.08); border: 1px solid rgba(255,181,71,0.35); }
+  .warn-note b { color: #FFB547; }
+  .batch { margin-top: 14px; padding-top: 10px; border-top: 1px solid var(--line); }
+  .batch .ph { font-size: 11px; color: var(--text-3); text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 6px; }
+  .checks .ck a { color: var(--text); text-decoration: none; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .envcv { width: 100%; height: 64px; display: block; border-radius: 8px; background: var(--raised); border: 1px solid var(--line); cursor: crosshair; touch-action: none; }
+  .mod-h { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 10px 0 6px; font-size: 11px; color: var(--text-2); }
+  .mini-presets { display: flex; gap: 4px; flex-wrap: wrap; justify-content: flex-end; }
+  .seqgrid { display: grid; grid-template-columns: repeat(16, 1fr); gap: 3px; }
+  .seqgrid button { height: 22px; border-radius: 4px; background: var(--raised-2); border: 1px solid var(--line); }
+  .seqgrid button:nth-child(4n+1) { box-shadow: -2px 0 0 0 var(--line-2); }
+  .seqgrid button.on { background: #FFD36E; border-color: #FFD36E; }
+  .seqgrid button.cur { outline: 2px solid rgba(255,255,255,0.8); outline-offset: -2px; }
   .tdiv { width: 1px; height: 22px; background: var(--line); }
   .toggle { height: 30px; padding: 0 10px; border-radius: 9px; color: var(--text-3); font-size: 12px; font-weight: 550; border: 1px solid transparent; }
   .toggle.on { color: var(--text); background: var(--raised); border-color: var(--line); }
@@ -324,6 +346,7 @@
   .clip-tools { display: flex; flex-wrap: wrap; gap: 5px; margin-bottom: 10px; }
   .clip-tools .btn { flex: 1 1 0; justify-content: center; padding: 0 6px; }
   .clip-tools .btn.add { flex-basis: 100%; border-style: dashed; }
+  .clip-tools .btn.wide { flex-basis: 100%; }
   .clip .lk { position: absolute; top: 6px; right: 6px; max-width: calc(100% - 40px); height: 20px; padding: 0 7px; border-radius: 6px; background: rgba(10,10,14,0.72); border: 1px solid rgba(255,255,255,0.18); color: rgba(255,255,255,0.8); font: 600 10px/18px var(--font); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; backdrop-filter: blur(6px); }
   .clip .lk.own { border-color: rgba(255,122,230,0.7); color: #FFC9F5; }
   .clip .lk.on { background: #FF7AE6; color: #16081F; border-color: transparent; }
@@ -384,15 +407,16 @@
       <section class="sec">
         <div class="sec-h"><h3>Clips</h3><span class="meta" id="clipCount"></span></div>
         <div class="clip-tools">
-          <button class="btn sm add" id="btnAddMedia" title="Add video clips or audio tracks from disk (or drop them anywhere)">+ Add clips or tracks</button>
+          <button class="btn sm add" id="btnAddMedia" title="Add video clips, album art / photos or audio tracks from disk (or drop them anywhere)">+ Add clips, art or tracks</button>
           <button class="btn sm" id="btnAllClips" title="Use every clip">All</button>
           <button class="btn sm" id="btnSoloClip" title="Use only the first clip in the sequence">Solo</button>
           <button class="btn sm" id="btnReverse" title="Reverse the sequence order">Reverse</button>
           <button class="btn sm" id="btnShuffle" title="Shuffle the sequence order">Shuffle</button>
-          <input type="file" id="fileInput" multiple hidden accept="video/*,audio/*,.mp4,.mov,.m4v,.webm,.mkv,.wav,.mp3,.m4a,.aac,.flac,.aif,.aiff,.ogg">
+          <button class="btn sm wide" id="btnAutoFrame" title="Find faces or the main subject in each selected clip and centre the 9:16 crop on it. Drag the preview to adjust; double-click it to reset.">⌖ Auto-frame subjects</button>
+          <input type="file" id="fileInput" multiple hidden accept="video/*,audio/*,image/*,.mp4,.mov,.m4v,.webm,.mkv,.wav,.mp3,.m4a,.aac,.flac,.aif,.aiff,.ogg,.jpg,.jpeg,.png,.webp,.heic">
         </div>
         <div class="clips" id="clips"></div>
-        <div class="drop-hint">Drop MP4 / MOV / WAV / MP3 anywhere · drag clips to reorder</div>
+        <div class="drop-hint">Drop MP4 / MOV / JPG / PNG / WAV / MP3 anywhere · drag clips to reorder</div>
       </section>
       <section class="sec">
         <div class="sec-h"><h3>Exports</h3><span class="meta" id="exportCount"></span></div>
@@ -410,6 +434,8 @@
           <div class="safe" id="safe">
             <div style="top:0;height:14%">TOP UI · 14%</div>
             <div style="bottom:0;height:33%">PLAYER CONTROLS · 33%</div>
+            <div class="side" style="top:14%;bottom:33%;left:0;right:auto;width:9%" title="Taller phones (19.5:9) fill the screen by cropping about 9% off each side">CROPPED ON TALL PHONES</div>
+            <div class="side" style="top:14%;bottom:33%;right:0;left:auto;width:9%">CROPPED ON TALL PHONES</div>
           </div>
           <div class="hud" id="hud">
             <div class="hud-top"><span>⌄</span><span id="hudPlaying">PLAYING FROM YOUR LIBRARY</span><span>•••</span></div>
@@ -439,6 +465,7 @@
         <button data-mode="loop" title="Hear exactly the slice that drives the canvas, looped sample-accurately">Loop</button>
         <button data-mode="listen" title="The song plays on while the canvas loops — what a listener sees">Listener</button>
       </div>
+      <button class="toggle" id="tOffSync" title="Spotify starts a Canvas without syncing it to the song. Preview the loop at a random offset against the music (click again to turn off)">Off-sync</button>
       <div class="seg" id="barsSeg"></div>
       <div class="tdiv"></div>
       <button class="toggle" id="tHud" title="Spotify player overlay (H)">Player UI</button>
@@ -510,6 +537,11 @@
       <span class="kbd">H</span><span>Toggle the Spotify player overlay</span>
       <span class="kbd">S</span><span>Toggle safe zones</span>
       <span class="kbd">L</span><span>Loop / Listener audition</span>
+      <span class="kbd">T</span><span>Tap tempo (tap along to the beat)</span>
+      <span class="kbd">⌘ Z</span><span>Undo any edit · ⇧⌘Z redo</span>
+      <span class="kbd">Drag</span><span>On the preview: reframe the current clip · scroll to zoom · double-click to reset</span>
+      <span class="kbd">⌥ Drag</span><span>On a timeline segment: slip to a different moment of the clip</span>
+      <span class="kbd">Dbl-click</span><span>On a timeline segment: clip, in-point, speed ramp, transition</span>
     </div>
   </div>
 </div>

@@ -12,6 +12,7 @@ export class Transport {
     this.start = 0; // song seconds where the loop starts
     this.len = 8;
     this.muted = false;
+    this.phase = 0; // listen mode: canvas offset against the song (Spotify does not sync them)
   }
 
   _ensureCtx() {
@@ -50,7 +51,7 @@ export class Transport {
 
   setLoop(start, len) {
     if (Math.abs(start - this.start) < 1e-9 && Math.abs(len - this.len) < 1e-9) return;
-    const t = this.loopTime();
+    const t = ((this.elapsed() % this.len) + this.len) % this.len;
     const was = this.playing;
     if (was) this.pause();
     this.start = start;
@@ -116,14 +117,18 @@ export class Transport {
     return performance.now() / 1000 - this.t0;
   }
 
-  loopTime() { return ((this.elapsed() % this.len) + this.len) % this.len; }
+  loopTime() {
+    const e = this.elapsed() + (this.mode === 'listen' ? this.phase : 0);
+    return ((e % this.len) + this.len) % this.len;
+  }
 
   songTime() { return this.start + (this.mode === 'loop' ? this.loopTime() : this.elapsed()); }
 
   seek(loopT) {
     const was = this.playing;
     if (was) this.pause();
-    this.offset = Math.max(0, loopT);
+    const ph = this.mode === 'listen' ? this.phase : 0;
+    this.offset = ph ? (((loopT - ph) % this.len) + this.len) % this.len : Math.max(0, loopT);
     if (was) this.play();
   }
 }
@@ -133,7 +138,9 @@ const hash = (n) => fract(Math.sin(n * 127.1 + 311.7) * 43758.5453);
 
 // Returns (loopTime) => modulation source values, all 0..1. Audio bands come from the
 // server analysis (identical for preview and export); without a track they are synthesised.
-export function makeSampler({ features, loopStart, beatDur, seed }) {
+export function makeSampler({ features, loopStart, beatDur, seed, L = beatDur * 16 }) {
+  // whole cycles per loop for the multi-bar clocks
+  const cyc = (beats) => Math.max(1, Math.round(L / (beats * beatDur)));
   const curves = features?.curves;
   const fps = features?.fps || 30;
   return (t) => {
@@ -161,10 +168,45 @@ export function makeSampler({ features, loopStart, beatDur, seed }) {
         bright: 0.5,
       };
     }
+    const u = t / L;
     a.beat = Math.exp(-ph * 5);
+    a.off = Math.exp(-fract(beat + 0.5) * 6);
     a.bar = fract(beat / 4);
+    a.lfoH = 0.5 + 0.5 * Math.sin((Math.PI * 2 * beat) / 2);
     a.lfo = 0.5 + 0.5 * Math.sin((Math.PI * 2 * beat) / 4);
+    a.lfo2 = 0.5 + 0.5 * Math.sin(Math.PI * 2 * u * cyc(8));
+    a.tri = 1 - Math.abs(2 * fract(beat / 4) - 1);
+    a.arc = Math.sin(Math.PI * u) ** 2;
+    a.build = u * u;
     a.rand = hash(Math.floor(beat) + seed * 0.013);
     return a;
+  };
+}
+
+export const SEQ_STEPS = 16;
+export const ENV_POINTS = 16;
+export const defaultSeq = () => [1, 0, 0, 0, 0, 0, 1, 0, 1, 0, 0, 0, 0, 0, 1, 1];
+export const defaultEnv = () => Array.from({ length: ENV_POINTS }, (_, i) => +(0.5 - 0.5 * Math.cos((Math.PI * 2 * i) / ENV_POINTS)).toFixed(3));
+
+// Envelope value at loop phase u: wrapping Catmull-Rom through the points, clamped to 0..1.
+export function envAt(env, u) {
+  const n = env.length, e = fract(u) * n, i = Math.floor(e), f = e - i;
+  const P = (k) => env[((i + k) % n + n) % n];
+  const v = 0.5 * (2 * P(0) + (-P(-1) + P(1)) * f + (2 * P(-1) - 5 * P(0) + 4 * P(1) - P(2)) * f * f + (-P(-1) + 3 * P(0) - 3 * P(1) + P(2)) * f * f * f);
+  return Math.min(1, Math.max(0, v));
+}
+
+// Per-look sources: a 16-step sequencer (one bar of 16ths, each hit decaying), a drawn envelope
+// across the whole loop (wrapping Catmull-Rom, so the seam is smooth) and two macro knobs.
+export function withLook(mv, look, u, beat) {
+  const seq = look.seq || defaultSeq();
+  const x = fract(beat / 4) * SEQ_STEPS;
+  const step = Math.floor(x);
+  return {
+    ...mv,
+    seq: seq[step] ? Math.exp(-(x - step) * 2.5) : 0,
+    env: envAt(look.env || defaultEnv(), u),
+    macroA: look.macro?.a ?? 0,
+    macroB: look.macro?.b ?? 0,
   };
 }

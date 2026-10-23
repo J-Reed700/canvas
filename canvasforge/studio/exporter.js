@@ -5,9 +5,9 @@ import { compose } from './composer.js';
 
 const CODECS = ['avc1.640034', 'avc1.640033', 'avc1.64002A', 'avc1.640028', 'avc1.4D0034', 'avc1.42E034'];
 
-async function makeEncoder(w, h, fps, chunks, fail) {
+async function makeEncoder(w, h, fps, chunks, fail, wantBitrate) {
   if (!('VideoEncoder' in window)) return null;
-  const bitrate = w * h >= 1000 * 1800 ? 16_000_000 : 9_000_000;
+  const bitrate = wantBitrate || (w * h >= 1000 * 1800 ? 16_000_000 : 9_000_000);
   for (const codec of CODECS) {
     for (const hardwareAcceleration of ['prefer-hardware', 'no-preference']) {
       const cfg = { codec, width: w, height: h, bitrate, framerate: fps, avc: { format: 'annexb' }, latencyMode: 'quality', bitrateMode: 'variable', hardwareAcceleration };
@@ -85,14 +85,14 @@ export function flashesPerSecond(series, fps) {
   return Math.floor(best / 2);
 }
 
-export async function exportLoop({ engine, bank, ctx, width, height, fps = 30, meta, onProgress, signal }) {
+export async function exportLoop({ engine, bank, ctx, width, height, fps = 30, bitrate, meta, onProgress, signal }) {
   const N = Math.round(ctx.L * fps);
   const stacks = [ctx.look, ...(ctx.clipLook ? ctx.tl.segs.map((s) => ctx.clipLook(s.clipId)) : [])];
   const hasFeedback = stacks.some((look) => look.layers.some((l) => l.on !== false && MODULES[l.m]?.feedback));
   const warm = hasFeedback ? N : 12; // pre-roll a full loop so frame 0 inherits the end's feedback history
   const chunks = [];
   let encErr = null;
-  const made = await makeEncoder(width, height, fps, chunks, (e) => { encErr = e; });
+  const made = await makeEncoder(width, height, fps, chunks, (e) => { encErr = e; }, bitrate);
   let raw = null;
   if (!made) {
     const r = await fetch('/api/export/raw/begin', { method: 'POST', body: JSON.stringify({ ...meta, width, height, fps }) });

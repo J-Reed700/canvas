@@ -185,6 +185,35 @@ export const CLASSIC_LOOKS = [
     L('tunnel', { speed: 2, mix: 0.9 }), L('echo', { amount: 0.6 }), L('glint', { intensity: 1.2 }), L('bloom', { intensity: 1 }),
   ], { finish: { vignette: 0.5, contrast: 1.12 }, cut: { rhythm: 'bar', transitions: ['prism', 'zoom'] } }),
 ];
+// Album art: built for a single still (cover art, a photo). Depth parallax and slow camera
+// drift give it life; the rest is light and texture rather than cuts.
+const A = (id, name, vibe, layers, opts = {}) => ({ ...look(`art-${id}`, name, vibe, layers, opts), group: 'art' });
+const STILL = { zoom: 1.12, drift: 0.55 };
+
+export const ART_LOOKS = [
+  A('breathe', 'Cover Breathe', 'Slow 3D parallax orbit with a soft kick pulse', [
+    L('parallax', { amount: 0.6, speed: 1 }), L('pulse', { trigger: 0, amount: 0.25, glow: 0.35 }), L('bloom', { threshold: 0.8, intensity: 0.55 }),
+  ], { camera: STILL, finish: { grain: 0.3, vignette: 0.45, contrast: 1.12 }, cut: { rhythm: 'bar2', transitions: ['dissolve'], beats: 2 } }),
+  A('sparkle', 'Cover Sparkle', 'Parallax depth, star glints on the highlights, drifting light leak', [
+    L('parallax', { amount: 0.45, speed: 2 }), L('glint', { threshold: 0.45, intensity: 1.1, spin: 0.3 }, { intensity: mod('hats', 0.3) }), L('leak', { amount: 0.45 }),
+  ], { camera: STILL, finish: { grain: 0.25, halation: 0.35, saturation: 1.1 }, cut: { rhythm: 'bar2', transitions: ['flare', 'dissolve'], beats: 2 } }),
+  A('dream', 'Cover Dream', 'Melting liquid depth, ghost echo and warm bloom', [
+    L('parallax', { amount: 0.5 }), L('liquid', { amount: 0.25, scale: 1.6 }, { amount: mod('bass', 0.15) }), L('ghost', { amount: 0.35, tint: 0.7 }), L('bloom', { intensity: 0.7, warmth: 0.6 }),
+  ], { camera: STILL, finish: { temp: 0.15, fade: 0.03, halation: 0.4, grain: 0.3 }, cut: { rhythm: 'bar2', transitions: ['luma', 'morph'], beats: 2 } }),
+  A('tape', 'Cover on Tape', 'VHS tracking, chroma bleed and stutter freezes on the kick', [
+    L('parallax', { amount: 0.35 }), L('stutter', { mode: 2, hold: 0.35 }), L('vhs', { amount: 0.55 }), L('chroma', { amount: 0.25 }, { amount: mod('snare', 0.35) }),
+  ], { camera: { ...STILL, shake: 0.15 }, cameraMods: { zoom: mod('kick', 0.08) }, finish: { grain: 0.5, contrast: 1.15, vignette: 0.4 }, cut: { rhythm: 'bar', transitions: ['glitch', 'mosh'], beats: 0.5 } }),
+  A('glitch', 'Cover Glitch', 'Depth wobble torn apart by snare glitches and RGB split', [
+    L('parallax', { amount: 0.4, speed: 0 }), L('glitch', { amount: 0.15, block: 0.5 }, { amount: mod('snare', 0.5) }), L('chroma', { amount: 0.2, mode: 1 }, { amount: mod('kick', 0.4) }),
+    L('bloom', { intensity: 0.5 }),
+  ], { camera: STILL, cameraMods: { zoom: mod('kick', 0.1) }, finish: { contrast: 1.2, saturation: 1.15 }, cut: { rhythm: 'half', transitions: ['glitch', 'pixel'], beats: 0.25 } }),
+  A('halo', 'Cover Halo', 'God rays through the art, frost shimmer and golden stock', [
+    L('parallax', { amount: 0.5, speed: 2 }), L('rays', { threshold: 0.55, intensity: 0.9 }, { intensity: mod('kick', 0.25) }), L('frost', { amount: 0.25, mist: 0.2 }),
+    L('filmstock', { mode: 2, strength: 0.6 }),
+  ], { camera: STILL, finish: { halation: 0.45, grain: 0.3, vignette: 0.45 }, cut: { rhythm: 'bar2', transitions: ['flare', 'dissolve'], beats: 2 } }),
+];
+
+LOOKS.push(...ART_LOOKS);
 LOOKS.push(...CLASSIC_LOOKS);
 
 // Variation engine
@@ -192,7 +221,7 @@ const ADJ = ['Velvet', 'Neon', 'Molten', 'Hollow', 'Static', 'Prism', 'Silver', 
   'Ghost', 'Chrome', 'Infra', 'Hyper', 'Soft', 'Fever', 'Wired'];
 const NOUN = ['Bloom', 'Drift', 'Signal', 'Halo', 'Tide', 'Mirage', 'Pulse', 'Circuit', 'Ember', 'Haze', 'Echo', 'Spiral', 'Orbit',
   'Ritual', 'Fracture', 'Current', 'Aura', 'Relic', 'Flux', 'Nova'];
-const AUDIO_SRC = ['kick', 'kick', 'snare', 'hats', 'bass', 'energy', 'beat', 'lfo'];
+const AUDIO_SRC = ['kick', 'kick', 'snare', 'hats', 'bass', 'energy', 'beat', 'lfo', 'off', 'lfoH', 'arc', 'seq'];
 
 const gauss = (r) => Math.sqrt(-2 * Math.log(r() + 1e-9)) * Math.cos(2 * Math.PI * r());
 export const clamp = (v, a, b) => Math.min(b, Math.max(a, v));

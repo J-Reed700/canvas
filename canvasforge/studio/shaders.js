@@ -13,7 +13,7 @@ in vec2 vUv;
 out vec4 outColor;
 uniform sampler2D uSrc;
 uniform vec2 uRes;
-uniform float uTime, uLoop, uPhase, uBeat, uScale, uSeed, uFrame;
+uniform float uTime, uLoop, uPhase, uBeat, uBeatLen, uScale, uSeed, uFrame;
 uniform float uKick, uSnare, uHats, uBass, uEnergy, uBright;
 #define PI 3.14159265359
 #define TAU 6.28318530718

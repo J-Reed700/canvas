@@ -4,6 +4,7 @@ from __future__ import annotations
 import dataclasses
 import hashlib
 import os
+import subprocess
 
 import cv2
 import numpy as np
@@ -25,6 +26,31 @@ class Source:
     @property
     def id(self) -> str:
         return hashlib.md5(self.path.encode()).hexdigest()[:10]
+
+
+IMAGE_EXTS = (".jpg", ".jpeg", ".png", ".webp", ".bmp", ".tif", ".tiff", ".heic", ".heif")
+STILL_SECONDS = 12
+
+
+def still_to_clip(path: str) -> str:
+    """Render a still (album art, photo) as a 12 s H.264 clip next to it, so it can be cut,
+    framed and animated like any other clip. Returns the clip path."""
+    from .encoder import ffmpeg_path
+
+    dest = os.path.splitext(path)[0] + ".still.mp4"
+    if os.path.exists(dest) and os.path.getmtime(dest) >= os.path.getmtime(path):
+        return dest
+    # Even dimensions, long edge capped at 2160 px: plenty for a 1080x1920 crop with zoom room.
+    scale = "scale='2*trunc(min(1,2160/max(iw,ih))*iw/2)':'2*trunc(min(1,2160/max(iw,ih))*ih/2)':flags=lanczos"
+    cmd = [
+        ffmpeg_path(), "-y", "-v", "error", "-loop", "1", "-i", path, "-t", str(STILL_SECONDS), "-r", "30",
+        "-vf", f"{scale},format=yuv420p", "-c:v", "libx264", "-preset", "veryfast", "-crf", "14",
+        "-tune", "stillimage", "-movflags", "+faststart", dest,
+    ]
+    res = subprocess.run(cmd, capture_output=True, text=True)
+    if res.returncode != 0 or not os.path.exists(dest):
+        raise RuntimeError(f"could not read image: {res.stderr.strip()[-200:] or 'ffmpeg failed'}")
+    return dest
 
 
 def probe(path: str) -> Source:

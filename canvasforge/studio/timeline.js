@@ -19,6 +19,36 @@ export const DIRECTIONS = {
   forward: 'Forward', reverse: 'Reverse', alternate: 'Alternate', pingpong: 'Ping-pong', random: 'Random',
 };
 
+// Speed ramps ("velocity edits"): clip speed follows a curve that repeats every `per` beats and
+// averages 1, so a segment uses the same amount of footage as at constant speed. v(x) is the
+// speed at phase x in [0, 1); f(x) its integral (f(1) = 1).
+const surge = (x) => 0.15 * x + 0.85 * (1 - Math.exp(-5 * x)) / (1 - Math.exp(-5));
+export const VELOCITY = {
+  none: { name: 'Constant', per: 1, v: () => 1, f: (x) => x },
+  surge: { name: 'Surge', per: 1, desc: 'Burst on every beat, slow-mo in between', v: (x) => 0.15 + 0.85 * 5 * Math.exp(-5 * x) / (1 - Math.exp(-5)), f: surge },
+  swell: { name: 'Swell', per: 1, desc: 'Slow on the beat, rushing into the next', v: (x) => 0.25 + 2.25 * x * x, f: (x) => 0.25 * x + 0.75 * x ** 3 },
+  hold: { name: 'Hold & jump', per: 1, desc: 'Freeze for half a beat, then double speed', v: (x) => (x < 0.5 ? 0 : 2), f: (x) => (x < 0.5 ? 0 : 2 * (x - 0.5)) },
+  wave: { name: 'Wave', per: 2, desc: 'Gentle speed-up / slow-down every two beats', v: (x) => 1 + 0.75 * Math.sin(Math.PI * 2 * x), f: (x) => x + (0.75 * (1 - Math.cos(Math.PI * 2 * x))) / (Math.PI * 2) },
+  ramp: { name: 'Bar ramp', per: 4, desc: 'Slow-mo that accelerates through the bar', v: (x) => 0.3 + 2.1 * x * x, f: (x) => 0.3 * x + 0.7 * x ** 3 },
+};
+
+// Footage time (in seconds at speed 1) consumed between the segment start and `local`.
+function warp(seg, local) {
+  const V = VELOCITY[seg.vel];
+  if (!V || seg.vel === 'none' || !seg.bd) return local;
+  const span = V.per * seg.bd;
+  const F = (t) => { const x = t / span; return (Math.floor(x) + V.f(x - Math.floor(x))) * span; };
+  return F(seg.t0 + local) - F(seg.t0);
+}
+
+// Instantaneous speed multiplier of the ramp at `local` (for preview playback rate).
+export function velocityAt(seg, local) {
+  const V = VELOCITY[seg.vel];
+  if (!V || seg.vel === 'none' || !seg.bd) return 1;
+  const x = (seg.t0 + local) / (V.per * seg.bd);
+  return V.v(x - Math.floor(x));
+}
+
 export function rng(seed) {
   let a = seed >>> 0;
   return () => {
@@ -94,7 +124,7 @@ function cutTimes(opts) {
 
 // Build the edit: segments with clip, in-point, transition. clips = [{id, duration}]
 export function planTimeline(opts) {
-  const { L, beatDur, clips, transitions, transBeats, seed, speed = 1, direction = 'forward', order = 'cycle' } = opts;
+  const { L, beatDur, clips, transitions, transBeats, seed, speed = 1, direction = 'forward', order = 'cycle', velocity = 'none' } = opts;
   const r = rng(seed * 2654435761);
   const cuts = cutTimes({ ...opts, nClips: clips.length });
   const segs = cuts.map((t0, i) => ({ i, t0, t1: i + 1 < cuts.length ? cuts[i + 1] : L }));
@@ -109,15 +139,20 @@ export function planTimeline(opts) {
     s.clipId = clip.id;
     s.dur = s.t1 - s.t0;
     s.speed = speed;
+    s.vel = velocity;
+    s.bd = beatDur;
+    s.focus = clip.focus || null;
     const d = direction === 'random' ? ['forward', 'reverse', 'pingpong'][Math.floor(dr() * 3)] : direction;
     s.rev = d === 'reverse' || (d === 'alternate' && i % 2 === 1);
     s.pp = d === 'pingpong';
-    const need = (s.dur + transDur) * speed + 0.2;
+    // a ramp can run ahead of constant speed inside a beat, so leave it a little more footage
+    const vk = velocity === 'none' ? 1 : 2;
+    const need = (s.dur + transDur * vk + (velocity === 'none' ? 0 : beatDur)) * speed + 0.2;
     const span = Math.max(0, clip.duration - need - 0.1);
     let start = cursor.has(clip.id) ? cursor.get(clip.id) : r() * span * 0.6;
     if (start > span) start = r() * span * 0.3;
     // in-point leaves room for the transition that starts half a window before the cut
-    s.in = Math.min(Math.max(start, (transDur / 2) * speed), Math.max(0, clip.duration - 0.05));
+    s.in = Math.min(Math.max(start, (transDur / 2) * speed * vk), Math.max(0, clip.duration - 0.05));
     cursor.set(clip.id, start + s.dur * speed + 0.5);
     let tr;
     if (order === 'random') {
@@ -163,7 +198,8 @@ export function sampleTimeline(tl, t) {
 
 export function clipTime(seg, local, clipDur) {
   // ping-pong plays forward to the middle of the segment, then back to its in-point
-  const u = seg.pp ? Math.min(local, seg.dur - local) : seg.rev ? seg.dur - local : local;
+  const w = warp(seg, local), wd = warp(seg, seg.dur);
+  const u = seg.pp ? Math.min(w, wd - w) : seg.rev ? wd - w : w;
   const span = seg.in + u * seg.speed;
   return Math.min(Math.max(0, span), Math.max(0, clipDur - 1 / 30));
 }
@@ -172,14 +208,16 @@ export function clipTime(seg, local, clipDur) {
 export function cameraFor(seg, local, cam, t, L, beat, seed) {
   const r = rng(seg.seed + seed * 31);
   const drift = cam.drift;
-  const c0 = [0.5 + (r() - 0.5) * drift, 0.5 + (r() - 0.5) * drift * 0.6];
-  const c1 = [0.5 + (r() - 0.5) * drift, 0.5 + (r() - 0.5) * drift * 0.6];
+  // drift wanders around the clip's framing point (default: centre)
+  const [fx, fy, fz] = seg.focus || [0.5, 0.5, 1];
+  const c0 = [fx + (r() - 0.5) * drift, fy + (r() - 0.5) * drift * 0.6];
+  const c1 = [fx + (r() - 0.5) * drift, fy + (r() - 0.5) * drift * 0.6];
   const u = Math.max(-0.5, Math.min(1.5, local / Math.max(seg.dur, 1e-3)));
   const ph = (t / L) * Math.PI * 2;
   const shake = cam.shake * 0.012;
   return {
     center: [c0[0] + (c1[0] - c0[0]) * u, c0[1] + (c1[1] - c0[1]) * u],
-    zoom: Math.max(1, cam.zoom * (1 + drift * 0.07 * u)),
+    zoom: Math.max(1, cam.zoom * (fz || 1) * (1 + drift * 0.07 * u)),
     rot: cam.sway * 0.06 * Math.sin((Math.PI * 2 * beat) / 4),
     shake: [
       shake * (Math.sin(ph * 7 + 1.3) * 0.6 + Math.sin(ph * 13 + 0.4) * 0.4),

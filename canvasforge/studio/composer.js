@@ -1,6 +1,7 @@
 // compose(): (look, edit, audio, t) -> one engine frame. Used identically by preview and export.
 import { CAMERA, FINISH_DEF, MODULES } from './modules.js';
-import { cameraFor, clipTime, sampleTimeline } from './timeline.js';
+import { withLook } from './audio.js';
+import { cameraFor, clipTime, sampleTimeline, velocityAt } from './timeline.js';
 
 const isStepped = (p) => p.opts || p.step >= 1;
 
@@ -35,25 +36,31 @@ export function layerStack(look, mv, { wet, depth }, prefix = '') {
 // only the main look gets it — look thumbnails and variation tiles always show one look.
 export function compose(ctx, t, look = ctx.look) {
   const { tl, sampler, clipDur, L, beatDur, seed } = ctx;
-  const mv = sampler(t);
   const beat = t / beatDur;
+  const base = sampler(t);
+  const forLook = (l) => withLook(base, l, t / L, beat);
+  const mv = forLook(look);
   const s = sampleTimeline(tl, t);
   const k = intensityOf(ctx);
   const cp = resolveParams(CAMERA.params, look.camera.p, look.camera.mods, mv, k.depth);
   const cam = { zoom: cp.p_zoom, drift: cp.p_drift, shake: cp.p_shake, sway: cp.p_sway };
-  const need = (x) => ({
-    vkey: `${x.seg.clipId}#${x.key}`,
-    clipId: x.seg.clipId,
-    time: clipTime(x.seg, x.local, clipDur(x.seg.clipId)),
-    rate: x.seg.speed,
-    rev: x.seg.rev || x.seg.pp,
-    cam: cameraFor(x.seg, x.local, cam, t, L, beat, seed),
-  });
+  const need = (x) => {
+    const rate = x.seg.speed * velocityAt(x.seg, x.local);
+    return {
+      vkey: `${x.seg.clipId}#${x.key}`,
+      clipId: x.seg.clipId,
+      time: clipTime(x.seg, x.local, clipDur(x.seg.clipId)),
+      rate: Math.min(16, rate),
+      // reversed, ping-pong and near-frozen footage is previewed by seeking instead of playing
+      rev: x.seg.rev || x.seg.pp || rate < 0.1,
+      cam: cameraFor(x.seg, x.local, cam, t, L, beat, seed),
+    };
+  };
   const needs = [need(s.a)];
   if (s.b) needs.push(need(s.b));
   const perClip = look === ctx.look && ctx.clipLook;
   // feedback histories are per clip; the same clip on both sides of a cut gets its own for side B
-  const pre = perClip ? needs.map((n, i) => layerStack(ctx.clipLook(n.clipId), mv, k,
+  const pre = perClip ? needs.map((n, i) => layerStack(ctx.clipLook(n.clipId), forLook(ctx.clipLook(n.clipId)), k,
     `c:${n.clipId}${i && n.clipId === needs[0].clipId ? 'b' : ''}:`)) : null;
   return {
     needs,
@@ -65,7 +72,7 @@ export function compose(ctx, t, look = ctx.look) {
     camera: cp,
     mv,
     globals: {
-      uTime: t, uLoop: L, uPhase: t / L, uBeat: beat, uSeed: seed % 997, uFrame: Math.round(t * 30) % Math.max(1, Math.round(L * 30)),
+      uTime: t, uLoop: L, uPhase: t / L, uBeat: beat, uBeatLen: beatDur, uSeed: seed % 997, uFrame: Math.round(t * 30) % Math.max(1, Math.round(L * 30)),
       uKick: mv.kick, uSnare: mv.snare, uHats: mv.hats, uBass: mv.bass, uEnergy: mv.energy, uBright: mv.bright,
     },
   };
