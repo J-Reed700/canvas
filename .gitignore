@@ -1,19 +1,66 @@
-# Python
+# ── Python ──────────────────────────────────────────────────────────────────
 __pycache__/
 *.py[cod]
 *$py.class
+*.so
 *.egg-info/
-dist/
+.eggs/
 build/
+dist/
+
+# Virtual environments
 .venv/
 venv/
-.env
+env/
+.python-version
 
-# Rendered outputs & user uploads
+# Test, lint and type-check caches
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+.mypy_cache/
+.ruff_cache/
+.tox/
+.nox/
+
+# ── Node (only used to run the studio's JS tests) ───────────────────────────
+node_modules/
+npm-debug.log*
+
+# ── Canvas Forge output ─────────────────────────────────────────────────────
+# Exports, uploads and playback proxies (out/.proxies) are all regenerated on demand.
 out/
+*.part.mp4
 
-# macOS / IDE
+# Your clips and tracks never belong in the repo. Put README media under docs/.
+*.mp4
+*.mov
+*.m4v
+*.webm
+*.mkv
+*.wav
+*.mp3
+*.m4a
+*.aif
+*.aiff
+*.flac
+!docs/**
+
+# ── Secrets ─────────────────────────────────────────────────────────────────
+.env
+.env.*
+!.env.example
+
+# ── Logs ────────────────────────────────────────────────────────────────────
+*.log
+
+# ── Editors, OS and local tool state ────────────────────────────────────────
 .DS_Store
+Thumbs.db
 .idea/
 .vscode/
 *.swp
+*~
+.builder/
+.claude/settings.local.json

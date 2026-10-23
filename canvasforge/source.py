@@ -129,14 +129,14 @@ class ClipSegmentCache:
 GLOBAL_CACHE = ClipSegmentCache()
 
 
-def extract_thumbnail_jpeg(path: str, width: int = 360) -> bytes:
-    """Extract a representative frame ~1.5s into the clip and encode as JPEG."""
+def extract_thumbnail_jpeg(path: str, width: int = 360, at_sec: float = 1.5) -> bytes:
+    """Extract a frame `at_sec` into the clip (default ~1.5s) and encode as JPEG."""
     cap = cv2.VideoCapture(path)
     if not cap.isOpened():
         raise RuntimeError(f"cannot open {path}")
     fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
     total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-    target = min(max(0, total - 1), int(fps * 1.5))
+    target = min(max(0, total - 1), int(fps * max(0.0, at_sec)))
     if target > 0:
         cap.set(cv2.CAP_PROP_POS_FRAMES, target)
     ok, frame = cap.read()

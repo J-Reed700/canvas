@@ -1,7 +1,7 @@
 """Canvas Forge: Audio-Reactive Spotify Canvas & Shader Studio."""
 from __future__ import annotations
 
-__version__ = "2.5.0"
+__version__ = "4.0.0"
 
 from .audio import AudioProfile, FrameAudioCurves, analyze_track, extract_frame_curves
 from .compositor import CANVAS_FPS, CANVAS_H, CANVAS_SECONDS, CANVAS_W, RenderPlan, build_plan

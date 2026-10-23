@@ -34,6 +34,8 @@ class Encoder:
         height: int = CANVAS_H,
         crf: int = 18,
         use_hw: bool = True,
+        pix_fmt: str = "bgr24",
+        vflip: bool = False,
     ):
         self.path = path
         self.fps = fps
@@ -51,7 +53,7 @@ class Encoder:
             "-f",
             "rawvideo",
             "-pix_fmt",
-            "bgr24",
+            pix_fmt,
             "-s",
             f"{width}x{height}",
             "-r",
@@ -82,6 +84,7 @@ class Encoder:
             ]
 
         tail_args = [
+            *(["-vf", "vflip"] if vflip else []),
             "-pix_fmt",
             "yuv420p",
             "-movflags",

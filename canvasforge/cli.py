@@ -9,7 +9,7 @@ import time
 from . import __version__, effects
 from .audio import analyze_track
 from .compositor import CANVAS_FPS, CANVAS_H, CANVAS_SECONDS, CANVAS_W, build_plan
-from .encoder import Encoder, mux_audio_preview
+from .encoder import Encoder
 from .recipe import PRESETS, WEIGHTS, make_recipe
 from .source import probe
 
@@ -17,10 +17,10 @@ from .source import probe
 def list_effects() -> None:
     print("Presets:")
     for pid, pmeta in PRESETS.items():
-        print(f"  {pid:14s} {pmeta['label']} — {pmeta['desc']}")
+        print(f"  {pid:18s} {pmeta['label']} — {pmeta['desc']}")
     print("\nEffects:")
     for name, meta in effects.EFFECTS.items():
-        print(f"  {name:16s} [{meta['category']:8s}] weight={WEIGHTS.get(name, 0):.2f}  ({meta['label']})")
+        print(f"  {name:22s} [{meta['category']:8s}] weight={WEIGHTS.get(name, 0):.2f}  ({meta['label']})")
 
 
 def render(
@@ -31,11 +31,19 @@ def render(
     speed: float = 1.0,
     max_effects: int = 6,
     preset: str | None = None,
-    cut_beats: int | None = None,
+    cut_beats: float | None = None,
+    cut_mode: str = "steady",
+    ensure_all_clips: bool = True,
     transition: str | None = None,
+    transitions: list[str] | None = None,
+    transition_mode: str = "cycle",
+    trans_frames: int = 12,
     intensity: float = 1.0,
     duration: float = CANVAS_SECONDS,
     loop_mode: str = "crossfade",
+    clip_direction: str = "forward",
+    filter_mode: str = "global",
+    clip_effects: dict[str, list[str]] | None = None,
     audio_path: str | None = None,
     width: int = CANVAS_W,
     height: int = CANVAS_H,
@@ -61,10 +69,18 @@ def render(
         max_effects=max_effects,
         preset=preset,
         cut_beats=cut_beats,
+        cut_mode=cut_mode,
+        ensure_all_clips=ensure_all_clips,
         transition=transition,
+        transitions=transitions,
+        transition_mode=transition_mode,
+        trans_frames=trans_frames,
         intensity=intensity,
         duration=duration,
         loop_mode=loop_mode,
+        clip_direction=clip_direction,
+        filter_mode=filter_mode,
+        clip_effects=clip_effects,
     )
     if not quiet:
         for s in sources:
@@ -80,9 +96,17 @@ def render(
         speed=speed,
         width=width,
         height=height,
-        duration=recipe.duration,
+        duration=duration,
         audio_path=track_prof.path if track_prof else None,
         audio_start_sec=track_prof.best_start_sec if track_prof else None,
+        clip_direction=clip_direction,
+        cut_mode=cut_mode,
+        ensure_all_clips=ensure_all_clips,
+        transitions=transitions,
+        transition_mode=transition_mode,
+        trans_frames=trans_frames,
+        filter_mode=filter_mode,
+        clip_effects=clip_effects,
     )
     os.makedirs(os.path.dirname(os.path.abspath(out_path)), exist_ok=True)
     enc = Encoder(out_path, fps=CANVAS_FPS, width=width, height=height)
@@ -94,19 +118,6 @@ def render(
             eta = (time.time() - t0) / (i + 1) * (plan.n_frames - i - 1)
             print(f"\r  {done:5.1f}%  ({i+1}/{plan.n_frames} frames, eta {eta:.1f}s)", end="", flush=True)
     enc.close()
-
-    if track_prof and out_path.endswith(".mp4"):
-        audio_out = out_path[:-4] + "-audio.mp4"
-        try:
-            mux_audio_preview(
-                silent_mp4_path=out_path,
-                audio_path=track_prof.path,
-                out_mp4_path=audio_out,
-                start_sec=track_prof.best_start_sec,
-                duration_sec=recipe.duration,
-            )
-        except Exception:
-            pass
 
     if not quiet:
         print(f"\r  100.0%  done in {time.time()-t0:.1f}s -> {out_path}")
@@ -124,10 +135,54 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--preset", choices=list(PRESETS.keys()), default=None, help="curated visual style preset")
     ap.add_argument("--seed", type=int, default=None, help="recipe seed (default: random)")
     ap.add_argument("--bpm", type=int, default=None, help="override BPM (default: auto-detected from --audio or random)")
-    ap.add_argument("--duration", type=float, default=8.0, help="Spotify Canvas duration in seconds (3.0 to 8.0, default: 8.0)")
-    ap.add_argument("--loop-mode", choices=["crossfade", "rebound", "hard"], default="crossfade", help="loop topology")
-    ap.add_argument("--cut-beats", type=int, default=None, help="cut between clips every N beats (e.g. 2 or 4)")
-    ap.add_argument("--transition", choices=["datamosh", "flash", "dissolve", "whip", "glitch", "luma"], default=None, help="cut transition")
+    ap.add_argument("--duration", type=float, default=8.0, help="Spotify Canvas duration in seconds (3.0 to 24.0, default: 8.0)")
+    ap.add_argument("--loop-mode", choices=["crossfade", "rebound", "hard", "morph"], default="crossfade", help="loop topology")
+    ap.add_argument("--cut-beats", type=float, default=None, help="cut between clips every N beats (e.g. 0.5, 1, 2, 4)")
+    ap.add_argument(
+        "--cut-mode",
+        choices=["steady", "fit_all", "fit_all_2x", "build_up", "syncopated", "transient", "chaos"],
+        default="steady",
+        help="cut rhythm and pacing mode",
+    )
+    ap.add_argument("--ensure-all-clips", dest="ensure_all_clips", action="store_true", default=True, help="guarantee all clips transition at least once")
+    ap.add_argument("--no-ensure-all", dest="ensure_all_clips", action="store_false", help="allow standard cuts without guaranteeing all clips appear")
+    ap.add_argument(
+        "--transition",
+        choices=[
+            "datamosh",
+            "flash",
+            "dissolve",
+            "whip",
+            "whip_horiz",
+            "glitch",
+            "luma",
+            "zoom_punch",
+            "spin_vortex",
+            "prism_split",
+            "pixelate",
+            "iris_wipe",
+            "burn_luma",
+            "shutter_slice",
+            "kaleido_twist",
+        ],
+        default=None,
+        help="cut transition",
+    )
+    ap.add_argument("--transitions", nargs="+", default=None, help="multi-transition pool")
+    ap.add_argument("--transition-mode", choices=["cycle", "random", "single"], default="cycle", help="transition selection mode across cuts")
+    ap.add_argument("--trans-frames", type=int, default=12, help="transition duration in frames (4 to 30, default: 12)")
+    ap.add_argument(
+        "--clip-direction",
+        choices=["forward", "reverse", "alternate", "pingpong", "chaos"],
+        default="forward",
+        help="clip playback direction",
+    )
+    ap.add_argument(
+        "--filter-mode",
+        choices=["global", "evolve", "preset_cycle", "per_clip"],
+        default="global",
+        help="filter application mode across clips/segments (default: global)",
+    )
     ap.add_argument("--intensity", type=float, default=1.0, help="effect intensity multiplier (default: 1.0)")
     ap.add_argument("--speed", type=float, default=1.0, help="source playback speed multiplier")
     ap.add_argument("--effects", type=int, default=6, help="max effects in the random stack")
@@ -148,10 +203,17 @@ def main(argv: list[str] | None = None) -> int:
             max_effects=args.effects,
             preset=args.preset,
             cut_beats=args.cut_beats,
+            cut_mode=args.cut_mode,
+            ensure_all_clips=args.ensure_all_clips,
             transition=args.transition,
+            transitions=args.transitions,
+            transition_mode=args.transition_mode,
+            trans_frames=args.trans_frames,
             intensity=args.intensity,
             duration=args.duration,
             loop_mode=args.loop_mode,
+            clip_direction=args.clip_direction,
+            filter_mode=args.filter_mode,
         )
         print(recipe.describe())
         return 0
@@ -176,10 +238,17 @@ def main(argv: list[str] | None = None) -> int:
                 max_effects=args.effects,
                 preset=args.preset,
                 cut_beats=args.cut_beats,
+                cut_mode=args.cut_mode,
+                ensure_all_clips=args.ensure_all_clips,
                 transition=args.transition,
+                transitions=args.transitions,
+                transition_mode=args.transition_mode,
+                trans_frames=args.trans_frames,
                 intensity=args.intensity,
                 duration=args.duration,
                 loop_mode=args.loop_mode,
+                clip_direction=args.clip_direction,
+                filter_mode=args.filter_mode,
                 audio_path=args.audio,
             )
     else:
@@ -193,10 +262,17 @@ def main(argv: list[str] | None = None) -> int:
             max_effects=args.effects,
             preset=args.preset,
             cut_beats=args.cut_beats,
+            cut_mode=args.cut_mode,
+            ensure_all_clips=args.ensure_all_clips,
             transition=args.transition,
+            transitions=args.transitions,
+            transition_mode=args.transition_mode,
+            trans_frames=args.trans_frames,
             intensity=args.intensity,
             duration=args.duration,
             loop_mode=args.loop_mode,
+            clip_direction=args.clip_direction,
+            filter_mode=args.filter_mode,
             audio_path=args.audio,
         )
     return 0

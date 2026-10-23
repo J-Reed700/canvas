@@ -148,35 +148,16 @@ def analyze_track(path: str) -> AudioProfile:
     peaks = np.sqrt(np.mean(trimmed * trimmed, axis=1))
     peaks_norm = _normalize_curve(peaks, 5.0, 99.0)
 
-    # 2. STFT at ~86 Hz frame rate (hop = 256 samples) for onset & BPM detection
+    # 2. Tempo: global beat-grid fold search on a kick-weighted onset envelope (see features.py)
+    from .features import estimate_bpm
+
+    best_bpm = int(round(estimate_bpm(y)))
     hop = 256
     n_fft = 1024
     n_hops = max(1, (y.size - n_fft) // hop)
-    window = np.hanning(n_fft).astype(np.float32)
-    frames = np.lib.stride_tricks.sliding_window_view(y, n_fft)[::hop][:n_hops]
-    spec = np.abs(np.fft.rfft(frames * window, axis=1))
-
-    # Sub-bass & low-mid bins (roughly 30Hz - 220Hz)
-    low_energy = spec[:, 1:12].mean(axis=1)
-    onset_flux = np.maximum(0.0, np.diff(low_energy, prepend=low_energy[0]))
-
-    # Autocorrelation over BPM range [84, 165]
-    env = onset_flux - onset_flux.mean()
-    ac = np.correlate(env, env, mode="full")[env.size - 1 :]
     fps_env = SR / hop
-    best_bpm = 126
-    best_score = -1.0
-    for bpm in range(84, 166):
-        lag = int(round(fps_env * 60.0 / bpm))
-        if 0 < lag < ac.size:
-            # Check fundamental lag + 2x lag harmonic
-            score = float(ac[lag]) + 0.5 * float(ac[min(ac.size - 1, lag * 2)])
-            # Slight prior toward common club/electronic tempo range 118-140
-            if 116 <= bpm <= 142:
-                score *= 1.08
-            if score > best_score:
-                best_score = score
-                best_bpm = bpm
+    frames = np.lib.stride_tricks.sliding_window_view(y, n_fft)[::hop][:n_hops]
+    low_energy = np.abs(np.fft.rfft(frames * np.hanning(n_fft).astype(np.float32), axis=1))[:, 1:12].mean(axis=1)
 
     # Check if filename explicitly encodes BPM (e.g., "_128_", "150", "84 bpm")
     import re
