@@ -32,8 +32,12 @@ const YIQ = `
 vec3 rgb2yiq(vec3 c) { return mat3(0.299, 0.596, 0.211, 0.587, -0.274, -0.523, 0.114, -0.322, 0.312) * c; }
 vec3 yiq2rgb(vec3 c) { return mat3(1.0, 1.0, 1.0, 0.956, -0.272, -1.106, 0.621, -0.647, 1.703) * c; }`;
 
+// Attack/decay envelope on every beat (a short attack so nothing jumps in a single frame).
+const ENV = `
+float beatEnv(float k) { float ph = fract(uBeat); return smoothstep(0.0, 0.06, ph) * exp(-ph * k); }`;
+
 export const MODULES = {
-  // ------------------------------------------------------------------ SPACE
+  // Space
   kaleido: {
     name: 'Kaleidoscope', cat: 'space', desc: 'Polar mirror folds that spin on the loop',
     params: [P('slices', 'Slices', 2, 16, 6, { step: 1 }), P('spin', 'Spin / loop', -3, 3, 1, { step: 1 }),
@@ -99,8 +103,35 @@ export const MODULES = {
       outColor = vec4(mix(texture(uSrc, vUv).rgb, c, p_mix), 1.0);
     }`,
   },
+  ribbons: {
+    name: 'Ribbon Split', cat: 'space', desc: 'Strips that slide in opposite directions, swinging on the beat',
+    params: [P('count', 'Ribbons', 2, 24, 8, { step: 1 }), OPT('dir', 'Bands', ['Horizontal', 'Vertical']), P('shift', 'Shift', 0, 0.5, 0.12),
+      P('snap', 'Snap', 0, 1, 0.5), MIX],
+    glsl: `void main() {
+      float along = p_dir < 0.5 ? vUv.y : vUv.x;
+      float id = floor(along * p_count);
+      float w = 0.5 - 0.5 * cos(PI * uBeat);
+      float e = mix(w, smoothstep(0.0, 1.0, smoothstep(0.0, 1.0, w)), p_snap);
+      float amp = p_shift * e * (mod(id, 2.0) < 1.0 ? 1.0 : -1.0) * (0.6 + 0.4 * hash12(vec2(id, uSeed)));
+      vec2 uv = vUv;
+      if (p_dir < 0.5) uv.x = fract(uv.x + amp); else uv.y = fract(uv.y + amp);
+      outColor = vec4(mix(texture(uSrc, vUv).rgb, texture(uSrc, uv).rgb, p_mix), 1.0);
+    }`,
+  },
+  polar: {
+    name: 'Little Planet', cat: 'space', desc: 'Polar-coordinate remap: tiny planet or rabbit hole',
+    params: [OPT('mode', 'Mode', ['Planet', 'Rabbit hole']), P('zoom', 'Zoom', 0.3, 2, 1), P('spin', 'Spin / loop', -3, 3, 0, { step: 1 }), MIX],
+    glsl: `void main() {
+      vec2 q = toP(vUv);
+      float u = atan(q.y, q.x) / TAU + 0.25 + p_spin * uPhase;
+      float v = length(q) / (0.5 * p_zoom);
+      if (p_mode > 0.5) v = 1.0 - v;
+      vec3 c = texture(uSrc, mirrorUv(vec2(u * 2.0, v))).rgb;
+      outColor = vec4(mix(texture(uSrc, vUv).rgb, c, p_mix), 1.0);
+    }`,
+  },
 
-  // ------------------------------------------------------------------ WARP
+  // Warp
   liquid: {
     name: 'Liquid Flow', cat: 'warp', desc: 'Domain-warped noise currents (seamless)',
     params: [P('amount', 'Amount', 0, 1, 0.35), P('scale', 'Scale', 0.5, 6, 2), P('cycles', 'Flow / loop', 0, 4, 1, { step: 1 })],
@@ -164,8 +195,22 @@ export const MODULES = {
       outColor = vec4(s / 14.0, 1.0);
     }`,
   },
+  droop: {
+    name: 'Gravity Melt', cat: 'warp', desc: 'The frame sags and drips downward, heaviest in the highlights',
+    params: [P('amount', 'Melt', 0, 1, 0.5), P('bright', 'Highlight melt', 0, 1, 0.5), P('scale', 'Drips', 0.5, 8, 3),
+      P('cycles', 'Flow / loop', 0, 3, 1, { step: 1 })],
+    glsl: ENV + `void main() {
+      float env = 0.55 + 0.45 * beatEnv(3.0);
+      float n = loopFbm(vec2(toP(vUv).x * p_scale * 5.0, 0.37), p_cycles);
+      n = smoothstep(0.3, 0.75, n);
+      float l = luma(toSRGB(texture(uSrc, vUv).rgb));
+      float sag = p_amount * env * (0.1 + 0.9 * n) * pow(1.0 - vUv.y, 1.4) * max(0.0, 1.0 + p_bright * (l - 0.45) * 2.0) * 0.32;
+      float wob = sin(vUv.y * 26.0 + TAU * uPhase) * 0.004 * p_amount;
+      outColor = vec4(texture(uSrc, mirrorUv(vUv + vec2(wob, sag))).rgb, 1.0);
+    }`,
+  },
 
-  // ------------------------------------------------------------------ TIME (feedback)
+  // Time (feedback)
   trails: {
     name: 'Feedback Trails', cat: 'time', desc: 'Milkdrop-style infinite echo with zoom, spin and hue drift', feedback: true,
     params: [P('decay', 'Persistence', 0, 0.97, 0.82), P('zoom', 'Zoom', -1, 1, 0.35), P('rotate', 'Rotate', -1, 1, 0),
@@ -187,8 +232,38 @@ export const MODULES = {
       outColor = vec4(cur.r, mix(cur.g, prev.g, p_amount * 0.85), mix(cur.b, prev.b, p_amount), 1.0);
     }`,
   },
+  slitscan: {
+    name: 'Slit Scan', cat: 'time', desc: 'A scan line sweeps the frame; each row keeps the moment it was passed', feedback: true,
+    params: [P('cycles', 'Sweeps / loop', 1, 4, 2, { step: 1 }), OPT('dir', 'Direction', ['Top → bottom', 'Left → right']),
+      P('width', 'Band', 0.01, 0.3, 0.04), P('hold', 'Persistence', 0.7, 1, 1)],
+    glsl: `uniform sampler2D uPrev; void main() {
+      float s = p_dir < 0.5 ? 1.0 - vUv.y : vUv.x;
+      float w = max(p_width, 1.5 * p_cycles / max(uLoop * 30.0, 1.0));
+      float d = fract(uPhase * p_cycles) - s; d -= floor(d);
+      float k = 1.0 - smoothstep(w * 0.6, w, d);
+      vec3 cur = texture(uSrc, vUv).rgb;
+      outColor = vec4(mix(cur, mix(texture(uPrev, vUv).rgb, cur, k), p_hold), 1.0);
+    }`,
+  },
+  mosh: {
+    name: 'Datamosh Smear', cat: 'time', desc: 'Blocks freeze and smear along the motion, re-rolled every beat', feedback: true,
+    params: [P('amount', 'Mosh', 0, 1, 0.5), P('block', 'Block size', 0, 1, 0.4), P('flow', 'Flow', 0, 1, 0.5), P('hold', 'Hold', 0, 1, 0.7)],
+    glsl: `uniform sampler2D uPrev; void main() {
+      float bt = floor(uBeat);
+      float px = mix(10.0, 56.0, p_block) * uScale;
+      vec2 cell = floor(gl_FragCoord.xy / px);
+      float on = step(hash12(cell * 0.73 + bt * 11.17 + uSeed), p_amount);
+      vec3 cur = texture(uSrc, vUv).rgb;
+      vec2 cuv = (cell + 0.5) * px / uRes; vec2 e = vec2(px * 0.5) / uRes;
+      float gx = luma(toSRGB(texture(uSrc, cuv + vec2(e.x, 0.0)).rgb)) - luma(toSRGB(texture(uSrc, cuv - vec2(e.x, 0.0)).rgb));
+      float gy = luma(toSRGB(texture(uSrc, cuv + vec2(0.0, e.y)).rgb)) - luma(toSRGB(texture(uSrc, cuv - vec2(0.0, e.y)).rgb));
+      vec2 mv = (vec2(gx, gy) * 3.0 + (hash22(cell + bt * 3.71) - 0.5) * 0.8) * p_flow * 7.0 * uScale / uRes;
+      vec3 moshed = mix(texture(uPrev, vUv - mv).rgb, cur, mix(0.25, 0.015, p_hold));
+      outColor = vec4(mix(cur, moshed, on), 1.0);
+    }`,
+  },
 
-  // ------------------------------------------------------------------ LIGHT (multi-pass chains in engine.js)
+  // Light (multi-pass chains in engine.js)
   bloom: {
     name: 'Bloom', cat: 'light', desc: 'HDR dual-filter bloom', kind: 'bloom',
     params: [P('threshold', 'Threshold', 0, 2, 0.7), P('intensity', 'Intensity', 0, 3, 0.8), P('radius', 'Radius', 0, 1, 0.7),
@@ -231,8 +306,113 @@ export const MODULES = {
       outColor = vec4(texture(uSrc, vUv).rgb + col * leak * p_amount * 1.4, 1.0);
     }`,
   },
+  glint: {
+    name: 'Star Glint', cat: 'light', desc: 'Cross-screen star spikes from the highlights',
+    params: [P('threshold', 'Threshold', 0, 2, 0.4), P('intensity', 'Intensity', 0, 3, 1), P('length', 'Length', 0, 1, 0.4),
+      OPT('points', 'Points', ['4', '6', '8']), P('angle', 'Angle', 0, 1, 0.125), P('spin', 'Spin / loop', -2, 2, 0, { step: 1 }),
+      P('hue', 'Tint', 0, 1, 0.58)],
+    glsl: `vec3 hi(vec3 c, float th) { float l = luma(c); return c * max(l - th, 0.0) / max(l, 1e-3); }
+    void main() {
+      vec3 src = texture(uSrc, vUv).rgb;
+      int axes = p_points < 0.5 ? 2 : (p_points < 1.5 ? 3 : 4);
+      int taps = axes == 2 ? 12 : (axes == 3 ? 10 : 8);
+      float len = 0.03 + p_length * 0.16;
+      float j = hash12(gl_FragCoord.xy);
+      vec3 acc = vec3(0.0);
+      for (int a = 0; a < 4; a++) {
+        if (a >= axes) break;
+        float ang = p_angle * PI + float(a) * PI / float(axes) + p_spin * uPhase * PI / float(axes);
+        vec2 dir = vec2(cos(ang), sin(ang)) / vec2(aspect(), 1.0);
+        for (int i = 1; i <= 12; i++) {
+          if (i > taps) break;
+          float k = (float(i) - j) / float(taps);
+          vec2 o = dir * k * k * len;
+          acc += (hi(texture(uSrc, vUv + o).rgb, p_threshold) + hi(texture(uSrc, vUv - o).rgb, p_threshold)) * (1.0 - k) * (1.0 - k);
+        }
+      }
+      vec3 tint = mix(vec3(1.0), toLin(hsv2rgb(vec3(p_hue, 0.6, 1.0))), 0.6);
+      outColor = vec4(src + acc * tint * p_intensity * 6.0 / float(taps), 1.0);
+    }`,
+  },
+  tiltshift: {
+    name: 'Tilt Shift', cat: 'light', desc: 'Miniature-world depth of field around a sharp focus band',
+    params: [P('focus', 'Focus height', 0, 1, 0.5), P('width', 'Focus band', 0.02, 0.6, 0.18), P('blur', 'Blur', 0, 1, 0.6),
+      P('sat', 'Saturation', 0, 2, 1.25)],
+    glsl: `void main() {
+      float f = smoothstep(p_width * 0.5, p_width * 0.5 + 0.22, abs(vUv.y - p_focus));
+      float rad = f * p_blur * 0.022;
+      vec3 acc = texture(uSrc, vUv).rgb; float ws = 1.0;
+      if (rad > 1e-4) {
+        for (int i = 0; i < 32; i++) {
+          float a = float(i) * 2.39996323;
+          vec2 o = vec2(cos(a), sin(a)) * sqrt((float(i) + 0.5) / 32.0) * rad / vec2(aspect(), 1.0);
+          vec3 s = texture(uSrc, vUv + o).rgb;
+          float w = 1.0 + 2.0 * luma(min(s, vec3(4.0)));
+          acc += s * w; ws += w;
+        }
+      }
+      vec3 c = acc / ws;
+      outColor = vec4(max(mix(vec3(luma(c)), c, p_sat), 0.0), 1.0);
+    }`,
+  },
+  ghost: {
+    name: 'Double Vision', cat: 'light', desc: 'A tinted ghost copy that splits away on every beat',
+    params: [P('amount', 'Separation', 0, 1, 0.4), P('angle', 'Angle', 0, 1, 0), P('tint', 'Tint split', 0, 1, 0.5),
+      OPT('mode', 'Blend', ['Screen', 'Add', 'Average'])],
+    glsl: ENV + `void main() {
+      float ang = p_angle * PI;
+      vec2 off = vec2(cos(ang), sin(ang)) / vec2(aspect(), 1.0) * p_amount * (0.35 + 0.65 * beatEnv(4.0)) * 0.035;
+      vec3 a = texture(uSrc, mirrorUv(vUv - off)).rgb * mix(vec3(1.0), vec3(1.18, 0.86, 0.8), p_tint);
+      vec3 b = texture(uSrc, mirrorUv(vUv + off)).rgb * mix(vec3(1.0), vec3(0.8, 0.96, 1.2), p_tint);
+      int m = int(p_mode + 0.5);
+      vec3 c = m == 0 ? a + b * 0.65 * (1.0 - min(a, vec3(1.0))) : m == 1 ? (a + b) * 0.62 : mix(a, b, 0.5);
+      outColor = vec4(c, 1.0);
+    }`,
+  },
+  pulse: {
+    name: 'Warm Pulse', cat: 'light', desc: 'A gentle warm lift and glow on every hit',
+    params: [OPT('trigger', 'Trigger', ['Kick', 'Beat', 'Bass', 'Snare']), P('amount', 'Amount', 0, 1, 0.35), P('warmth', 'Warmth', 0, 1, 0.6),
+      P('glow', 'Glow', 0, 1, 0.4)],
+    glsl: ENV + `void main() {
+      int tr = int(p_trigger + 0.5);
+      float env = clamp(tr == 0 ? uKick : tr == 1 ? beatEnv(5.0) : tr == 2 ? uBass : uSnare, 0.0, 1.0);
+      vec3 src = texture(uSrc, vUv).rgb;
+      vec3 glow = vec3(0.0);
+      for (int i = 0; i < 8; i++) {
+        float a = float(i) * TAU / 8.0;
+        glow += max(texture(uSrc, vUv + vec2(cos(a), sin(a)) / vec2(aspect(), 1.0) * 0.012).rgb - 0.6, 0.0);
+      }
+      vec3 warm = mix(vec3(1.0), vec3(1.0, 0.82, 0.6), p_warmth);
+      outColor = vec4(src * (1.0 + env * p_amount * 0.6 * warm) + glow / 8.0 * warm * env * p_glow * 1.5, 1.0);
+    }`,
+  },
+  shutter: {
+    name: 'Beat Shutter', cat: 'light', desc: 'Photosafe shutter: dims (never blacks out) between beats',
+    params: [OPT('rate', 'Rate', ['Off-beat', 'Every 2 beats', 'Every bar']), P('depth', 'Depth', 0, 0.5, 0.25), P('soft', 'Softness', 0, 1, 0.6)],
+    glsl: `void main() {
+      float per = p_rate < 0.5 ? 1.0 : (p_rate < 1.5 ? 2.0 : 4.0);
+      float s = 0.5 - 0.5 * cos(TAU * fract(uBeat / per));
+      float gate = mix(smoothstep(0.3, 0.7, s), s, p_soft);
+      outColor = vec4(texture(uSrc, vUv).rgb * (1.0 - p_depth * gate), 1.0);
+    }`,
+  },
+  bassrim: {
+    name: 'Bass Rim', cat: 'light', desc: 'A vignette that tightens on the low end, with a coloured rim glow',
+    params: [OPT('trigger', 'Trigger', ['Bass', 'Kick', 'Beat']), P('amount', 'Punch', 0, 1, 0.5), P('size', 'Size', 0.3, 1.2, 0.65),
+      P('rim', 'Rim glow', 0, 1, 0.5), P('hue', 'Rim hue', 0, 1, 0.8)],
+    glsl: ENV + `void main() {
+      int tr = int(p_trigger + 0.5);
+      float env = clamp(tr == 0 ? uBass : tr == 1 ? uKick : beatEnv(4.0), 0.0, 1.0);
+      float d = length(toP(vUv) * vec2(1.6, 1.0));
+      float R = p_size * (1.0 - 0.3 * env * p_amount);
+      vec3 c = texture(uSrc, vUv).rgb * (1.0 - smoothstep(R * 0.5, R, d) * (0.3 + 0.55 * p_amount * (0.4 + 0.6 * env)));
+      float x = (d - R * 0.82) / 0.07;
+      c += toLin(hsv2rgb(vec3(p_hue, 0.8, 1.0))) * exp(-x * x) * p_rim * env * 0.5;
+      outColor = vec4(c, 1.0);
+    }`,
+  },
 
-  // ------------------------------------------------------------------ STYLIZE
+  // Stylize
   dither: {
     name: '1-Bit Dither', cat: 'stylize', desc: 'Ordered 8×8 Bayer dither through a curated palette',
     params: [P('size', 'Pixel', 1, 10, 3), P('levels', 'Tones', 2, 6, 2, { step: 1 }),
@@ -415,8 +595,25 @@ export const MODULES = {
       outColor = vec4(mix(texture(uSrc, vUv).rgb, c, p_mix), 1.0);
     }`,
   },
+  frost: {
+    name: 'Frost Mist', cat: 'stylize', desc: 'Frosted glass diffusion with drifting cold mist',
+    params: [P('amount', 'Frost', 0, 1, 0.5), P('scale', 'Grain size', 1, 8, 2.5), P('mist', 'Mist', 0, 1, 0.35),
+      P('cycles', 'Drift / loop', 0, 3, 1, { step: 1 }), P('tint', 'Cold tint', 0, 1, 0.4)],
+    glsl: `void main() {
+      vec2 cell = floor(gl_FragCoord.xy / max(1.0, p_scale * uScale));
+      vec3 acc = vec3(0.0);
+      for (int i = 0; i < 6; i++) {
+        vec2 h = hash22(cell + float(i) * 17.17) - 0.5;
+        acc += texture(uSrc, mirrorUv(vUv + h * p_amount * 0.025 / vec2(aspect(), 1.0))).rgb;
+      }
+      vec3 c = acc / 6.0;
+      float haze = p_mist * smoothstep(0.25, 0.85, loopFbm(toP(vUv) * 1.8 + vec2(2.0, 7.0), p_cycles));
+      c = mix(c, toLin(vec3(0.78, 0.86, 0.95)) * (0.55 + 0.45 * luma(c)), haze * 0.75);
+      outColor = vec4(mix(c, c * vec3(0.92, 0.98, 1.08), p_tint), 1.0);
+    }`,
+  },
 
-  // ------------------------------------------------------------------ COLOR
+  // Color
   gradient: {
     name: 'Gradient Map', cat: 'color', desc: 'Luminance mapped through a designed palette',
     params: [OPT('palette', 'Palette', ['Thermal', 'Inferno', 'Acid', 'Vapor', 'Ocean', 'Gold', 'Holo', 'Noir']),
@@ -479,6 +676,52 @@ export const MODULES = {
       vec3 q = floor(s * p_levels + 0.5) / p_levels;
       q = clamp(mix(vec3(luma(q)), q, p_sat), 0.0, 1.0);
       outColor = vec4(toLin(mix(s, q, p_mix)), 1.0);
+    }`,
+  },
+  solarize: {
+    name: 'Solarize', cat: 'color', desc: 'Sabattier tone fold: highlights flip back into the darks',
+    params: [P('threshold', 'Threshold', 0.15, 0.85, 0.5), P('amount', 'Amount', 0, 1, 0.8), OPT('mode', 'Mode', ['Classic', 'Color', 'Neon'])],
+    glsl: `vec3 tent(vec3 v, vec3 th) { return mix(v / th, (1.0 - v) / (1.0 - th), step(th, v)); }
+    void main() {
+      vec3 s = clamp(toSRGB(texture(uSrc, vUv).rgb), 0.0, 1.0);
+      int m = int(p_mode + 0.5); vec3 o;
+      if (m == 0) o = tent(s, vec3(p_threshold));
+      else if (m == 1) o = tent(s, clamp(vec3(p_threshold - 0.12, p_threshold, p_threshold + 0.12), 0.08, 0.92));
+      else {
+        float l = max(luma(s), 1e-3);
+        o = s * tent(vec3(l), vec3(p_threshold)).x / l;
+        o = mix(vec3(luma(o)), o, 1.7);
+      }
+      outColor = vec4(toLin(mix(s, clamp(o, 0.0, 1.0), p_amount)), 1.0);
+    }`,
+  },
+  filmstock: {
+    name: 'Film Stock', cat: 'color', desc: 'Classic lab looks: bleach bypass, cyberpunk, golden hour, noir…',
+    params: [OPT('mode', 'Stock', ['Bleach Bypass', 'Cyberpunk', 'Golden Hour', 'Sepia Noir', 'Cross Process', 'Teal & Orange']),
+      P('strength', 'Strength', 0, 1, 0.8)],
+    glsl: `void main() {
+      vec3 s = clamp(toSRGB(texture(uSrc, vUv).rgb), 0.0, 1.0);
+      float l = luma(s); int m = int(p_mode + 0.5); vec3 o;
+      if (m == 0) {
+        vec3 ov = mix(2.0 * s * l, 1.0 - 2.0 * (1.0 - s) * (1.0 - l), step(0.5, l));
+        o = mix(vec3(l), ov, 0.45); o = (o - 0.5) * 1.15 + 0.5;
+      } else if (m == 1) {
+        o = mix(s * vec3(0.72, 0.92, 1.3), s * vec3(1.25, 0.78, 1.15), smoothstep(0.15, 0.75, l));
+        o = mix(vec3(luma(o)), o, 1.3);
+      } else if (m == 2) {
+        o = s * vec3(1.12, 1.0, 0.78) + vec3(0.05, 0.025, -0.01) * (1.0 - l);
+        o = mix(vec3(luma(o)), o, 1.1);
+      } else if (m == 3) {
+        float n = smoothstep(0.04, 0.96, pow(l, 1.15));
+        o = n * vec3(1.07, 0.94, 0.76);
+      } else if (m == 4) {
+        o = vec3(smoothstep(0.05, 0.95, s.r), pow(s.g, 0.9), mix(0.14, 0.86, s.b));
+        o = mix(vec3(luma(o)), o, 1.2);
+      } else {
+        o = mix(s * vec3(0.8, 1.02, 1.12), s * vec3(1.15, 0.98, 0.8), smoothstep(0.2, 0.8, l));
+        o = mix(vec3(luma(o)), o, 1.15);
+      }
+      outColor = vec4(toLin(mix(s, clamp(o, 0.0, 1.0), p_strength)), 1.0);
     }`,
   },
 };

@@ -1,8 +1,8 @@
 // Canvas Forge Studio — UI controller.
 import { Engine } from './engine.js';
 import { Transport, makeSampler } from './audio.js';
-import { RHYTHMS, planTimeline } from './timeline.js';
-import { LOOKS, cloneLook, mutate, randomLook } from './looks.js';
+import { DIRECTIONS, RHYTHMS, planTimeline, rng } from './timeline.js';
+import { LOOKS, chaosLook, clamp, cloneLook, evolveLook, mutate, randomLook } from './looks.js';
 import { CAMERA, CATEGORIES, FINISH_DEF, MODULES, MOD_SOURCES, defaults } from './modules.js';
 import { TRANSITIONS } from './shaders.js';
 import { VideoBank, compose } from './composer.js';
@@ -24,7 +24,13 @@ const h = (tag, attrs = {}, ...kids) => {
 };
 const fetchJSON = async (u, o) => { const r = await fetch(u, o); if (!r.ok) throw new Error(`${u}: ${r.status}`); return r.json(); };
 const fmt = (s) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
-const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
+const shuffle = (arr, rand = Math.random) => {
+  for (let i = arr.length - 1; i > 0; i--) {
+    const j = Math.floor(rand() * (i + 1));
+    [arr[i], arr[j]] = [arr[j], arr[i]];
+  }
+  return arr;
+};
 const ICON = {
   play: '<svg viewBox="0 0 24 24"><path d="M7 4v16l13-8z"/></svg>',
   pause: '<svg viewBox="0 0 24 24"><path d="M6 4h4v16H6zM14 4h4v16h-4z"/></svg>',
@@ -34,7 +40,7 @@ const BAR_CHOICES = [1, 2, 4, 8];
 const TRANS_BEATS = [[0, 'Cut'], [0.25, '¼'], [0.5, '½'], [1, '1'], [2, '2']];
 const KEY = 'canvasforge.studio.v1';
 
-// ------------------------------------------------------------------ state
+// State
 const S = {
   clips: [], tracks: [], renders: [],
   trackId: '', features: null,
@@ -42,6 +48,8 @@ const S = {
   look: null, lookId: null, saved: [],
   bars: 4, loopStart: 0, bpmManual: 128, bpmOverride: {},
   seed: 2026, direction: 'forward', lockEdit: false,
+  intensity: 1, clipMode: 'one', clipLooks: {}, editClip: null, evolveAmt: 0.45,
+  rollOpts: { look: true, edit: true, perClip: true, clips: false, loop: false },
   customCuts: null, segOverrides: {},
   hud: true, safe: false, muted: false, tab: 'looks',
   exporting: false, exportOpts: { size: 'master', audio: true },
@@ -58,6 +66,7 @@ function save() {
       trackId: S.trackId, selected: S.selected, look: S.look, lookId: S.lookId, saved: S.saved, bars: S.bars, loopStart: S.loopStart,
       bpmManual: S.bpmManual, bpmOverride: S.bpmOverride, seed: S.seed, direction: S.direction, lockEdit: S.lockEdit, customCuts: S.customCuts, segOverrides: S.segOverrides,
       hud: S.hud, safe: S.safe, muted: S.muted, tab: S.tab, mode: transport.mode, exportOpts: S.exportOpts,
+      intensity: S.intensity, clipMode: S.clipMode, clipLooks: S.clipLooks, evolveAmt: S.evolveAmt, rollOpts: S.rollOpts,
     }));
   } catch { /* storage unavailable: session-only */ }
 }
@@ -75,7 +84,71 @@ function loopLen() {
   return S.bars ? S.bars * barDur() : 8;
 }
 
-// ------------------------------------------------------------------ toast / popover
+// Per-clip looks
+// 'one': the main look runs after the transition (feedback flows across cuts). Every other mode
+// gives each clip its own stack, run on that clip before the transition.
+const CLIP_MODES = [['one', 'Same look'], ['evolve', 'Evolve'], ['cycle', 'Look per clip'], ['custom', 'Custom']];
+let clipCache = { v: -1, map: new Map() };
+
+function buildClipLooks() {
+  const m = new Map();
+  if (S.clipMode === 'evolve') {
+    S.selected.forEach((id, i) => { if (i) m.set(id, evolveLook(S.look, S.evolveAmt, S.seed * 31 + i * 7919)); });
+  } else if (S.clipMode === 'cycle') {
+    const r = rng(S.seed + 99);
+    const base = S.lookId?.replace(/^edit:/, '');
+    const pool = [...S.saved, ...LOOKS].filter((l) => l.id !== base && l.id !== 'clean');
+    shuffle(pool, r);
+    S.selected.forEach((id, i) => { if (i) m.set(id, pool[(i - 1) % pool.length]); });
+  } else if (S.clipMode === 'custom') {
+    S.selected.forEach((id) => { if (S.clipLooks[id]) m.set(id, S.clipLooks[id]); });
+  }
+  return m;
+}
+
+function clipLookOf(id) {
+  if (S.clipMode === 'one') return S.look;
+  if (clipCache.v !== version) clipCache = { v: version, map: buildClipLooks() };
+  return clipCache.map.get(id) || S.look;
+}
+
+// The look the Layers tab is editing: the main look, or one clip's own look in Custom mode.
+function editLook() {
+  if (S.clipMode === 'custom' && S.editClip && S.clipLooks[S.editClip] && S.selected.includes(S.editClip)) return S.clipLooks[S.editClip];
+  return S.look;
+}
+
+function setClipMode(k) {
+  if (k === 'custom' && S.clipMode !== 'custom' && S.clipMode !== 'one') {
+    // keep what each clip shows right now, so it can be fine-tuned from there
+    S.clipLooks = Object.fromEntries(S.selected.map((id) => [id, clipLookOf(id)]).filter(([, l]) => l !== S.look).map(([id, l]) => [id, cloneLook(l)]));
+  }
+  S.clipMode = k;
+  if (k !== 'custom') S.editClip = null;
+  engine.main.reset();
+  rebuild(); renderLayers(); renderClips(); renderLooks();
+}
+
+function editClipLook(id) {
+  if (id && S.clipMode !== 'custom') setClipMode('custom');
+  if (id && !S.clipLooks[id]) S.clipLooks[id] = cloneLook(S.look);
+  S.editClip = id;
+  touch();
+  setTab('layers');
+  renderLayers(); renderClips(); renderLooks(); save();
+}
+
+function rollClips() {
+  const base = (Date.now() % 1e6) | 0;
+  S.clipLooks = Object.fromEntries(S.selected.map((id, i) => [id, chaosLook(base + i * 7919)]));
+  S.clipMode = 'custom';
+  S.editClip = null;
+  engine.main.reset();
+  rebuild(); renderLayers(); renderClips(); renderLooks(); save();
+  toast(`🎲 ${S.selected.length} clips, ${S.selected.length} different stacks`);
+}
+
+// Toast / popover
 let toastTimer;
 function toast(msg, ms = 2400) {
   const t = $('#toast');
@@ -100,7 +173,7 @@ function openPop(anchor, build, cls = '') {
 function closePop() { pop.className = 'pop'; }
 document.addEventListener('pointerdown', (e) => { if (!pop.contains(e.target) && !e.target.closest('[data-pop]')) closePop(); });
 
-// ------------------------------------------------------------------ edit (timeline) rebuild
+// Edit (timeline) rebuild
 function rebuild() {
   touch();
   const L = loopLen();
@@ -129,6 +202,7 @@ function rebuild() {
   }
   ctx = {
     look: S.look, tl, L, beatDur: bd, seed: S.seed, clipDur: (id) => clipDur.get(id) || 10,
+    intensity: S.intensity, clipLook: S.clipMode === 'one' ? null : clipLookOf,
     sampler: makeSampler({ features: S.features, loopStart: S.loopStart, beatDur: bd, seed: S.seed }),
   };
   transport.setLoop(S.loopStart, L);
@@ -154,7 +228,7 @@ function setLook(l, { keepEdit = false } = {}) {
   renderEdit();
 }
 
-// ------------------------------------------------------------------ render loop
+// Render loop
 let frameNo = 0, fpsAcc = 0, fpsN = 0, lastNow = performance.now(), thumbCursor = 0, lastFrame = null, lastKey = '';
 const ambientCtx = $('#ambient').getContext('2d', { willReadFrequently: true });
 const freeClock = () => (performance.now() / 1000);
@@ -247,7 +321,7 @@ function updateLive(t, fr) {
   if (frameNo % 2 === 0 && S.features && transport.mode === 'listen') drawOverview();
 }
 
-// ------------------------------------------------------------------ top chips + transport
+// Top chips + transport
 function renderChips() {
   const tr = S.tracks.find((t) => t.id === S.trackId);
   const L = ctx?.L ?? loopLen();
@@ -284,13 +358,13 @@ function renderBars() {
 function renderRhythm() {
   const cur = S.customCuts ? 'custom' : S.look.cut.rhythm;
   const btns = Object.entries(RHYTHMS).map(([k, r]) => h('button', {
-    class: k === cur ? 'on' : '', onclick: () => { S.look.cut.rhythm = k; S.customCuts = null; S.segOverrides = {}; rebuild(); renderEdit(); },
-  }, r.name));
+    class: k === cur ? 'on' : '', title: r.name, onclick: () => { S.look.cut.rhythm = k; S.customCuts = null; S.segOverrides = {}; rebuild(); renderEdit(); },
+  }, r.short));
   if (S.customCuts) btns.push(h('button', { class: 'on', title: 'You dragged the cuts' }, 'Custom'));
   $('#rhythmSeg').replaceChildren(...btns);
 }
 
-// ------------------------------------------------------------------ track panel
+// Track panel
 const meterEls = [];
 function buildMeters() {
   $('#meters').replaceChildren(...METERS.map((m) => {
@@ -360,7 +434,7 @@ async function selectTrack(id, { initial = false, keepLoop = false } = {}) {
   rebuild(); renderTrack(); renderTransport(); renderEdit();
 }
 
-// ------------------------------------------------------------------ clips panel
+// Clips panel
 let dragId = null;
 function renderClips() {
   const ordered = [...S.selected.map((id) => S.clips.find((c) => c.id === id)).filter(Boolean), ...S.clips.filter((c) => !S.selected.includes(c.id))];
@@ -386,9 +460,19 @@ function renderClips() {
         renderClips(); rebuild();
       },
     }, idx >= 0 ? h('span', { class: 'num' }, String(idx + 1)) : null, busy ? h('span', { class: 'busy', title: 'Preparing playback proxy' }) : null,
+    idx >= 0 && S.clipMode !== 'one' ? clipTag(c.id) : null,
     h('div', { class: 'cap' }, `${c.duration.toFixed(1)}s · ${c.name}`));
   }));
   $('#clipCount').textContent = `${S.selected.length} of ${S.clips.length}`;
+}
+
+function clipTag(id) {
+  const l = clipLookOf(id);
+  const own = l !== S.look;
+  return h('button', {
+    class: `lk ${own ? 'own' : ''} ${S.editClip === id ? 'on' : ''}`, title: `${own ? l.name : 'Main look'} — click to edit this clip's effects`,
+    onclick: (e) => { e.stopPropagation(); editClipLook(id); },
+  }, own ? l.name : 'Main');
 }
 
 function toggleClip(id) {
@@ -398,7 +482,7 @@ function toggleClip(id) {
   renderClips(); rebuild();
 }
 
-// ------------------------------------------------------------------ exports list
+// Exports list
 function renderExports() {
   const list = S.renders.filter((r) => r.engine === 'gpu' || r.filename);
   $('#exportCount').textContent = list.length ? `${list.length}` : '';
@@ -420,7 +504,7 @@ async function reveal(filename) {
   if (!r.ok) toast(`Saved in out/${filename}`);
 }
 
-// ------------------------------------------------------------------ looks gallery
+// Looks gallery
 const lookJobs = [];
 const lookIO = new IntersectionObserver((ents) => {
   for (const e of ents) { const j = lookJobs.find((x) => x.card === e.target); if (j) j.visible = e.isIntersecting; }
@@ -431,18 +515,41 @@ function renderLooks() {
   if (lookJobs.length !== all.length || lookJobs.some((j, i) => j.look.id !== all[i].id)) {
     lookJobs.forEach((j) => { lookIO.unobserve(j.card); engine.dropThumb(j.id); });
     lookJobs.length = 0;
-    $('#looks').replaceChildren(...all.map((l) => {
+    $('#looks').replaceChildren(...all.flatMap((l, i) => {
+      const group = l.mine ? 'mine' : l.group || 'curated';
+      const prev = i ? (all[i - 1].mine ? 'mine' : all[i - 1].group || 'curated') : null;
+      const head = group !== prev ? h('div', { class: 'look-group' }, { mine: 'Your looks', curated: 'Studio looks', classic: 'Classic stacks' }[group]) : null;
       const cv = h('canvas', { width: 144, height: 256 });
-      const card = h('div', { class: 'look', onclick: () => { setLook(l); toast(l.name); } }, cv,
+      const card = h('div', { class: 'look', onclick: () => applyLook(l) }, cv,
         h('div', { class: 'lbl' }, h('b', {}, l.mine ? `★ ${l.name}` : l.name), h('span', {}, l.vibe)));
       const job = { id: `look:${l.id}`, look: l, card, ctx2d: cv.getContext('2d'), visible: false };
       lookJobs.push(job);
       lookIO.observe(card);
-      return card;
+      return head ? [head, card] : [card];
     }));
   }
-  lookJobs.forEach((j) => j.card.classList.toggle('on', j.look.id === S.lookId));
+  const target = editLook();
+  const activeId = target === S.look ? S.lookId : target.id;
+  lookJobs.forEach((j) => j.card.classList.toggle('on', j.look.id === activeId));
   $('#lookCount').textContent = String(all.length);
+  const banner = $('#lookTarget');
+  banner.hidden = target === S.look;
+  if (!banner.hidden) {
+    banner.replaceChildren(h('span', {}, 'Clicking a look applies it to ', h('b', {}, `clip ${S.selected.indexOf(S.editClip) + 1}`)),
+      h('button', { class: 'btn sm', onclick: () => editClipLook(null) }, 'Back to main'));
+  }
+}
+
+function applyLook(l) {
+  if (editLook() !== S.look) {
+    const no = S.selected.indexOf(S.editClip) + 1;
+    S.clipLooks[S.editClip] = cloneLook(l);
+    touch(); rebuild(); renderLayers(); renderClips(); renderLooks(); save();
+    toast(`Clip ${no} → ${l.name}`);
+    return;
+  }
+  setLook(l);
+  toast(l.name);
 }
 
 function stepLook(d) {
@@ -454,7 +561,7 @@ function stepLook(d) {
   lookJobs.find((j) => j.look.id === l.id)?.card.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
 }
 
-// ------------------------------------------------------------------ layers pane
+// Layers pane
 function fmtVal(p, v) { return p.step >= 1 ? String(Math.round(v)) : Math.abs(v) >= 10 ? v.toFixed(1) : v.toFixed(2); }
 
 function paramRow(p, holder, readLive) {
@@ -516,6 +623,7 @@ function paramRow(p, holder, readLive) {
 function afterParam(p) {
   touch();
   if (p.id === 'speed') rebuild();
+  if (editLook() !== S.look) { save(); return; }
   S.lookId = S.lookId?.startsWith('edit:') ? S.lookId : `edit:${S.lookId}`;
   renderLooksActive();
   save();
@@ -531,30 +639,76 @@ function card({ title, sub, color, collapsed, onToggle, on, actions = [] }, body
   return c;
 }
 
+function sliderRow(label, { min, max, step, value, fmt: f, def, title }, onInput) {
+  const input = h('input', { type: 'range', min, max, step, value });
+  const fill = h('div', { class: 'fill' }), knob = h('div', { class: 'knob' });
+  const out = h('output', {}, f(value));
+  const paint = (v) => { const k = ((v - min) / (max - min)) * 100; fill.style.width = `${k}%`; knob.style.left = `${k}%`; out.textContent = f(v); };
+  input.addEventListener('input', () => { paint(+input.value); onInput(+input.value); });
+  if (def !== undefined) input.addEventListener('dblclick', () => { input.value = def; paint(def); onInput(def); });
+  paint(value);
+  return h('div', { class: 'prm' }, h('label', { title }, label), h('div', { class: 'slider' }, h('div', { class: 'trk' }), fill, knob, input), out, h('span'));
+}
+
+const STAGE = ['space', 'warp', 'time', 'stylize', 'color', 'light'];
+function addRandomLayer(look) {
+  const pool = Object.keys(MODULES).filter((id) => !look.layers.some((x) => x.m === id));
+  if (!pool.length) return;
+  const id = pool[Math.floor(Math.random() * pool.length)];
+  const at = look.layers.findIndex((x) => STAGE.indexOf(MODULES[x.m]?.cat) > STAGE.indexOf(MODULES[id].cat));
+  look.layers.splice(at < 0 ? look.layers.length : at, 0, { m: id, on: true, p: defaults(MODULES[id].params), mods: {} });
+  engine.main.reset(); renderLayers(); save();
+  toast(`🎲 Added ${MODULES[id].name}`);
+}
+
+function findLayer(fr, key) { return fr.layers.find((x) => x.key === key) || fr.pre?.flat().find((x) => x.key === key); }
+
 function renderLayers() {
   touch();
   ghosts.length = 0;
-  const look = S.look;
+  const look = editLook();
+  const clipEdit = look !== S.look;
+  const clipNo = S.selected.indexOf(S.editClip) + 1;
   const pane = $('#pane-layers');
   const kids = [];
-  kids.push(card({ title: 'Camera', sub: 'framing · motion', color: '#FFFFFF' },
-    CAMERA.params.map((p) => paramRow(p, look.camera, (fr) => fr.camera[`p_${p.id}`]))));
-  look.layers.forEach((layer, i) => {
-    const m = MODULES[layer.m];
-    if (!m) return;
-    layer.p = { ...defaults(m.params), ...layer.p };
-    const btn = (label, title, fn) => h('button', { class: 'ib', title, onclick: (e) => { e.stopPropagation(); fn(); } }, label);
-    kids.push(card({
-      title: m.name, sub: CATEGORIES[m.cat].name, color: CATEGORIES[m.cat].color, on: layer.on !== false,
-      onToggle: () => { layer.on = layer.on === false; renderLayers(); save(); },
-      actions: [
-        btn('↑', 'Move up', () => { if (i > 0) { [look.layers[i - 1], look.layers[i]] = [look.layers[i], look.layers[i - 1]]; engine.main.reset(); renderLayers(); save(); } }),
-        btn('↓', 'Move down', () => { if (i < look.layers.length - 1) { [look.layers[i + 1], look.layers[i]] = [look.layers[i], look.layers[i + 1]]; engine.main.reset(); renderLayers(); save(); } }),
-        btn('✕', 'Remove', () => { look.layers.splice(i, 1); engine.main.reset(); renderLayers(); save(); }),
-      ],
-    }, [h('div', { class: 'note', style: 'margin-bottom:2px' }, m.desc), ...m.params.map((p) => paramRow(p, layer, (fr) => fr.layers.find((x) => x.key === `${i}:${layer.m}`)?.params[`p_${p.id}`]))]));
-  });
-  const add = h('button', { class: 'btn add-layer', 'data-pop': true }, '+ Add effect');
+  const relayer = () => { engine.main.reset(); renderLayers(); renderClips(); save(); };
+
+  // ---- master: FX intensity and per-clip looks
+  const master = [
+    sliderRow('FX intensity', { min: 0, max: 1.5, step: 0.01, value: S.intensity, def: 1, fmt: (v) => `${Math.round(v * 100)}%`,
+      title: 'Below 100% fades every layer toward the clean footage; above 100% the audio modulation hits harder. Double-click to reset.' },
+    (v) => { S.intensity = v; if (ctx) ctx.intensity = v; touch(); save(); }),
+    h('div', { class: 'prm-wide' }, h('label', { title: 'Give each clip its own effects' }, 'Per clip'),
+      h('div', { class: 'seg' }, ...CLIP_MODES.map(([k, label]) => h('button', { class: S.clipMode === k ? 'on' : '', onclick: () => setClipMode(k) }, label)))),
+  ];
+  const modeNote = {
+    one: 'Every clip runs through the main look.',
+    evolve: 'Clip 1 uses the main look; each later clip gets its own mutation of it.',
+    cycle: 'Clip 1 uses the main look; each later clip gets a different curated look.',
+    custom: 'Pick a clip to give it its own stack — or click a look while a clip is picked.',
+  }[S.clipMode];
+  master.push(h('div', { class: 'note', style: 'padding:2px 0 4px' }, modeNote));
+  if (S.clipMode === 'evolve') {
+    master.push(sliderRow('Evolve amount', { min: 0.1, max: 1, step: 0.01, value: S.evolveAmt, def: 0.45, fmt: (v) => `${Math.round(v * 100)}%` },
+      (v) => { S.evolveAmt = v; touch(); renderClips(); save(); }));
+  }
+  if (S.clipMode === 'custom') {
+    master.push(h('div', { class: 'clipstrip' },
+      h('button', { class: `cs main ${clipEdit ? '' : 'on'}`, title: 'Edit the main look', onclick: () => editClipLook(null) }, 'Main'),
+      ...S.selected.map((id, i) => h('button', {
+        class: `cs ${S.editClip === id && clipEdit ? 'on' : ''} ${S.clipLooks[id] ? 'own' : ''}`,
+        title: S.clipLooks[id] ? `Clip ${i + 1}: ${S.clipLooks[id].name}` : `Clip ${i + 1} uses the main look — click to give it its own`,
+        style: `background-image:url(/api/thumb/${id}?w=120)`, onclick: () => editClipLook(id),
+      }, h('span', {}, String(i + 1))))));
+  }
+  master.push(h('div', { class: 'row', style: 'margin-top:6px;flex-wrap:wrap;gap:6px' },
+    h('button', { class: 'btn sm', title: 'Give every clip its own random stack', onclick: rollClips }, '🎲 Roll FX per clip'),
+    S.clipMode !== 'one' ? h('button', { class: 'btn sm', title: 'Drop the per-clip looks', onclick: () => { S.clipLooks = {}; setClipMode('one'); toast('Main look on every clip'); } }, 'Same look on all') : null,
+    clipEdit ? h('button', { class: 'btn sm', title: 'This clip follows the main look again', onclick: () => { delete S.clipLooks[S.editClip]; S.editClip = null; touch(); rebuild(); relayer(); renderLooks(); } }, `Reset clip ${clipNo}`) : null));
+  kids.push(card({ title: clipEdit ? `Clip ${clipNo} · ${look.name}` : 'Master', sub: clipEdit ? 'this clip’s own stack' : 'intensity · per-clip looks', color: '#FF7AE6' }, master));
+
+  // ---- layer tools
+  const add = h('button', { class: 'btn sm', 'data-pop': true, title: 'Add an effect layer' }, '+ Add effect');
   add.addEventListener('click', () => openPop(add, (box) => {
     for (const [cat, meta] of Object.entries(CATEGORIES)) {
       box.append(h('div', { class: 'ph', style: `color:${meta.color}` }, meta.name));
@@ -562,18 +716,57 @@ function renderLayers() {
         if (m.cat !== cat) continue;
         box.append(h('button', { class: 'pi', onclick: () => {
           look.layers.push({ m: id, on: true, p: defaults(m.params), mods: {} });
-          closePop(); renderLayers(); save(); toast(`Added ${m.name}`);
+          closePop(); relayer(); toast(`Added ${m.name}`);
           pane.scrollTop = pane.scrollHeight;
         } }, h('b', {}, m.name), h('span', {}, m.desc)));
       }
     }
   }, 'menu'));
-  kids.push(add);
-  kids.push(card({ title: 'Finish', sub: 'grade · texture · safety', color: '#C8FF4D' },
-    FINISH_DEF.params.map((p) => paramRow(p, look.finish, (fr) => fr.finish[`p_${p.id}`]))));
+  kids.push(h('div', { class: 'layer-tools' }, add,
+    h('button', { class: 'btn sm', title: 'Add a random effect at its natural place in the stack', onclick: () => addRandomLayer(look) }, '🎲 Random'),
+    h('button', { class: 'btn sm', title: 'Shuffle the layer order', disabled: look.layers.length < 2, onclick: () => {
+      shuffle(look.layers);
+      relayer(); toast('Shuffled the stack');
+    } }, '⇅ Shuffle'),
+    h('button', { class: 'btn sm', title: 'Remove every layer (Revert brings them back)', disabled: !look.layers.length, onclick: () => { look.layers.length = 0; relayer(); toast('Cleared — Revert brings the look back'); } }, 'Clear')));
+
+  // live values: the main look's layers run post-transition in 'one' mode, else inside a clip's stack
+  const liveClip = clipEdit ? S.editClip : S.clipMode === 'one' ? null : S.selected.find((id) => clipLookOf(id) === S.look);
+  const prefix = S.clipMode === 'one' ? '' : `c:${liveClip}:`;
+  if (!clipEdit) {
+    kids.push(card({ title: 'Camera', sub: 'framing · motion · clip speed', color: '#FFFFFF' },
+      CAMERA.params.map((p) => paramRow(p, look.camera, (fr) => fr.camera[`p_${p.id}`]))));
+  }
+  look.layers.forEach((layer, i) => {
+    const m = MODULES[layer.m];
+    if (!m) return;
+    layer.p = { ...defaults(m.params), ...layer.p };
+    const btn = (label, title, fn) => h('button', { class: 'ib', title, onclick: (e) => { e.stopPropagation(); fn(); } }, label);
+    const key = `${prefix}${i}:${layer.m}`;
+    kids.push(card({
+      title: m.name, sub: CATEGORIES[m.cat].name, color: CATEGORIES[m.cat].color, on: layer.on !== false,
+      onToggle: () => { layer.on = layer.on === false; relayer(); },
+      actions: [
+        btn('↑', 'Move up', () => { if (i > 0) { [look.layers[i - 1], look.layers[i]] = [look.layers[i], look.layers[i - 1]]; relayer(); } }),
+        btn('↓', 'Move down', () => { if (i < look.layers.length - 1) { [look.layers[i + 1], look.layers[i]] = [look.layers[i], look.layers[i + 1]]; relayer(); } }),
+        btn('✕', 'Remove', () => { look.layers.splice(i, 1); relayer(); }),
+      ],
+    }, [h('div', { class: 'note', style: 'margin-bottom:2px' }, m.desc), ...m.params.map((p) => paramRow(p, layer, (fr) => findLayer(fr, key)?.params[`p_${p.id}`]))]));
+  });
+  if (!look.layers.length) kids.push(h('div', { class: 'note', style: 'padding:6px 16px 4px' }, 'No effect layers — just the camera and the grade. Add one above, or hit 🎲.'));
+  if (!clipEdit) {
+    kids.push(card({ title: 'Finish', sub: 'grade · texture · safety', color: '#C8FF4D' },
+      FINISH_DEF.params.map((p) => paramRow(p, look.finish, (fr) => fr.finish[`p_${p.id}`]))));
+  } else {
+    kids.push(h('div', { class: 'note', style: 'padding:4px 16px 8px' }, 'Camera, clip speed and the Finish grade are shared by every clip — edit them on Main.'));
+  }
   kids.push(h('div', { class: 'row', style: 'padding: 2px 12px 16px; gap: 8px' },
     h('button', { class: 'btn', style: 'flex:1;justify-content:center', 'data-pop': true, onclick: saveLook }, '★ Save as look'),
-    h('button', { class: 'btn', style: 'flex:1;justify-content:center', onclick: () => { const base = [...S.saved, ...LOOKS].find((l) => l.id === S.lookId.replace(/^edit:/, '')); if (base) setLook(base); } }, 'Revert')));
+    h('button', { class: 'btn', style: 'flex:1;justify-content:center', onclick: () => {
+      const base = [...S.saved, ...LOOKS].find((l) => l.id === look.id.replace(/^edit:/, ''));
+      if (!base) return;
+      if (clipEdit) { S.clipLooks[S.editClip] = cloneLook(base); touch(); relayer(); } else setLook(base);
+    } }, 'Revert')));
   pane.replaceChildren(...kids);
   $('#layerCount').textContent = String(look.layers.length);
 }
@@ -581,17 +774,19 @@ function renderLayers() {
 function saveLook(e) {
   const anchor = e?.currentTarget || $('#pane-layers');
   openPop(anchor, (box) => {
-    const input = h('input', { class: 'numin', style: 'width:100%;font-family:var(--font);font-weight:500', value: S.look.name, maxlength: 40 });
+    const input = h('input', { class: 'numin', style: 'width:100%;font-family:var(--font);font-weight:500', value: editLook().name, maxlength: 40 });
     const commit = () => {
       const name = input.value.trim();
       if (!name) return;
-      const l = cloneLook(S.look);
+      const src = editLook();
+      const l = cloneLook(src);
+      if (src !== S.look) { l.camera = cloneLook(S.look.camera); l.finish = cloneLook(S.look.finish); l.cut = cloneLook(S.look.cut); }
       l.id = `mine-${Date.now()}`;
       l.name = name;
       l.vibe = l.layers.map((x) => MODULES[x.m]?.name).filter(Boolean).join(' + ') || 'Clean grade';
       S.saved.unshift(l);
-      S.look.name = name;
-      S.lookId = l.id;
+      src.name = name;
+      if (src === S.look) S.lookId = l.id; else src.id = l.id;
       closePop(); renderLooks(); renderChips(); save();
       toast(`Saved “${name}” to your looks`);
     };
@@ -602,7 +797,15 @@ function saveLook(e) {
   });
 }
 
-// ------------------------------------------------------------------ edit pane
+// Edit pane
+const POOLS = {
+  All: Object.keys(TRANSITIONS).filter((k) => k !== 'cut'),
+  Smooth: ['dissolve', 'luma', 'morph', 'flare', 'iris'],
+  Kinetic: ['whip', 'whipX', 'zoom', 'swirl', 'kaleido'],
+  Glitch: ['glitch', 'mosh', 'pixel', 'prism', 'slices'],
+  'Hard cuts': ['cut'],
+};
+
 function renderEdit() {
   const look = S.look;
   const cut = look.cut;
@@ -613,17 +816,23 @@ function renderEdit() {
     field('Loop length', seg(BAR_CHOICES.map((b) => [b, `${b} bar${b > 1 ? 's' : ''}`, { disabled: !vb.includes(b) }]), S.bars, (b) => { S.bars = b; S.customCuts = null; rebuild(); renderEdit(); }),
       h('div', { class: 'note', style: 'margin-top:6px' }, `${loopLen().toFixed(3)} s at ${bpm().toFixed(2)} BPM. Whole bars keep every beat-synced effect phase-locked across the seam.`)),
     field('Cut rhythm', seg(Object.entries(RHYTHMS).map(([k, r]) => [k, r.name]), S.customCuts ? 'custom' : cut.rhythm, (k) => { cut.rhythm = k; S.customCuts = null; S.segOverrides = {}; rebuild(); renderEdit(); })),
-    field('Transitions', h('div', { class: 'tgrid' }, ...Object.entries(TRANSITIONS).map(([k, t]) => h('button', {
-      class: cut.transitions.includes(k) ? 'on' : '', title: t.name,
-      onclick: () => {
-        const i = cut.transitions.indexOf(k);
-        if (i >= 0 && cut.transitions.length > 1) cut.transitions.splice(i, 1); else if (i < 0) cut.transitions.push(k);
-        S.segOverrides = {}; rebuild(); renderEdit();
-      },
-    }, t.name)))),
+    field('Transitions',
+      h('div', { class: 'pools' }, ...Object.entries(POOLS).map(([name, ids]) => h('button', {
+        class: `btn sm ${ids.length === cut.transitions.length && ids.every((k) => cut.transitions.includes(k)) ? 'on' : ''}`,
+        onclick: () => { cut.transitions = [...ids]; S.segOverrides = {}; rebuild(); renderEdit(); },
+      }, name))),
+      h('div', { class: 'tgrid' }, ...Object.entries(TRANSITIONS).map(([k, t]) => h('button', {
+        class: cut.transitions.includes(k) ? 'on' : '', title: `${t.name} — click to toggle, double-click to use only this one`,
+        onclick: () => {
+          const i = cut.transitions.indexOf(k);
+          if (i >= 0 && cut.transitions.length > 1) cut.transitions.splice(i, 1); else if (i < 0) cut.transitions.push(k);
+          S.segOverrides = {}; rebuild(); renderEdit();
+        },
+        ondblclick: () => { cut.transitions = [k]; S.segOverrides = {}; rebuild(); renderEdit(); },
+      }, t.name)))),
     field('Transition length (beats)', seg(TRANS_BEATS.map(([b, l]) => [b, l]), cut.beats, (b) => { cut.beats = b; rebuild(); renderEdit(); })),
     field('Transition order', seg([['cycle', 'Cycle'], ['random', 'Shuffle']], cut.order || 'cycle', (o) => { cut.order = o; rebuild(); renderEdit(); })),
-    field('Clip direction', seg([['forward', 'Forward'], ['reverse', 'Reverse'], ['alternate', 'Alternate']], S.direction, (d) => { S.direction = d; rebuild(); renderEdit(); })),
+    field('Clip direction', seg(Object.entries(DIRECTIONS), S.direction, (d) => { S.direction = d; rebuild(); renderEdit(); })),
     field('Edit seed', h('div', { class: 'row' },
       h('input', { class: 'numin', type: 'number', value: S.seed, onchange: (e) => { S.seed = Math.round(+e.target.value) || 1; rebuild(); } }),
       h('button', { class: 'btn sm', onclick: () => { S.seed = Math.floor(Math.random() * 1e6); S.segOverrides = {}; rebuild(); renderEdit(); } }, '⚄ Re-roll in-points & order'))),
@@ -638,7 +847,7 @@ function renderEdit() {
   $('#pane-edit').replaceChildren(h('div', { style: 'padding:14px' }, ...kids.filter(Boolean)));
 }
 
-// ------------------------------------------------------------------ timeline
+// Timeline
 const thumbImgs = new Map();
 function sizeCanvas(c) {
   const r = c.getBoundingClientRect();
@@ -879,7 +1088,7 @@ function bindTimeline() {
   new ResizeObserver(() => drawTimeline()).observe($('#laneWrap'));
 }
 
-// ------------------------------------------------------------------ variations modal
+// Variations modal
 const varState = { open: false, jobs: [], seed: 1 };
 function openVariations() {
   varState.open = true;
@@ -905,7 +1114,7 @@ function closeModals() {
   if (varState.open) { varState.open = false; varState.jobs.forEach((j) => engine.dropThumb(j.id)); varState.jobs = []; }
 }
 
-// ------------------------------------------------------------------ export sheet
+// Export sheet
 let exportAbort = null;
 function openExport() {
   if (!ctx) { toast('Select at least one clip first'); return; }
@@ -995,7 +1204,7 @@ function showResult(r) {
   );
 }
 
-// ------------------------------------------------------------------ uploads + polling
+// Uploads + polling
 async function uploadFiles(files) {
   let n = 0;
   for (const f of files) {
@@ -1024,7 +1233,7 @@ function pollProxies() {
   }, 2500);
 }
 
-// ------------------------------------------------------------------ input
+// Input
 function bindUI() {
   $('#btnPlay').addEventListener('click', () => { transport.toggle(); renderTransport(); });
   $$('#modeSeg button').forEach((b) => b.addEventListener('click', () => { transport.setMode(b.dataset.mode); renderTransport(); save(); }));
@@ -1032,7 +1241,17 @@ function bindUI() {
   $('#tSafe').addEventListener('click', () => { S.safe = !S.safe; renderTransport(); save(); });
   $('#tMute').addEventListener('click', () => { S.muted = !S.muted; transport.setMuted(S.muted); renderTransport(); save(); });
   $('#trackSelect').addEventListener('change', (e) => selectTrack(e.target.value));
-  $('#btnShuffle').addEventListener('click', () => { S.selected.sort(() => Math.random() - 0.5); S.segOverrides = {}; renderClips(); rebuild(); });
+  const reorder = (fn, msg) => { if (!S.selected.length) return; fn(); S.segOverrides = {}; renderClips(); rebuild(); renderLayers(); if (msg) toast(msg); };
+  $('#btnShuffle').addEventListener('click', () => reorder(() => {
+    shuffle(S.selected);
+  }, 'Shuffled the sequence'));
+  $('#btnReverse').addEventListener('click', () => reorder(() => S.selected.reverse(), 'Reversed the sequence'));
+  $('#btnAllClips').addEventListener('click', () => { S.selected = [...S.selected, ...S.clips.map((c) => c.id).filter((id) => !S.selected.includes(id))]; reorder(() => {}, `Using all ${S.selected.length} clips`); });
+  $('#btnSoloClip').addEventListener('click', () => { if (S.selected.length) { S.selected = [S.selected[0]]; reorder(() => {}, 'Solo: first clip only'); } });
+  $('#btnAddMedia').addEventListener('click', () => $('#fileInput').click());
+  $('#fileInput').addEventListener('change', (e) => { const files = [...e.target.files]; e.target.value = ''; if (files.length) uploadFiles(files); });
+  $('#btnRoll').addEventListener('click', rollAll);
+  $('#btnRollOpts').addEventListener('click', (e) => openRollOpts(e.currentTarget));
   $$('#tabs button').forEach((b) => b.addEventListener('click', () => setTab(b.dataset.tab)));
   $('#btnVariations').addEventListener('click', openVariations);
   $('#btnSurprise').addEventListener('click', surprise);
@@ -1050,6 +1269,8 @@ function bindUI() {
     else if (k === 'ArrowLeft') stepLook(-1);
     else if (k === 'm' || k === 'M') varState.open ? buildVariations() : openVariations();
     else if (k === 'r' || k === 'R') surprise();
+    else if (k === 'd') rollAll();
+    else if (k === 'D') undoRoll();
     else if (k === 'e' || k === 'E') openExport();
     else if (k === 'h' || k === 'H') { S.hud = !S.hud; renderTransport(); save(); }
     else if (k === 's' || k === 'S') { S.safe = !S.safe; renderTransport(); save(); }
@@ -1085,6 +1306,98 @@ function setTab(tab) {
   save();
 }
 
+// Roll everything
+const ROLL_OPTS = [
+  ['look', 'Look & layers', 'effects, settings, grade, camera'],
+  ['edit', 'Edit', 'rhythm, transitions, direction, speed, intensity'],
+  ['perClip', 'Per-clip FX', 'same / evolve / per-clip stacks'],
+  ['clips', 'Clip order', 'shuffle the sequence'],
+  ['loop', 'Song section', 'which part of the track loops'],
+];
+const rollStack = [];
+let rollSeed = (Date.now() % 1e9) >>> 0;
+
+function snapshot() {
+  return JSON.stringify({ look: S.look, lookId: S.lookId, direction: S.direction, seed: S.seed, intensity: S.intensity, clipMode: S.clipMode,
+    clipLooks: S.clipLooks, editClip: S.editClip, evolveAmt: S.evolveAmt, selected: S.selected, loopStart: S.loopStart, bars: S.bars,
+    customCuts: S.customCuts, segOverrides: S.segOverrides });
+}
+
+function refreshAll() {
+  engine.main.reset();
+  rebuild();
+  renderClips(); renderLooks(); renderLayers(); renderEdit(); renderTransport();
+}
+
+function rollAll() {
+  if (!S.selected.length) { toast('Pick a few clips first'); return; }
+  rollStack.push(snapshot());
+  if (rollStack.length > 40) rollStack.shift();
+  rollSeed = (Math.imul(rollSeed ^ (rollSeed >>> 13), 1103515245) + 12345) >>> 0;
+  const seed = rollSeed % 1000000007;
+  const r = rng(seed);
+  const pick = (a) => a[Math.floor(r() * a.length)];
+  const o = S.rollOpts;
+  const prev = S.look;
+  const l = o.look ? chaosLook(seed) : cloneLook(prev);
+  if (o.edit) {
+    const ids = shuffle(Object.keys(TRANSITIONS).filter((k) => k !== 'cut'), r);
+    const pool = ids.slice(0, 3 + Math.floor(r() * 4));
+    if (r() < 0.3) pool.push('cut');
+    l.cut = {
+      rhythm: pick(['hits', 'hits', 'beat', 'half', 'half', 'bar', 'bar', 'bar2', 'sync', 'build', 'varied', 'even', 'twice', 'eighth']),
+      transitions: pool, beats: pick([0.25, 0.5, 0.5, 1, 1, 2]), order: pick(['cycle', 'random', 'random']),
+    };
+    S.direction = pick(['forward', 'forward', 'forward', 'alternate', 'reverse', 'pingpong', 'random']);
+    l.camera.p.speed = pick([0.6, 0.8, 1, 1, 1, 1.25, 1.5]);
+    S.seed = Math.floor(r() * 1e6);
+    S.intensity = pick([0.85, 1, 1, 1.1, 1.25, 1.4]);
+  } else {
+    l.cut = cloneLook(prev.cut);
+    l.camera.p.speed = prev.camera.p.speed;
+  }
+  if (o.clips && S.selected.length > 1) {
+    shuffle(S.selected, r);
+  }
+  if (o.loop && S.features?.loops?.length) {
+    S.loopStart = pick(S.features.loops).start;
+    const vb = validBars();
+    if (vb.length) S.bars = pick(vb);
+  }
+  if (o.perClip) {
+    S.clipMode = S.selected.length > 1 ? pick(['one', 'one', 'evolve', 'cycle', 'custom', 'custom']) : 'one';
+    S.editClip = null;
+    if (S.clipMode === 'custom') S.clipLooks = Object.fromEntries(S.selected.slice(1).map((id, i) => [id, chaosLook(seed + (i + 1) * 7919)]));
+    if (S.clipMode === 'evolve') S.evolveAmt = pick([0.3, 0.45, 0.6, 0.8]);
+  }
+  S.look = l;
+  S.lookId = l.id;
+  S.customCuts = null;
+  S.segOverrides = {};
+  refreshAll();
+  const mode = CLIP_MODES.find(([k]) => k === S.clipMode)[1].toLowerCase();
+  toast(`🎲 ${l.name} · ${l.layers.length} layers · ${RHYTHMS[l.cut.rhythm]?.name || 'custom'} cuts${S.clipMode === 'one' ? '' : ` · ${mode}`}`, 3200);
+}
+
+function undoRoll() {
+  const snap = rollStack.pop();
+  if (!snap) { toast('Nothing to undo'); return; }
+  Object.assign(S, JSON.parse(snap));
+  refreshAll();
+  toast(`↶ Back to ${S.look.name}`);
+}
+
+function openRollOpts(anchor) {
+  openPop(anchor, (box) => {
+    box.append(h('div', { class: 'ph' }, 'A roll changes'));
+    for (const [k, label, sub] of ROLL_OPTS) {
+      box.append(h('label', { class: 'pi chk' }, h('input', { type: 'checkbox', checked: !!S.rollOpts[k], onchange: (e) => { S.rollOpts[k] = e.target.checked; save(); } }),
+        h('span', { class: 'chk-t' }, h('b', {}, label), h('small', {}, sub))));
+    }
+    box.append(h('button', { class: 'pi', disabled: !rollStack.length, onclick: () => { closePop(); undoRoll(); } }, '↶ Undo last roll', h('small', {}, 'Shift + D')));
+  });
+}
+
 let surpriseSeed = Date.now() % 1e6;
 function surprise() {
   const l = randomLook(++surpriseSeed);
@@ -1092,7 +1405,7 @@ function surprise() {
   toast(`✦ ${l.name}`);
 }
 
-// ------------------------------------------------------------------ boot
+// Boot
 async function init() {
   try {
     engine = new Engine($('#view'));

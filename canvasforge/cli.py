@@ -225,56 +225,34 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     videos = [os.path.expanduser(v) for v in args.videos]
+    common_kwargs = {
+        "seed": args.seed,
+        "bpm": args.bpm,
+        "speed": args.speed,
+        "max_effects": args.effects,
+        "preset": args.preset,
+        "cut_beats": args.cut_beats,
+        "cut_mode": args.cut_mode,
+        "ensure_all_clips": args.ensure_all_clips,
+        "transition": args.transition,
+        "transitions": args.transitions,
+        "transition_mode": args.transition_mode,
+        "trans_frames": args.trans_frames,
+        "intensity": args.intensity,
+        "duration": args.duration,
+        "loop_mode": args.loop_mode,
+        "clip_direction": args.clip_direction,
+        "filter_mode": args.filter_mode,
+        "audio_path": args.audio,
+    }
     if args.separate and len(videos) > 1:
         for vid in videos:
             base = os.path.splitext(os.path.basename(vid))[0]
             out = f"out/{base}-canvas.mp4"
-            render(
-                [vid],
-                out,
-                seed=args.seed,
-                bpm=args.bpm,
-                speed=args.speed,
-                max_effects=args.effects,
-                preset=args.preset,
-                cut_beats=args.cut_beats,
-                cut_mode=args.cut_mode,
-                ensure_all_clips=args.ensure_all_clips,
-                transition=args.transition,
-                transitions=args.transitions,
-                transition_mode=args.transition_mode,
-                trans_frames=args.trans_frames,
-                intensity=args.intensity,
-                duration=args.duration,
-                loop_mode=args.loop_mode,
-                clip_direction=args.clip_direction,
-                filter_mode=args.filter_mode,
-                audio_path=args.audio,
-            )
+            render([vid], out, **common_kwargs)
     else:
         out = args.out or "out/sample-canvas.mp4"
-        render(
-            videos,
-            out,
-            seed=args.seed,
-            bpm=args.bpm,
-            speed=args.speed,
-            max_effects=args.effects,
-            preset=args.preset,
-            cut_beats=args.cut_beats,
-            cut_mode=args.cut_mode,
-            ensure_all_clips=args.ensure_all_clips,
-            transition=args.transition,
-            transitions=args.transitions,
-            transition_mode=args.transition_mode,
-            trans_frames=args.trans_frames,
-            intensity=args.intensity,
-            duration=args.duration,
-            loop_mode=args.loop_mode,
-            clip_direction=args.clip_direction,
-            filter_mode=args.filter_mode,
-            audio_path=args.audio,
-        )
+        render(videos, out, **common_kwargs)
     return 0
 
 

@@ -52,7 +52,7 @@ vec3 hueRotate(vec3 c, float a) { const vec3 k = vec3(0.57735); float ca = cos(a
 vec3 cosPal(float t, vec3 a, vec3 b, vec3 c, vec3 d) { return a + b * cos(TAU * (c * t + d)); }
 `;
 
-// ---------------------------------------------------------------- camera / source framing
+// Camera / source framing
 export const SOURCE = PRELUDE + `
 uniform sampler2D uVideo;
 uniform vec2 uVidRes;
@@ -74,7 +74,7 @@ void main() {
 
 export const BLIT = PRELUDE + `void main() { outColor = vec4(texture(uSrc, vUv).rgb, 1.0); }`;
 
-// ---------------------------------------------------------------- finish: grade, tone, texture
+// Finish: grade, tone, texture
 export const FINISH = PRELUDE + `
 uniform float p_exposure, p_contrast, p_saturation, p_temp, p_tint, p_fade, p_split, p_splitHue,
               p_vignette, p_grain, p_bars, p_halation;
@@ -109,7 +109,7 @@ void main() {
   outColor = vec4(clamp(s, 0.0, 1.0), 1.0);
 }`;
 
-// ---------------------------------------------------------------- photosensitivity guard (W3C-style slew limit)
+// Photosensitivity guard (W3C-style slew limit)
 export const GUARD_STATE = PRELUDE + `
 uniform sampler2D uCur; uniform sampler2D uState; uniform float uLimit, uReset;
 void main() {
@@ -126,7 +126,7 @@ void main() {
   outColor = vec4(mix(texture(uPrevOut, vUv).rgb, texture(uCur, vUv).rgb, k), 1.0);
 }`;
 
-// ---------------------------------------------------------------- dual-filter (Kawase) blur chain
+// Dual-filter (Kawase) blur chain
 export const BRIGHT = PRELUDE + `
 uniform float uThreshold, uKnee;
 void main() {
@@ -183,7 +183,7 @@ void main() { outColor = vec4(texture(uSrc, vUv).rgb + texture(uAdd, vUv).rgb * 
 // Tiny downsample used for export statistics (seam + flash analysis).
 export const STATS = PRELUDE + `void main() { outColor = vec4(textureLod(uSrc, vUv, 4.0).rgb, 1.0); }`;
 
-// ---------------------------------------------------------------- transitions (A -> B, uP in 0..1, 0.5 = on the beat)
+// Transitions (A -> B, uP in 0..1, 0.5 = on the beat)
 const T = (body) => PRELUDE + `
 uniform sampler2D uA; uniform sampler2D uB; uniform float uP;
 vec3 A(vec2 uv) { return texture(uA, mirrorUv(uv)).rgb; }

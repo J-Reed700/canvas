@@ -1,11 +1,12 @@
 // Unit tests for the GPU Studio's pure modules (run: node --test tests/).
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { planTimeline, sampleTimeline, clipTime, loopBeats } from '../canvasforge/studio/timeline.js';
+import { planTimeline, sampleTimeline, clipTime, loopBeats, RHYTHMS, DIRECTIONS } from '../canvasforge/studio/timeline.js';
 import { compose, resolveParams } from '../canvasforge/studio/composer.js';
 import { flashesPerSecond } from '../canvasforge/studio/exporter.js';
-import { LOOKS, mutate, randomLook } from '../canvasforge/studio/looks.js';
-import { MODULES } from '../canvasforge/studio/modules.js';
+import { LOOKS, chaosLook, evolveLook, mutate, randomLook } from '../canvasforge/studio/looks.js';
+import { CAMERA, FINISH_DEF, MODULES } from '../canvasforge/studio/modules.js';
+import { TRANSITIONS } from '../canvasforge/studio/shaders.js';
 import { makeSampler } from '../canvasforge/studio/audio.js';
 
 const FPS = 30;
@@ -13,16 +14,20 @@ const clips = [{ id: 'a', duration: 12 }, { id: 'b', duration: 9 }, { id: 'c', d
 const base = { L: 6.4, beatDur: 0.4, clips, transitions: ['dissolve', 'zoom'], transBeats: 1, seed: 7 };
 
 test('cuts land on the beat grid and tile the loop', () => {
-  for (const rhythm of ['beat', 'half', 'bar', 'bar2', 'build', 'even']) {
+  for (const rhythm of Object.keys(RHYTHMS)) {
     const tl = planTimeline({ ...base, rhythm });
     assert.equal(tl.segs[0].t0, 0, rhythm);
     assert.ok(Math.abs(tl.segs.at(-1).t1 - base.L) < 1e-9, rhythm);
+    // ½-beat and 3-3-2 cuts sit on the eighth-note grid, everything else on the beat
+    const grid = rhythm === 'eighth' || rhythm === 'sync' ? 2 : 1;
     for (const s of tl.segs) {
-      const beats = s.t0 / base.beatDur;
-      assert.ok(Math.abs(beats - Math.round(beats)) < 1e-9, `${rhythm} cut at ${s.t0}`);
-      assert.ok(s.t1 > s.t0);
+      const units = (s.t0 / base.beatDur) * grid;
+      assert.ok(Math.abs(units - Math.round(units)) < 1e-9, `${rhythm} cut at ${s.t0}`);
+      assert.ok(s.t1 - s.t0 >= base.beatDur / 2 - 1e-9, `${rhythm} segment too short`);
     }
   }
+  assert.equal(planTimeline({ ...base, rhythm: 'twice' }).segs.length, clips.length * 2);
+  assert.equal(planTimeline({ ...base, rhythm: 'eighth' }).segs.length, 32);
   assert.equal(loopBeats(6.4, 0.4).length, 16);
 });
 
@@ -44,6 +49,23 @@ test('every visible clip plays continuously, including across the loop seam', ()
       }
     }
   }
+});
+
+test('every clip direction keeps clip time inside the clip and moving at real speed', () => {
+  for (const direction of Object.keys(DIRECTIONS)) {
+    const tl = planTimeline({ ...base, rhythm: 'bar', direction });
+    const N = Math.round(base.L * FPS);
+    let prev = null;
+    for (let i = 0; i <= N; i++) {
+      const s = sampleTimeline(tl, (i % N) / FPS);
+      const t = clipTime(s.a.seg, s.a.local, 12);
+      assert.ok(t >= 0 && t < 12, `${direction} frame ${i}: ${t}`);
+      if (prev && prev.key === s.a.key) assert.ok(Math.abs(t - prev.t) <= 1 / FPS + 1e-6, `${direction} frame ${i}: jumped ${t - prev.t}`);
+      prev = { key: s.a.key, t };
+    }
+  }
+  const pp = planTimeline({ ...base, rhythm: 'bar', direction: 'pingpong' }).segs[0];
+  assert.ok(Math.abs(clipTime(pp, 0, 60) - clipTime(pp, pp.dur, 60)) < 1e-9, 'ping-pong returns to its in-point');
 });
 
 test('transitions are centred on their beat (p = 0.5 exactly on the cut)', () => {
@@ -80,6 +102,75 @@ test('compose() builds valid frames for every curated look', () => {
         }
       }
     }
+  }
+});
+
+test('per-clip looks run before the transition, with their own feedback keys', () => {
+  const tl = planTimeline({ ...base, rhythm: 'bar' });
+  const sampler = makeSampler({ features: null, loopStart: 0, beatDur: base.beatDur, seed: 1 });
+  const own = { a: LOOKS[0], b: LOOKS[1], c: LOOKS[2] };
+  const ctx = { look: LOOKS[3], tl, sampler, clipDur: () => 10, L: base.L, beatDur: base.beatDur, seed: 1, clipLook: (id) => own[id] };
+  const cut = tl.segs[1].t0;
+  const fr = compose(ctx, cut);
+  assert.equal(fr.layers.length, 0, 'nothing runs after the transition');
+  assert.equal(fr.pre.length, 2);
+  fr.pre.forEach((stack, i) => {
+    const id = fr.needs[i].clipId;
+    assert.deepEqual(stack.map((l) => l.m), own[id].layers.map((l) => l.m));
+    for (const l of stack) assert.ok(l.key.startsWith(`c:${id}`), l.key);
+  });
+  // a look thumbnail (any look other than ctx.look) always renders as one look
+  const thumb = compose(ctx, cut, LOOKS[4]);
+  assert.equal(thumb.pre, null);
+  assert.equal(thumb.layers.length, LOOKS[4].layers.length);
+});
+
+test('FX intensity fades layers toward dry and scales modulation depth', () => {
+  const tl = planTimeline({ ...base, rhythm: 'bar' });
+  const sampler = () => ({ kick: 1, snare: 0, hats: 0, bass: 0, energy: 0, bright: 0, beat: 0, bar: 0, lfo: 0, rand: 0 });
+  const look = { ...LOOKS[0], layers: [{ m: 'bloom', on: true, p: { intensity: 0.5 }, mods: { intensity: { src: 'kick', amt: 0.1 } } }] };
+  const at = (intensity) => compose({ look, tl, sampler, clipDur: () => 10, L: base.L, beatDur: base.beatDur, seed: 1, intensity }, 1).layers[0].params;
+  const range = MODULES.bloom.params.find((p) => p.id === 'intensity');
+  assert.equal(at(1).uWet, 1);
+  assert.equal(at(0.4).uWet, 0.4);
+  assert.equal(at(1.5).uWet, 1);
+  assert.ok(Math.abs(at(1).p_intensity - (0.5 + 0.1 * (range.max - range.min))) < 1e-9);
+  assert.ok(Math.abs(at(0).p_intensity - 0.5) < 1e-9, 'no modulation at 0%');
+});
+
+test('chaos rolls build full, valid stacks', () => {
+  for (let s = 1; s < 120; s++) {
+    const l = chaosLook(s * 977);
+    assert.ok(l.layers.length >= 4 && l.layers.length <= 7, `${l.layers.length} layers`);
+    assert.equal(new Set(l.layers.map((x) => x.m)).size, l.layers.length, 'no duplicate effects');
+    for (const layer of l.layers) {
+      const m = MODULES[layer.m];
+      assert.ok(m, layer.m);
+      for (const p of m.params) {
+        const v = layer.p[p.id];
+        assert.ok(v >= p.min && v <= p.max, `${layer.m}.${p.id}=${v}`);
+      }
+    }
+    const e = evolveLook(LOOKS[s % LOOKS.length], 0.5, s);
+    assert.equal(e.finish, LOOKS[s % LOOKS.length].finish, 'evolve keeps the shared grade');
+  }
+});
+
+test('every look only sets real parameters, modulations and transitions', () => {
+  const check = (where, defs, values = {}, mods = {}) => {
+    for (const k of Object.keys(values)) assert.ok(defs.some((p) => p.id === k), `${where}: unknown param ${k}`);
+    for (const k of Object.keys(mods)) {
+      const p = defs.find((d) => d.id === k);
+      assert.ok(p && !p.opts && p.step < 1, `${where}: cannot modulate ${k}`);
+    }
+  };
+  assert.equal(new Set(LOOKS.map((l) => l.id)).size, LOOKS.length, 'look ids are unique');
+  for (const l of LOOKS) {
+    for (const x of l.layers) { assert.ok(MODULES[x.m], `${l.id}: ${x.m}`); check(`${l.id}/${x.m}`, MODULES[x.m].params, x.p, x.mods); }
+    check(`${l.id}/camera`, CAMERA.params, l.camera.p, l.camera.mods);
+    check(`${l.id}/finish`, FINISH_DEF.params, l.finish.p, l.finish.mods);
+    for (const t of l.cut.transitions) assert.ok(TRANSITIONS[t], `${l.id}: transition ${t}`);
+    assert.ok(RHYTHMS[l.cut.rhythm], `${l.id}: rhythm ${l.cut.rhythm}`);
   }
 });
 

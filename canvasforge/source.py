@@ -34,11 +34,13 @@ def probe(path: str) -> Source:
     cap = cv2.VideoCapture(path)
     if not cap.isOpened():
         raise RuntimeError(f"cannot open video: {path}")
-    width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-    height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-    fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
-    frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-    cap.release()
+    try:
+        width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+        height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+        fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
+        frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+    finally:
+        cap.release()
     return Source(
         path=path,
         width=width,
@@ -78,8 +80,12 @@ def fit_portrait(
 class ClipSegmentCache:
     """Fast sequential frame cache for a Source window at target portrait resolution."""
 
-    def __init__(self) -> None:
+    def __init__(self, max_size: int = 12) -> None:
+        self.max_size = max_size
         self._cache: dict[tuple[str, int, int, int, int], list[np.ndarray]] = {}
+
+    def clear(self) -> None:
+        self._cache.clear()
 
     def load_segment(
         self,
@@ -97,29 +103,31 @@ class ClipSegmentCache:
         cap = cv2.VideoCapture(source.path)
         if not cap.isOpened():
             raise RuntimeError(f"cannot open video: {source.path}")
-        start_frame = max(0, min(start_frame, max(0, source.frame_count - 1)))
-        if start_frame > 0:
-            cap.set(cv2.CAP_PROP_POS_FRAMES, start_frame)
+        try:
+            start_frame = max(0, min(start_frame, max(0, source.frame_count - 1)))
+            if start_frame > 0:
+                cap.set(cv2.CAP_PROP_POS_FRAMES, start_frame)
 
-        frames: list[np.ndarray] = []
-        for idx in range(count):
-            ok, raw = cap.read()
-            if not ok or raw is None:
-                # loop back to start of video if we hit EOF
-                cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
+            frames: list[np.ndarray] = []
+            for idx in range(count):
                 ok, raw = cap.read()
                 if not ok or raw is None:
-                    break
-            # subtle drift pan across landscape clips so wide shots feel alive in 9:16
-            pan = 0.5 + 0.32 * float(np.sin(idx * 0.025 * (1.0 + pan_speed)))
-            frames.append(fit_portrait(raw, target_w, target_h, pan_x=pan, pan_y=0.5))
+                    # loop back to start of video if we hit EOF
+                    cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
+                    ok, raw = cap.read()
+                    if not ok or raw is None:
+                        break
+                # subtle drift pan across landscape clips so wide shots feel alive in 9:16
+                pan = 0.5 + 0.32 * float(np.sin(idx * 0.025 * (1.0 + pan_speed)))
+                frames.append(fit_portrait(raw, target_w, target_h, pan_x=pan, pan_y=0.5))
+        finally:
+            cap.release()
 
-        cap.release()
         if not frames:
             raise RuntimeError(f"no frames decoded from {source.path}")
 
-        # Keep memory bounded (max 12 cached segments)
-        if len(self._cache) >= 12:
+        # Keep memory bounded
+        if len(self._cache) >= self.max_size:
             oldest = next(iter(self._cache))
             del self._cache[oldest]
         self._cache[key] = frames
@@ -134,13 +142,15 @@ def extract_thumbnail_jpeg(path: str, width: int = 360, at_sec: float = 1.5) -> 
     cap = cv2.VideoCapture(path)
     if not cap.isOpened():
         raise RuntimeError(f"cannot open {path}")
-    fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
-    total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-    target = min(max(0, total - 1), int(fps * max(0.0, at_sec)))
-    if target > 0:
-        cap.set(cv2.CAP_PROP_POS_FRAMES, target)
-    ok, frame = cap.read()
-    cap.release()
+    try:
+        fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
+        total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+        target = min(max(0, total - 1), int(fps * max(0.0, at_sec)))
+        if target > 0:
+            cap.set(cv2.CAP_PROP_POS_FRAMES, target)
+        ok, frame = cap.read()
+    finally:
+        cap.release()
     if not ok or frame is None:
         raise RuntimeError(f"failed to read thumbnail from {path}")
     h, w = frame.shape[:2]

@@ -18,8 +18,6 @@ from __future__ import annotations
 import cv2
 import numpy as np
 
-# ---------------------------------------------------------------- caches & helpers
-
 _VIGNETTE_CACHE: dict[tuple[int, int], np.ndarray] = {}
 _BAYER_CACHE: dict[tuple[int, int], np.ndarray] = {}
 _WARP_GRID_CACHE: dict[tuple[int, int], tuple[np.ndarray, np.ndarray]] = {}
@@ -48,11 +46,33 @@ _BAYER_4X4 = (
 )
 
 
-def _zoom_in(frame: np.ndarray, cx: float, cy: float, factor: float) -> np.ndarray:
+def zoom_in(
+    frame: np.ndarray,
+    *args: float,
+    factor: float | None = None,
+    cx: float = 0.5,
+    cy: float = 0.5,
+) -> np.ndarray:
     """True zoom-in (crop inner region of size W/factor x H/factor and upscale to WxH).
 
+    Supports both calling conventions:
+      - zoom_in(frame, cx, cy, factor)
+      - zoom_in(frame, factor, cx=..., cy=...)
     Never shrinks the frame or leaves smeared border artifacts.
     """
+    if len(args) == 3:
+        cx, cy = float(args[0]), float(args[1])
+        if factor is None:
+            factor = float(args[2])
+    elif len(args) == 1:
+        if factor is None:
+            factor = float(args[0])
+    elif len(args) == 2:
+        cx, cy = float(args[0]), float(args[1])
+
+    if factor is None:
+        factor = 1.0
+
     if factor <= 1.002:
         return frame
     h, w = frame.shape[:2]
@@ -66,6 +86,9 @@ def _zoom_in(frame: np.ndarray, cx: float, cy: float, factor: float) -> np.ndarr
     y0 = int(np.clip(py - crop_h // 2, 0, h - crop_h))
     sub = frame[y0 : y0 + crop_h, x0 : x0 + crop_w]
     return cv2.resize(sub, (w, h), interpolation=cv2.INTER_LINEAR)
+
+
+_zoom_in = zoom_in
 
 
 def _pulse(
@@ -108,14 +131,17 @@ def _bayer_matrix(h: int, w: int) -> np.ndarray:
     return _BAYER_CACHE[key]
 
 
-def _warp_grid(h: int, w: int) -> tuple[np.ndarray, np.ndarray]:
+def coord_grid(h: int, w: int) -> tuple[np.ndarray, np.ndarray]:
+    """Cached meshgrid coordinates for image warping and distortion."""
     key = (h, w)
     if key not in _WARP_GRID_CACHE:
         x = np.arange(w, dtype=np.float32)[None, :]
         y = np.arange(h, dtype=np.float32)[:, None]
-        gx, gy = np.meshgrid(x, y)
-        _WARP_GRID_CACHE[key] = (gx, gy)
+        _WARP_GRID_CACHE[key] = np.meshgrid(x, y)
     return _WARP_GRID_CACHE[key]
+
+
+_warp_grid = coord_grid
 
 
 def _polar_grid(h: int, w: int) -> tuple[np.ndarray, np.ndarray, np.ndarray, float, float]:
@@ -217,8 +243,6 @@ def _golden_lut() -> np.ndarray:
     return _GOLDEN_LUT_CACHE[0]
 
 
-# ---------------------------------------------------------------- original 19 effects
-
 def zoom_pulse(frame: np.ndarray, t: float, beat_dur: float, **kw) -> np.ndarray:
     """Breathing camera zoom + smooth kick swell on beat or sub-bass hit."""
     cx = float(kw.get("cx", 0.5))
@@ -291,7 +315,7 @@ def neon_bloom(frame: np.ndarray, t: float, beat_dur: float, **kw) -> np.ndarray
 
 
 def crt_halation(frame: np.ndarray, t: float, beat_dur: float, **kw) -> np.ndarray:
-    """2026 Analog Film & CRT Phosphor Halation: warm red-orange aura bleed around bright highlights."""
+    """Analog Film & CRT Phosphor Halation: warm red-orange aura bleed around bright highlights."""
     p = _pulse(t, beat_dur, 1.0, sharp=2.5, kw=kw)
     base_strength = min(float(kw.get("strength", 0.35)), 0.38)
     strength = base_strength * (0.85 + 0.15 * p)
@@ -309,7 +333,7 @@ def crt_halation(frame: np.ndarray, t: float, beat_dur: float, **kw) -> np.ndarr
 
 
 def bayer_dither(frame: np.ndarray, t: float, beat_dur: float, **kw) -> np.ndarray:
-    """2026 Acid Graphics Ordered 4x4 Bayer Matrix Dithering & Bit-Depth Quantization."""
+    """Acid Graphics Ordered 4x4 Bayer Matrix Dithering & Bit-Depth Quantization."""
     p = _pulse(t, beat_dur, 2.0, sharp=4.5, kw=kw)
     levels = int(kw.get("levels", 6))
     spread = float(kw.get("spread", 36.0)) * (0.75 + 0.45 * p)
@@ -326,7 +350,7 @@ def bayer_dither(frame: np.ndarray, t: float, beat_dur: float, **kw) -> np.ndarr
 
 
 def liquid_warp(frame: np.ndarray, t: float, beat_dur: float, **kw) -> np.ndarray:
-    """2026 Slit-Scan / UV Sine-Wave Displacement field driven by sub-bass & beat phase."""
+    """Slit-Scan / UV Sine-Wave Displacement field driven by sub-bass & beat phase."""
     p = _pulse(t, beat_dur, 1.0, sharp=4.2, kw=kw)
     amp = float(kw.get("amp", 18.0)) * (0.35 + 0.85 * p)
     if amp < 1.0:
@@ -347,7 +371,7 @@ def liquid_warp(frame: np.ndarray, t: float, beat_dur: float, **kw) -> np.ndarra
 
 
 def edge_neon(frame: np.ndarray, t: float, beat_dur: float, **kw) -> np.ndarray:
-    """2026 Cyber-Sigil Glowing Sobel Contour Wireframes pulsed by high-hat air & kicks."""
+    """Cyber-Sigil Glowing Sobel Contour Wireframes pulsed by high-hat air & kicks."""
     p = _pulse(t, beat_dur, 1.0, sharp=5.0, kw=kw)
     air = float(kw.get("_air", p))
     strength = float(kw.get("strength", 0.65)) * (0.35 + 0.75 * max(p, air))
@@ -503,8 +527,6 @@ def letterbox(frame: np.ndarray, t: float, beat_dur: float, **kw) -> np.ndarray:
     return out
 
 
-# ---------------------------------------------------------------- new effects: MOTION
-
 def pendulum_sway(frame: np.ndarray, t: float, beat_dur: float, **kw) -> np.ndarray:
     """Beat-locked Dutch-angle rotation swaying rhythmically with corner zoom compensation."""
     max_deg = float(kw.get("max_deg", 4.2))
@@ -582,8 +604,6 @@ def vortex_twirl(frame: np.ndarray, t: float, beat_dur: float, **kw) -> np.ndarr
     map_y = (cy + r_px * np.sin(new_theta)).astype(np.float32)
     return cv2.remap(frame, map_x, map_y, interpolation=cv2.INTER_LINEAR, borderMode=cv2.BORDER_REFLECT_101)
 
-
-# ---------------------------------------------------------------- new effects: GEOMETRY
 
 def kaleido_hex(frame: np.ndarray, t: float, beat_dur: float, **kw) -> np.ndarray:
     """6-way / 8-way radial polar kaleidoscope symmetry folded around frame center."""
@@ -690,8 +710,6 @@ def polar_tunnel(frame: np.ndarray, t: float, beat_dur: float, **kw) -> np.ndarr
     )
     return cv2.addWeighted(frame, 1.0 - mix, polar, mix, 0)
 
-
-# ---------------------------------------------------------------- new effects: OPTICS
 
 def anamorphic_flare(frame: np.ndarray, t: float, beat_dur: float, **kw) -> np.ndarray:
     """Horizontal cinema anamorphic blue/cyan lens flares on bright highlights."""
@@ -811,8 +829,6 @@ def double_vision(frame: np.ndarray, t: float, beat_dur: float, **kw) -> np.ndar
     return cv2.addWeighted(frame, 1.0 - blend, combined, blend, 0)
 
 
-# ---------------------------------------------------------------- new effects: DIGITAL
-
 def pixel_sort(frame: np.ndarray, t: float, beat_dur: float, **kw) -> np.ndarray:
     """Luminance-thresholded vertical pixel smear."""
     p = _pulse(t, beat_dur, 1.0, sharp=3.2, kw=kw)
@@ -925,8 +941,6 @@ def datamosh_smear(frame: np.ndarray, t: float, beat_dur: float, **kw) -> np.nda
     return out
 
 
-# ---------------------------------------------------------------- new effects: COLOR
-
 def duotone_acid(frame: np.ndarray, t: float, beat_dur: float, **kw) -> np.ndarray:
     """High-impact 2-color gradient map based on luminance."""
     palette = str(kw.get("palette", "cyber")).lower()
@@ -1007,8 +1021,6 @@ def posterize_pop(frame: np.ndarray, t: float, beat_dur: float, **kw) -> np.ndar
     return cv2.addWeighted(frame, 1.0 - mix, quant, mix, 0)
 
 
-# ---------------------------------------------------------------- new effects: TEXTURE
-
 def film_burn(frame: np.ndarray, t: float, beat_dur: float, **kw) -> np.ndarray:
     """Organic 16mm warm amber/ruby light leak along frame edges."""
     p = _pulse(t, beat_dur, 2.0, sharp=3.0, kw=kw)
@@ -1048,8 +1060,6 @@ def frost_mist(frame: np.ndarray, t: float, beat_dur: float, **kw) -> np.ndarray
     return cv2.addWeighted(milky, 1.0 - strength * 0.5, bloom, strength, 0)
 
 
-# ---------------------------------------------------------------- new effects: IMPACT
-
 def strobe_shutter(frame: np.ndarray, t: float, beat_dur: float, **kw) -> np.ndarray:
     """Rhythm gate effect that adds a crisp border/exposure pulse (photosensitive safe, max luma delta < 12)."""
     gate_phase = (t / max(beat_dur * 0.5, 0.05)) % 1.0
@@ -1082,8 +1092,6 @@ def bass_vignette_punch(frame: np.ndarray, t: float, beat_dur: float, **kw) -> n
     glow = (ring * rim_color * intensity).astype(np.uint8)
     return cv2.add(frame, glow)
 
-
-# ---------------------------------------------------------------- registry
 
 EFFECTS = {
     # motion

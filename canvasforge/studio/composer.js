@@ -4,45 +4,64 @@ import { cameraFor, clipTime, sampleTimeline } from './timeline.js';
 
 const isStepped = (p) => p.opts || p.step >= 1;
 
-export function resolveParams(defs, values, mods, mv) {
+export function resolveParams(defs, values, mods, mv, depth = 1) {
   const out = {};
   for (const p of defs) {
     let v = values?.[p.id] ?? p.def;
     const m = mods?.[p.id];
-    if (m && !isStepped(p) && mv[m.src] !== undefined) v += m.amt * mv[m.src] * (p.max - p.min);
+    if (m && !isStepped(p) && mv[m.src] !== undefined) v += m.amt * depth * mv[m.src] * (p.max - p.min);
     out[`p_${p.id}`] = Math.min(p.max, Math.max(p.min, v));
   }
   return out;
 }
 
+// FX intensity: below 100% it fades every layer toward the dry image and calms the audio
+// modulation; above 100% the layers stay fully wet and the modulation hits harder.
+export function intensityOf(ctx) {
+  const k = ctx.intensity ?? 1;
+  return { wet: Math.min(1, k), depth: k };
+}
+
+export function layerStack(look, mv, { wet, depth }, prefix = '') {
+  const out = [];
+  look.layers.forEach((l, i) => {
+    if (l.on === false || !MODULES[l.m]) return;
+    out.push({ m: l.m, key: `${prefix}${i}:${l.m}`, params: { ...resolveParams(MODULES[l.m].params, l.p, l.mods, mv, depth), uWet: wet } });
+  });
+  return out;
+}
+
+// ctx.clipLook(clipId) (optional) gives each clip its own stack, applied before the transition;
+// only the main look gets it — look thumbnails and variation tiles always show one look.
 export function compose(ctx, t, look = ctx.look) {
   const { tl, sampler, clipDur, L, beatDur, seed } = ctx;
   const mv = sampler(t);
   const beat = t / beatDur;
   const s = sampleTimeline(tl, t);
-  const cp = resolveParams(CAMERA.params, look.camera.p, look.camera.mods, mv);
+  const k = intensityOf(ctx);
+  const cp = resolveParams(CAMERA.params, look.camera.p, look.camera.mods, mv, k.depth);
   const cam = { zoom: cp.p_zoom, drift: cp.p_drift, shake: cp.p_shake, sway: cp.p_sway };
   const need = (x) => ({
     vkey: `${x.seg.clipId}#${x.key}`,
     clipId: x.seg.clipId,
     time: clipTime(x.seg, x.local, clipDur(x.seg.clipId)),
     rate: x.seg.speed,
-    rev: x.seg.rev,
+    rev: x.seg.rev || x.seg.pp,
     cam: cameraFor(x.seg, x.local, cam, t, L, beat, seed),
   });
   const needs = [need(s.a)];
   if (s.b) needs.push(need(s.b));
-  const layers = [];
-  look.layers.forEach((l, i) => {
-    if (l.on === false || !MODULES[l.m]) return;
-    layers.push({ m: l.m, key: `${i}:${l.m}`, params: resolveParams(MODULES[l.m].params, l.p, l.mods, mv) });
-  });
+  const perClip = look === ctx.look && ctx.clipLook;
+  // feedback histories are per clip; the same clip on both sides of a cut gets its own for side B
+  const pre = perClip ? needs.map((n, i) => layerStack(ctx.clipLook(n.clipId), mv, k,
+    `c:${n.clipId}${i && n.clipId === needs[0].clipId ? 'b' : ''}:`)) : null;
   return {
     needs,
     trans: s.b ? { name: s.trans, p: s.p } : null,
     seg: s,
-    layers,
-    finish: resolveParams(FINISH_DEF.params, look.finish.p, look.finish.mods, mv),
+    layers: perClip ? [] : layerStack(look, mv, k),
+    pre,
+    finish: resolveParams(FINISH_DEF.params, look.finish.p, look.finish.mods, mv, k.depth),
     camera: cp,
     mv,
     globals: {

@@ -1,6 +1,7 @@
 """Canvas Forge Studio: Interactive Web UI & HTTP server (Lambda Audio dark aesthetic)."""
 from __future__ import annotations
 
+import base64
 import glob
 import json
 import mimetypes
@@ -17,6 +18,8 @@ import webbrowser
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
+import cv2
+
 from . import delivery, effects
 from .audio import AudioProfile, analyze_track
 from .compositor import CANVAS_FPS, CANVAS_H, CANVAS_W, build_plan
@@ -24,7 +27,7 @@ from .encoder import Encoder
 from .features import track_features
 from .proxy import ProxyManager
 from .recipe import PRESETS, make_recipe
-from .source import Source, extract_thumbnail_jpeg, probe
+from .source import GLOBAL_CACHE, Source, extract_thumbnail_jpeg, probe
 
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 OUT_DIR = os.path.join(PROJECT_ROOT, "out")
@@ -41,20 +44,90 @@ STATIC_TYPES = {
 }
 
 
+def _parse_byte_range(range_header: str | None, file_size: int) -> tuple[int, int, bool]:
+    """Parse an HTTP Range header into (start, end, is_partial)."""
+    if not range_header or not range_header.startswith("bytes="):
+        return 0, max(0, file_size - 1), False
+    try:
+        first, _, last = range_header.split("=", 1)[1].split(",")[0].partition("-")
+        if first:
+            start = int(first)
+            end = min(int(last), file_size - 1) if last else file_size - 1
+        elif last:
+            start = max(0, file_size - int(last))
+            end = file_size - 1
+        else:
+            return 0, max(0, file_size - 1), False
+        if 0 <= start <= end < file_size:
+            return start, end, True
+    except ValueError:
+        pass
+    return 0, max(0, file_size - 1), False
+
+
 class StudioState:
     def __init__(self) -> None:
         self.lock = threading.Lock()
-        self.clips: dict[str, Source] = {}
-        self.tracks: dict[str, AudioProfile] = {}
-        self.renders: list[dict] = []
+        self._clips: dict[str, Source] = {}
+        self._tracks: dict[str, AudioProfile] = {}
+        self._renders: list[dict] = []
         self.active_job: dict | None = None
         self.raw_sessions: dict[str, tuple[delivery.RawSession, dict]] = {}
-        self.proxies = ProxyManager(os.path.join(OUT_DIR, ".proxies"))
-        self._discover_initial_clips()
-        self._discover_initial_tracks()
-        self._discover_existing_renders()
-        for src in self.clips.values():
-            self.proxies.request(src)
+        self._proxies: ProxyManager | None = None
+        self._initialized: bool = False
+
+    def ensure_initialized(self) -> StudioState:
+        if self._initialized:
+            return self
+        with self.lock:
+            if self._initialized:
+                return self
+            if self._proxies is None:
+                self._proxies = ProxyManager(os.path.join(OUT_DIR, ".proxies"))
+            self._discover_initial_clips()
+            self._discover_initial_tracks()
+            self._discover_existing_renders()
+            for src in self._clips.values():
+                self._proxies.request(src)
+            self._initialized = True
+        return self
+
+    @property
+    def proxies(self) -> ProxyManager:
+        self.ensure_initialized()
+        assert self._proxies is not None
+        return self._proxies
+
+    @property
+    def clips(self) -> dict[str, Source]:
+        self.ensure_initialized()
+        return self._clips
+
+    @clips.setter
+    def clips(self, value: dict[str, Source]) -> None:
+        self._clips = value
+
+    @property
+    def tracks(self) -> dict[str, AudioProfile]:
+        self.ensure_initialized()
+        return self._tracks
+
+    @tracks.setter
+    def tracks(self, value: dict[str, AudioProfile]) -> None:
+        self._tracks = value
+
+    @property
+    def renders(self) -> list[dict]:
+        self.ensure_initialized()
+        return self._renders
+
+    @renders.setter
+    def renders(self, value: list[dict]) -> None:
+        self._renders = value
+
+    def shutdown(self) -> None:
+        if self._proxies is not None:
+            self._proxies.shutdown()
 
     def _discover_initial_clips(self) -> None:
         dl = os.path.expanduser("~/Downloads")
@@ -64,7 +137,7 @@ class StudioState:
         for path in stock + others[:3]:
             try:
                 src = probe(path)
-                self.clips[src.id] = src
+                self._clips[src.id] = src
             except Exception:
                 pass
 
@@ -81,7 +154,7 @@ class StudioState:
         for path in candidates[:8]:
             try:
                 prof = analyze_track(path)
-                self.tracks[prof.id] = prof
+                self._tracks[prof.id] = prof
             except Exception:
                 pass
 
@@ -92,7 +165,7 @@ class StudioState:
             if name.endswith("-audio.mp4"):
                 continue
             size_mb = round(os.path.getsize(path) / (1024 * 1024), 2)
-            self.renders.append(
+            self._renders.append(
                 {
                     "filename": name,
                     "url": f"/out/{urllib.parse.quote(name)}",
@@ -372,22 +445,7 @@ class StudioHandler(BaseHTTPRequestHandler):
         file_size = os.path.getsize(path)
         range_header = self.headers.get("Range")
 
-        start, end = 0, file_size - 1
-        partial = False
-        if range_header and range_header.startswith("bytes="):
-            try:
-                first, _, last = range_header.split("=", 1)[1].split(",")[0].partition("-")
-                if first:
-                    start = int(first)
-                    end = min(int(last), file_size - 1) if last else file_size - 1
-                elif last:  # suffix range: last N bytes
-                    start = max(0, file_size - int(last))
-                partial = start <= end
-            except ValueError:
-                partial = False
-            if not partial:
-                start, end = 0, file_size - 1
-
+        start, end, partial = _parse_byte_range(range_header, file_size)
         length = max(0, end - start + 1)
         self.send_response(HTTPStatus.PARTIAL_CONTENT if partial else HTTPStatus.OK)
         self.send_header("Content-Type", ctype)
@@ -427,150 +485,164 @@ class StudioHandler(BaseHTTPRequestHandler):
             return
         parsed = urllib.parse.urlparse(self.path)
         route = parsed.path
+        query = urllib.parse.parse_qs(parsed.query)
 
         if route in ("/", "/index.html"):
-            studio_index = os.path.join(STUDIO_DIR, "index.html")
-            self._serve_file(studio_index if os.path.isfile(studio_index) else UI_HTML_PATH, "text/html; charset=utf-8")
-            return
+            self._get_root()
+        elif route in ("/classic", "/classic/"):
+            self._get_classic()
+        elif route.startswith("/studio/"):
+            self._get_studio_static(route)
+        elif route.startswith("/api/features/"):
+            self._get_features(route, query)
+        elif route.startswith("/api/proxy/"):
+            self._get_proxy(route)
+        elif route == "/api/state":
+            self._get_state()
+        elif route == "/api/status":
+            self._get_status()
+        elif route.startswith("/api/thumb/"):
+            self._get_thumb(route, query)
+        elif route.startswith("/api/clip_video/"):
+            self._get_clip_video(route)
+        elif route.startswith("/api/track_audio/"):
+            self._get_track_audio(route)
+        elif route.startswith("/out/"):
+            self._get_out(route)
+        else:
+            self.send_error(HTTPStatus.NOT_FOUND)
 
-        if route in ("/classic", "/classic/"):
-            self._serve_file(UI_HTML_PATH, "text/html; charset=utf-8")
-            return
+    def _get_root(self) -> None:
+        studio_index = os.path.join(STUDIO_DIR, "index.html")
+        self._serve_file(studio_index if os.path.isfile(studio_index) else UI_HTML_PATH, "text/html; charset=utf-8")
 
-        if route.startswith("/studio/"):
-            rel = urllib.parse.unquote(route[len("/studio/"):])
-            safe_path = os.path.abspath(os.path.join(STUDIO_DIR, rel))
-            if not safe_path.startswith(os.path.abspath(STUDIO_DIR) + os.sep):
-                self.send_error(HTTPStatus.FORBIDDEN)
-                return
-            self._serve_file(safe_path, STATIC_TYPES.get(os.path.splitext(safe_path)[1].lower()))
-            return
+    def _get_classic(self) -> None:
+        self._serve_file(UI_HTML_PATH, "text/html; charset=utf-8")
 
-        if route.startswith("/api/features/"):
-            prof = STATE.tracks.get(route.split("/api/features/", 1)[1])
-            if not prof:
-                self.send_error(HTTPStatus.NOT_FOUND, "Unknown track id")
-                return
-            try:
-                bpm = urllib.parse.parse_qs(parsed.query).get("bpm", [None])[0]
-                self._send_json(track_features(prof.path, float(bpm) if bpm else None))
-            except Exception as exc:
-                self._send_json({"error": str(exc)}, status=500)
+    def _get_studio_static(self, route: str) -> None:
+        rel = urllib.parse.unquote(route[len("/studio/"):])
+        safe_path = os.path.abspath(os.path.join(STUDIO_DIR, rel))
+        if not safe_path.startswith(os.path.abspath(STUDIO_DIR) + os.sep):
+            self.send_error(HTTPStatus.FORBIDDEN)
             return
+        self._serve_file(safe_path, STATIC_TYPES.get(os.path.splitext(safe_path)[1].lower()))
 
-        if route.startswith("/api/proxy/"):
-            src = STATE.clips.get(route.split("/api/proxy/", 1)[1])
-            if not src:
-                self.send_error(HTTPStatus.NOT_FOUND, "Unknown clip id")
-                return
-            path = STATE.proxies.ensure(src)
-            if not path:
-                self.send_error(HTTPStatus.INTERNAL_SERVER_ERROR, "Proxy build failed")
-                return
-            self._serve_file(path, "video/mp4")
+    def _get_features(self, route: str, query: dict[str, list[str]]) -> None:
+        track_id = route.split("/api/features/", 1)[1]
+        prof = STATE.tracks.get(track_id)
+        if not prof:
+            self.send_error(HTTPStatus.NOT_FOUND, "Unknown track id")
             return
+        try:
+            bpm = query.get("bpm", [None])[0]
+            self._send_json(track_features(prof.path, float(bpm) if bpm else None))
+        except Exception as exc:
+            self._send_json({"error": str(exc)}, status=500)
 
-        if route == "/api/state":
-            clips_list = [
-                {
-                    "id": s.id,
-                    "name": s.name,
-                    "path": s.path,
-                    "width": s.width,
-                    "height": s.height,
-                    "fps": round(s.fps, 1),
-                    "duration": round(s.duration, 1),
-                    "is_stock": s.name[0].isdigit(),
-                    "proxy": STATE.proxies.status(s),
-                }
-                for s in STATE.clips.values()
-            ]
-            tracks_list = [t.to_dict() for t in STATE.tracks.values()]
-            effects_list = [
-                {"name": k, "label": v["label"], "category": v["category"]}
-                for k, v in effects.EFFECTS.items()
-            ]
-            presets_list = [
-                {
-                    "id": k,
-                    "label": v["label"],
-                    "desc": v["desc"],
-                    "effects": v["effects"],
-                    "cut_beats": v["cut_beats"],
-                    "transition": v["transition"],
-                }
-                for k, v in PRESETS.items()
-            ]
-            with STATE.lock:
-                job = STATE.active_job
-                renders = list(STATE.renders)
-            self._send_json(
-                {
-                    "clips": clips_list,
-                    "tracks": tracks_list,
-                    "effects": effects_list,
-                    "presets": presets_list,
-                    "renders": renders,
-                    "job": job,
-                }
-            )
+    def _get_proxy(self, route: str) -> None:
+        clip_id = route.split("/api/proxy/", 1)[1]
+        src = STATE.clips.get(clip_id)
+        if not src:
+            self.send_error(HTTPStatus.NOT_FOUND, "Unknown clip id")
             return
-
-        if route == "/api/status":
-            with STATE.lock:
-                self._send_json({"job": STATE.active_job, "renders": STATE.renders[:10]})
+        path = STATE.proxies.ensure(src)
+        if not path:
+            self.send_error(HTTPStatus.INTERNAL_SERVER_ERROR, "Proxy build failed")
             return
+        self._serve_file(path, "video/mp4")
 
-        if route.startswith("/api/thumb/"):
-            cid = route.split("/api/thumb/", 1)[1]
-            src = STATE.clips.get(cid)
-            if not src:
-                self.send_error(HTTPStatus.NOT_FOUND, "Unknown clip id")
-                return
-            qs = urllib.parse.parse_qs(parsed.query)
-            try:
-                width = max(32, min(720, int(qs.get("w", ["360"])[0])))
-                at_sec = float(qs.get("t", ["1.5"])[0])
-                jpg = extract_thumbnail_jpeg(src.path, width=width, at_sec=at_sec)
-                self.send_response(HTTPStatus.OK)
-                self.send_header("Content-Type", "image/jpeg")
-                self.send_header("Content-Length", str(len(jpg)))
-                self.send_header("Cache-Control", "max-age=3600")
-                self.end_headers()
-                self.wfile.write(jpg)
-            except Exception as exc:
-                self.send_error(HTTPStatus.INTERNAL_SERVER_ERROR, str(exc))
+    def _get_state(self) -> None:
+        clips_list = [
+            {
+                "id": s.id,
+                "name": s.name,
+                "path": s.path,
+                "width": s.width,
+                "height": s.height,
+                "fps": round(s.fps, 1),
+                "duration": round(s.duration, 1),
+                "is_stock": s.name[0].isdigit(),
+                "proxy": STATE.proxies.status(s),
+            }
+            for s in STATE.clips.values()
+        ]
+        tracks_list = [t.to_dict() for t in STATE.tracks.values()]
+        effects_list = [
+            {"name": k, "label": v["label"], "category": v["category"]}
+            for k, v in effects.EFFECTS.items()
+        ]
+        presets_list = [
+            {
+                "id": k,
+                "label": v["label"],
+                "desc": v["desc"],
+                "effects": v["effects"],
+                "cut_beats": v["cut_beats"],
+                "transition": v["transition"],
+            }
+            for k, v in PRESETS.items()
+        ]
+        with STATE.lock:
+            job = STATE.active_job
+            renders = list(STATE.renders)
+        self._send_json(
+            {
+                "clips": clips_list,
+                "tracks": tracks_list,
+                "effects": effects_list,
+                "presets": presets_list,
+                "renders": renders,
+                "job": job,
+            }
+        )
+
+    def _get_status(self) -> None:
+        with STATE.lock:
+            self._send_json({"job": STATE.active_job, "renders": STATE.renders[:10]})
+
+    def _get_thumb(self, route: str, query: dict[str, list[str]]) -> None:
+        cid = route.split("/api/thumb/", 1)[1]
+        src = STATE.clips.get(cid)
+        if not src:
+            self.send_error(HTTPStatus.NOT_FOUND, "Unknown clip id")
             return
+        try:
+            width = max(32, min(720, int(query.get("w", ["360"])[0])))
+            at_sec = float(query.get("t", ["1.5"])[0])
+            jpg = extract_thumbnail_jpeg(src.path, width=width, at_sec=at_sec)
+            self.send_response(HTTPStatus.OK)
+            self.send_header("Content-Type", "image/jpeg")
+            self.send_header("Content-Length", str(len(jpg)))
+            self.send_header("Cache-Control", "max-age=3600")
+            self.end_headers()
+            self.wfile.write(jpg)
+        except Exception as exc:
+            self.send_error(HTTPStatus.INTERNAL_SERVER_ERROR, str(exc))
 
-        if route.startswith("/api/clip_video/"):
-            cid = route.split("/api/clip_video/", 1)[1]
-            src = STATE.clips.get(cid)
-            if not src:
-                self.send_error(HTTPStatus.NOT_FOUND)
-                return
-            self._serve_file(src.path, "video/mp4")
+    def _get_clip_video(self, route: str) -> None:
+        cid = route.split("/api/clip_video/", 1)[1]
+        src = STATE.clips.get(cid)
+        if not src:
+            self.send_error(HTTPStatus.NOT_FOUND)
             return
+        self._serve_file(src.path, "video/mp4")
 
-        if route.startswith("/api/track_audio/"):
-            tid = route.split("/api/track_audio/", 1)[1]
-            prof = STATE.tracks.get(tid)
-            if not prof:
-                self.send_error(HTTPStatus.NOT_FOUND)
-                return
-            ctype = mimetypes.guess_type(prof.path)[0] or "audio/mpeg"
-            self._serve_file(prof.path, ctype)
+    def _get_track_audio(self, route: str) -> None:
+        tid = route.split("/api/track_audio/", 1)[1]
+        prof = STATE.tracks.get(tid)
+        if not prof:
+            self.send_error(HTTPStatus.NOT_FOUND)
             return
+        ctype = mimetypes.guess_type(prof.path)[0] or "audio/mpeg"
+        self._serve_file(prof.path, ctype)
 
-        if route.startswith("/out/"):
-            fname = urllib.parse.unquote(route.split("/out/", 1)[1])
-            safe_path = os.path.abspath(os.path.join(OUT_DIR, fname))
-            if not safe_path.startswith(os.path.abspath(OUT_DIR) + os.sep):
-                self.send_error(HTTPStatus.FORBIDDEN)
-                return
-            self._serve_file(safe_path, "video/mp4")
+    def _get_out(self, route: str) -> None:
+        fname = urllib.parse.unquote(route.split("/out/", 1)[1])
+        safe_path = os.path.abspath(os.path.join(OUT_DIR, fname))
+        if not safe_path.startswith(os.path.abspath(OUT_DIR) + os.sep):
+            self.send_error(HTTPStatus.FORBIDDEN)
             return
-
-        self.send_error(HTTPStatus.NOT_FOUND)
+        self._serve_file(safe_path, "video/mp4")
 
     def do_POST(self) -> None:
         if not self._trusted():
@@ -580,191 +652,201 @@ class StudioHandler(BaseHTTPRequestHandler):
         route = parsed.path
         length = int(self.headers.get("Content-Length", "0"))
         body = self.rfile.read(length) if length > 0 else b"{}"
-        qs = urllib.parse.parse_qs(parsed.query)
+        query = urllib.parse.parse_qs(parsed.query)
 
         if route == "/api/export":
-            # body = H.264 Annex B elementary stream from the browser's WebCodecs encoder
-            try:
-                meta = json.loads(urllib.parse.unquote(self.headers.get("X-Export-Meta", "{}")))
-                dest = _export_dest(meta)
-                tmp = dest[:-4] + ".h264"
-                with open(tmp, "wb") as f:
-                    f.write(body)
-                try:
-                    delivery.mux_annexb(tmp, dest, int(meta.get("fps", CANVAS_FPS)))
-                finally:
-                    os.remove(tmp)
-                self._send_json({"ok": True, "render": _finish_export(dest, meta)})
-            except Exception as exc:
-                self._send_json({"ok": False, "error": str(exc)}, status=500)
-            return
+            self._post_export(body)
+        elif route == "/api/export/raw/begin":
+            self._post_raw_begin(body)
+        elif route == "/api/export/raw/frames":
+            self._post_raw_frames(body, query)
+        elif route == "/api/export/raw/abort":
+            self._post_raw_abort(query)
+        elif route == "/api/export/raw/end":
+            self._post_raw_end(body, query)
+        elif route == "/api/reveal":
+            self._post_reveal(body)
+        elif route == "/api/preview_frame":
+            self._post_preview_frame(body)
+        elif route == "/api/shutdown":
+            self._post_shutdown()
+        elif route == "/api/render":
+            self._post_render(body)
+        elif route == "/api/upload":
+            self._post_upload(body)
+        else:
+            self.send_error(HTTPStatus.NOT_FOUND)
 
-        if route == "/api/export/raw/begin":
-            meta = json.loads(body.decode("utf-8") or "{}")
+    def _post_export(self, body: bytes) -> None:
+        # body = H.264 Annex B elementary stream from the browser's WebCodecs encoder
+        try:
+            meta = json.loads(urllib.parse.unquote(self.headers.get("X-Export-Meta", "{}")))
             dest = _export_dest(meta)
-            sid = os.path.basename(dest)
-            session = delivery.RawSession(dest, int(meta["width"]), int(meta["height"]), int(meta.get("fps", CANVAS_FPS)))
-            with STATE.lock:
-                STATE.raw_sessions[sid] = (session, meta)
-            self._send_json({"ok": True, "sid": sid})
-            return
-
-        if route == "/api/export/raw/frames":
-            entry = STATE.raw_sessions.get(qs.get("sid", [""])[0])
-            if not entry:
-                self._send_json({"ok": False, "error": "unknown session"}, status=404)
-                return
-            try:
-                self._send_json({"ok": True, "frames": entry[0].write(body)})
-            except (BrokenPipeError, OSError) as exc:  # ffmpeg died: drop the session and say so
-                _abort_raw(qs.get("sid", [""])[0])
-                self._send_json({"ok": False, "error": f"encoder stopped: {exc}"}, status=500)
-            return
-
-        if route == "/api/export/raw/abort":
-            _abort_raw(qs.get("sid", [""])[0])
-            self._send_json({"ok": True})
-            return
-
-        if route == "/api/export/raw/end":
-            with STATE.lock:
-                entry = STATE.raw_sessions.pop(qs.get("sid", [""])[0], None)
-            if not entry:
-                self._send_json({"ok": False, "error": "unknown session"}, status=404)
-                return
-            session, meta = entry
-            try:
-                session.finish()
-                meta["stats"] = json.loads(body.decode("utf-8") or "{}").get("stats") or meta.get("stats")
-                self._send_json({"ok": True, "render": _finish_export(session.dest, meta)})
-            except Exception as exc:
-                self._send_json({"ok": False, "error": str(exc)}, status=500)
-            return
-
-        if route == "/api/reveal":
-            data = json.loads(body.decode("utf-8") or "{}")
-            path = os.path.abspath(os.path.join(OUT_DIR, os.path.basename(str(data.get("filename", "")))))
-            if os.path.isfile(path) and sys.platform == "darwin":
-                subprocess.Popen(["open", "-R", path])
-                self._send_json({"ok": True})
-            else:
-                self._send_json({"ok": False, "path": path})
-            return
-
-        if route == "/api/preview_frame":
-            try:
-                data = json.loads(body.decode("utf-8")) if body else {}
-            except Exception:
-                data = {}
-            clip_ids = data.get("clip_ids") or []
-            src = None
-            for cid in clip_ids:
-                if cid in STATE.clips:
-                    src = STATE.clips[cid]
-                    break
-            if src is None and STATE.clips:
-                src = next(iter(STATE.clips.values()))
-            if not src:
-                self._send_json({"ok": False, "error": "No clips available"}, status=404)
-                return
-
-            preset = data.get("preset")
-            effects_list = data.get("effects")
-            bpm = int(data.get("bpm") or 128)
-            intensity = float(data.get("intensity") or 1.0)
-            seed = int(data.get("seed") or 2026)
-            t = float(data.get("t") if data.get("t") is not None else 0.35)
-
-            recipe = make_recipe(
-                seed=seed,
-                bpm=bpm,
-                preset=preset if not effects_list else "custom",
-                effect_names=effects_list if effects_list else None,
-                intensity=intensity,
-            )
-            from .source import GLOBAL_CACHE
-            start_frame = int(t * src.fps) % max(1, src.frame_count)
-            frames = GLOBAL_CACHE.load_segment(src, start_frame=start_frame, count=1, target_w=360, target_h=640)
-            if not frames:
-                self._send_json({"ok": False, "error": "Failed to extract frame"}, status=500)
-                return
-            frame = frames[0].copy()
-            beat_dur = 60.0 / recipe.bpm
-            for _name, fn, kw in recipe.effects:
-                frame = fn(frame, t=t, beat_dur=beat_dur, **kw)
-
-            import base64
-            import cv2
-            _, buf = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 85])
-            jpg_bytes = buf.tobytes()
-
-            accept = self.headers.get("Accept", "")
-            if "application/json" in accept or data.get("format") == "json":
-                b64 = base64.b64encode(jpg_bytes).decode("ascii")
-                self._send_json({"ok": True, "jpeg_b64": b64})
-            else:
-                self.send_response(HTTPStatus.OK)
-                self.send_header("Content-Type", "image/jpeg")
-                self.send_header("Content-Length", str(len(jpg_bytes)))
-                self.send_header("Cache-Control", "no-store")
-                self.end_headers()
-                self.wfile.write(jpg_bytes)
-            return
-
-        if route == "/api/shutdown":
-            STATE.proxies.shutdown()
-            for sid in list(STATE.raw_sessions):
-                _abort_raw(sid)
-            self._send_json({"ok": True})
-            threading.Thread(target=self.server.shutdown, daemon=True).start()
-            return
-
-        if route == "/api/render":
-            params = json.loads(body.decode("utf-8"))
-            with STATE.lock:
-                if STATE.active_job and STATE.active_job.get("status") == "rendering":
-                    self._send_json({"error": "Render already in progress"}, status=409)
-                    return
-
-            def _worker():
-                try:
-                    run_render_job(params)
-                except Exception:
-                    pass
-
-            threading.Thread(target=_worker, daemon=True).start()
-            self._send_json({"started": True})
-            return
-
-        if route == "/api/upload":
-            fname = self.headers.get("X-Filename", f"upload-{int(time.time())}.mp4")
-            safe_name = os.path.basename(urllib.parse.unquote(fname))
-            uploads_dir = os.path.join(OUT_DIR, "uploads")
-            os.makedirs(uploads_dir, exist_ok=True)
-            dest = os.path.join(uploads_dir, safe_name)
-            with open(dest, "wb") as f:
+            tmp = dest[:-4] + ".h264"
+            with open(tmp, "wb") as f:
                 f.write(body)
-            ext = os.path.splitext(safe_name)[1].lower()
             try:
-                if ext in (".wav", ".mp3", ".flac", ".aif", ".aiff", ".m4a"):
-                    prof = STATE.add_track_path(dest)
-                    self._send_json(
-                        {
-                            "ok": True,
-                            "kind": "audio",
-                            "id": prof.id,
-                            "name": prof.name,
-                            "detected_bpm": prof.detected_bpm,
-                        }
-                    )
-                else:
-                    src = STATE.add_clip_path(dest)
-                    self._send_json({"ok": True, "kind": "video", "id": src.id, "name": src.name})
-            except Exception as exc:
-                self._send_json({"ok": False, "error": str(exc)}, status=400)
+                delivery.mux_annexb(tmp, dest, int(meta.get("fps", CANVAS_FPS)))
+            finally:
+                if os.path.exists(tmp):
+                    os.remove(tmp)
+            self._send_json({"ok": True, "render": _finish_export(dest, meta)})
+        except Exception as exc:
+            self._send_json({"ok": False, "error": str(exc)}, status=500)
+
+    def _post_raw_begin(self, body: bytes) -> None:
+        meta = json.loads(body.decode("utf-8") or "{}")
+        dest = _export_dest(meta)
+        sid = os.path.basename(dest)
+        session = delivery.RawSession(dest, int(meta["width"]), int(meta["height"]), int(meta.get("fps", CANVAS_FPS)))
+        with STATE.lock:
+            STATE.raw_sessions[sid] = (session, meta)
+        self._send_json({"ok": True, "sid": sid})
+
+    def _post_raw_frames(self, body: bytes, query: dict[str, list[str]]) -> None:
+        sid = query.get("sid", [""])[0]
+        entry = STATE.raw_sessions.get(sid)
+        if not entry:
+            self._send_json({"ok": False, "error": "unknown session"}, status=404)
+            return
+        try:
+            self._send_json({"ok": True, "frames": entry[0].write(body)})
+        except (BrokenPipeError, OSError) as exc:
+            _abort_raw(sid)
+            self._send_json({"ok": False, "error": f"encoder stopped: {exc}"}, status=500)
+
+    def _post_raw_abort(self, query: dict[str, list[str]]) -> None:
+        _abort_raw(query.get("sid", [""])[0])
+        self._send_json({"ok": True})
+
+    def _post_raw_end(self, body: bytes, query: dict[str, list[str]]) -> None:
+        sid = query.get("sid", [""])[0]
+        with STATE.lock:
+            entry = STATE.raw_sessions.pop(sid, None)
+        if not entry:
+            self._send_json({"ok": False, "error": "unknown session"}, status=404)
+            return
+        session, meta = entry
+        try:
+            session.finish()
+            meta["stats"] = json.loads(body.decode("utf-8") or "{}").get("stats") or meta.get("stats")
+            self._send_json({"ok": True, "render": _finish_export(session.dest, meta)})
+        except Exception as exc:
+            self._send_json({"ok": False, "error": str(exc)}, status=500)
+
+    def _post_reveal(self, body: bytes) -> None:
+        data = json.loads(body.decode("utf-8") or "{}")
+        path = os.path.abspath(os.path.join(OUT_DIR, os.path.basename(str(data.get("filename", "")))))
+        if os.path.isfile(path) and sys.platform == "darwin":
+            subprocess.Popen(["open", "-R", path])
+            self._send_json({"ok": True})
+        else:
+            self._send_json({"ok": False, "path": path})
+
+    def _post_preview_frame(self, body: bytes) -> None:
+        try:
+            data = json.loads(body.decode("utf-8")) if body else {}
+        except Exception:
+            data = {}
+        clip_ids = data.get("clip_ids") or []
+        src = None
+        for cid in clip_ids:
+            if cid in STATE.clips:
+                src = STATE.clips[cid]
+                break
+        if src is None and STATE.clips:
+            src = next(iter(STATE.clips.values()))
+        if not src:
+            self._send_json({"ok": False, "error": "No clips available"}, status=404)
             return
 
-        self.send_error(HTTPStatus.NOT_FOUND)
+        preset = data.get("preset")
+        effects_list = data.get("effects")
+        bpm = int(data.get("bpm") or 128)
+        intensity = float(data.get("intensity") or 1.0)
+        seed = int(data.get("seed") or 2026)
+        t = float(data.get("t") if data.get("t") is not None else 0.35)
+
+        recipe = make_recipe(
+            seed=seed,
+            bpm=bpm,
+            preset=preset if not effects_list else "custom",
+            effect_names=effects_list if effects_list else None,
+            intensity=intensity,
+        )
+        start_frame = int(t * src.fps) % max(1, src.frame_count)
+        frames = GLOBAL_CACHE.load_segment(src, start_frame=start_frame, count=1, target_w=360, target_h=640)
+        if not frames:
+            self._send_json({"ok": False, "error": "Failed to extract frame"}, status=500)
+            return
+        frame = frames[0].copy()
+        beat_dur = 60.0 / recipe.bpm
+        for _name, fn, kw in recipe.effects:
+            frame = fn(frame, t=t, beat_dur=beat_dur, **kw)
+
+        _, buf = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 85])
+        jpg_bytes = buf.tobytes()
+        accept = self.headers.get("Accept", "")
+        if "application/json" in accept or data.get("format") == "json":
+            b64 = base64.b64encode(jpg_bytes).decode("ascii")
+            self._send_json({"ok": True, "jpeg_b64": b64})
+        else:
+            self.send_response(HTTPStatus.OK)
+            self.send_header("Content-Type", "image/jpeg")
+            self.send_header("Content-Length", str(len(jpg_bytes)))
+            self.send_header("Cache-Control", "no-store")
+            self.end_headers()
+            self.wfile.write(jpg_bytes)
+
+    def _post_shutdown(self) -> None:
+        STATE.shutdown()
+        for sid in list(STATE.raw_sessions):
+            _abort_raw(sid)
+        self._send_json({"ok": True})
+        threading.Thread(target=self.server.shutdown, daemon=True).start()
+
+    def _post_render(self, body: bytes) -> None:
+        params = json.loads(body.decode("utf-8"))
+        with STATE.lock:
+            if STATE.active_job and STATE.active_job.get("status") == "rendering":
+                self._send_json({"error": "Render already in progress"}, status=409)
+                return
+
+        def _worker():
+            try:
+                run_render_job(params)
+            except Exception:
+                pass
+
+        threading.Thread(target=_worker, daemon=True).start()
+        self._send_json({"started": True})
+
+    def _post_upload(self, body: bytes) -> None:
+        fname = self.headers.get("X-Filename", f"upload-{int(time.time())}.mp4")
+        safe_name = os.path.basename(urllib.parse.unquote(fname))
+        uploads_dir = os.path.join(OUT_DIR, "uploads")
+        os.makedirs(uploads_dir, exist_ok=True)
+        dest = os.path.join(uploads_dir, safe_name)
+        with open(dest, "wb") as f:
+            f.write(body)
+        ext = os.path.splitext(safe_name)[1].lower()
+        try:
+            if ext in (".wav", ".mp3", ".flac", ".aif", ".aiff", ".m4a"):
+                prof = STATE.add_track_path(dest)
+                self._send_json(
+                    {
+                        "ok": True,
+                        "kind": "audio",
+                        "id": prof.id,
+                        "name": prof.name,
+                        "detected_bpm": prof.detected_bpm,
+                    }
+                )
+            else:
+                src = STATE.add_clip_path(dest)
+                self._send_json({"ok": True, "kind": "video", "id": src.id, "name": src.name})
+        except Exception as exc:
+            self._send_json({"ok": False, "error": str(exc)}, status=400)
 
 
 class ReusableThreadingHTTPServer(ThreadingHTTPServer):
@@ -779,7 +861,6 @@ class ReusableThreadingHTTPServer(ThreadingHTTPServer):
 
 
 def _is_canvas_forge_running(host: str, port: int) -> bool:
-    import urllib.request
     try:
         with urllib.request.urlopen(f"http://{host}:{port}/api/status", timeout=0.6) as resp:
             return resp.status == 200
@@ -788,6 +869,7 @@ def _is_canvas_forge_running(host: str, port: int) -> bool:
 
 
 def serve_studio(host: str = "127.0.0.1", port: int = 8765, open_browser: bool = True) -> None:
+    STATE.ensure_initialized()
     if _is_canvas_forge_running(host, port):
         print(f"\n  ✦ Found running Canvas Forge server at http://{host}:{port}. Reloading...")
         try:

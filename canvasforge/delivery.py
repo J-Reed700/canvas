@@ -8,21 +8,16 @@ from __future__ import annotations
 
 import json
 import os
-import shutil
 import struct
 import subprocess
+from typing import Any
 
-from .encoder import Encoder, mux_audio_preview
+from .encoder import Encoder, ffmpeg_path, ffprobe_path, mux_audio_preview
 
 # Spotify for Artists "Canvas" upload requirements (support.spotify.com, 2026).
 SPEC = {"min_seconds": 3.0, "max_seconds": 8.0, "aspect": 9 / 16, "min_height": 720, "listed_max_height": 1080}
 
-
-def _ffmpeg() -> str:
-    exe = shutil.which("ffmpeg")
-    if not exe:
-        raise RuntimeError("ffmpeg not found on PATH")
-    return exe
+_ffmpeg = ffmpeg_path
 
 
 def mux_annexb(h264_path: str, dest: str, fps: int) -> None:
@@ -32,7 +27,7 @@ def mux_annexb(h264_path: str, dest: str, fps: int) -> None:
     stamps = f"setts=pts=N/({fps}*TB):dts=N/({fps}*TB):duration=1/({fps}*TB)"
     subprocess.run(
         [
-            _ffmpeg(), "-y", "-v", "error", "-f", "h264", "-r", str(fps), "-i", h264_path,
+            ffmpeg_path(), "-y", "-v", "error", "-f", "h264", "-r", str(fps), "-i", h264_path,
             "-c:v", "copy", "-bsf:v", stamps, "-an", "-movflags", "+faststart", dest,
         ],
         check=True,
@@ -51,12 +46,18 @@ class RawSession:
 
     def write(self, data: bytes) -> int:
         n = len(data) // self.frame_bytes
-        self.encoder.proc.stdin.write(data[: n * self.frame_bytes])
+        self.encoder.write(data[: n * self.frame_bytes])
         self.frames += n
         return n
 
     def finish(self) -> None:
         self.encoder.close()
+
+    def __enter__(self) -> RawSession:
+        return self
+
+    def __exit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
+        self.finish()
 
 
 def _atom_order(path: str) -> list[str]:
@@ -81,7 +82,7 @@ def _atom_order(path: str) -> list[str]:
 
 def probe(path: str) -> dict:
     out = subprocess.check_output(
-        [shutil.which("ffprobe") or "ffprobe", "-v", "error", "-show_streams", "-show_format", "-of", "json", path]
+        [ffprobe_path(), "-v", "error", "-show_streams", "-show_format", "-of", "json", path]
     )
     return json.loads(out)
 

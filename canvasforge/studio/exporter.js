@@ -87,7 +87,8 @@ export function flashesPerSecond(series, fps) {
 
 export async function exportLoop({ engine, bank, ctx, width, height, fps = 30, meta, onProgress, signal }) {
   const N = Math.round(ctx.L * fps);
-  const hasFeedback = ctx.look.layers.some((l) => l.on !== false && MODULES[l.m]?.feedback);
+  const stacks = [ctx.look, ...(ctx.clipLook ? ctx.tl.segs.map((s) => ctx.clipLook(s.clipId)) : [])];
+  const hasFeedback = stacks.some((look) => look.layers.some((l) => l.on !== false && MODULES[l.m]?.feedback));
   const warm = hasFeedback ? N : 12; // pre-roll a full loop so frame 0 inherits the end's feedback history
   const chunks = [];
   let encErr = null;

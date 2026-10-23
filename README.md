@@ -27,8 +27,10 @@ v4 replaces render-to-see with a real-time **WebGL2 studio**. Every slider, look
 | **Live GPU preview** | An HDR render graph (half-float targets, dual-Kawase bloom, anamorphic streaks, god rays, feedback buffers) renders the finished canvas while the song plays. |
 | **A real beat grid** | Tempo to 0.02 BPM from a kick-weighted search, beat phase, downbeats, and six 30 fps envelopes: kick, snare, hats, bass, energy, brightness. |
 | **Modulate anything** | Any continuous parameter can follow an audio band, a beat pulse, a bar ramp, a 1-bar LFO or a per-beat random value. The slider shows the live value. |
-| **31 effects, 18 looks** | Liquid glass, holographic film, liquid chrome, feedback tunnels, beat shockwaves, dither palettes, CMYK halftone, glyph matrix, pixel sort, VHS, CRT and more. Each look is one hero effect, one supporting effect and a designed grade. |
-| **Variations** | `M` mutates the current look into six live variations; `R` rolls a random one; **Save as look** keeps yours. |
+| **45 effects, 36 looks** | Liquid glass, holographic film, liquid chrome, feedback tunnels, slit scan, datamosh smear, beat shockwaves, star glints, tilt shift, dither palettes, CMYK halftone, glyph matrix, pixel sort, film stocks, VHS, CRT and more. 18 studio looks (one hero effect, one supporting effect, a designed grade) plus the classic studio's 18 presets rebuilt as fuller **Classic stacks**. |
+| **🎲 Roll everything** | `D` (or the **Roll** button) re-rolls the look, a 4–6 layer effect stack, every parameter and modulation, the grade, the camera, the cut rhythm, the transition pool, clip direction, speed, FX intensity and per-clip looks in one go. `Shift`+`D` undoes it; the ▾ menu picks what a roll may change. |
+| **Per-clip looks** | Run one look over the whole edit, or give every clip its own stack: **Evolve** (each clip mutates the main look), **Look per clip** (a different curated look per clip) or **Custom** (pick or roll a stack per clip). Per-clip stacks run on each clip *before* the transition, so cuts blend between two differently styled clips. |
+| **Variations** | `M` mutates the current look into six live variations; `R` rolls a random look; **Save as look** keeps yours. |
 | **Seamless by construction** | Loops are whole bars, the seam is just another beat-centred cut, and everything that moves completes a whole number of cycles per loop. |
 | **Beat-snapped timeline** | Cut rhythms, cut lines you drag along the beat grid, per-segment clip and transition overrides, 16 GPU transitions centred on the beat. |
 | **Verified export** | Hardware H.264 through WebCodecs, remuxed by ffmpeg without a second encode, then checked with ffprobe plus a seam-smoothness and flash-rate report. |
@@ -65,11 +67,11 @@ cd canvas
 
 ## 🎛 Making a canvas
 
-1. **Add clips and a track.** Click clips to put them in the edit; drag to reorder. Each clip gets a 30 fps playback proxy built in the background so seeking is instant and frame-exact.
+1. **Add clips and a track.** **+ Add clips or tracks** opens a file picker (or drop files anywhere). Click clips to put them in the edit and drag to reorder; **All**, **Solo**, **Reverse** and **Shuffle** rework the sequence in one click. Each clip gets a 30 fps playback proxy built in the background so seeking is instant and frame-exact.
 2. **Pick the moment.** The track panel shows the detected tempo and suggests loops (**Drop**, **Peak 2**, **Peak 3**, **Intro**) snapped to downbeats. Choose 1, 2, 4 or 8 bars, or drag the window across the song overview. If the tempo is an octave off, use **½×** / **2×** or type the exact BPM.
-3. **Pick a look.** The gallery thumbnails render live on your own footage. Press `M` for variations of the current look or `R` for a surprise.
-4. **Shape it.** In **Layers**, add, reorder, bypass and tune effects. The dot button at the end of any slider routes it to kick, snare, hats, bass, energy, brightness, beat, bar, LFO or random. **Camera** handles zoom, drift, shake and sway; **Finish** handles the grade, texture and cinema bars. **★ Save as look** stores the result.
-5. **Cut it.** In **Edit**, choose a cut rhythm (on hits, beat, ½ bar, bar, 2 bars, build-up, one per clip), the transition pool, clip speed and reverse. On the timeline, drag cut lines along the beat grid, or double-click a segment to change its clip or transition.
+3. **Pick a look — or roll one.** The gallery thumbnails render live on your own footage. Press `D` (**🎲 Roll**) to randomize everything at once, `M` for variations of the current look or `R` for a random look.
+4. **Shape it.** In **Layers**, **Master** holds the **FX intensity** (0–150 %: below 100 % fades every layer toward the clean footage, above it the audio modulation hits harder) and the **Per clip** mode. **+ Add effect**, **🎲 Random**, **⇅ Shuffle** and **Clear** work on the stack; each layer can be reordered, bypassed and tuned. The dot button at the end of any slider routes it to kick, snare, hats, bass, energy, brightness, beat, bar, LFO or random. **Camera** handles zoom, drift, shake, sway and clip speed; **Finish** handles the grade, texture and cinema bars. In **Custom** per-clip mode, pick a clip in the strip (or click the look tag on a clip) to edit its own stack, and click any look in the gallery to apply it to that clip. **★ Save as look** stores the result.
+5. **Cut it.** In **Edit**, choose a cut rhythm (on hits, ½ beat, every beat, ½ bar, bar, 2 bars, 3-3-2 swing, build-up, varied, one or two per clip), the transition pool (presets **All**, **Smooth**, **Kinetic**, **Glitch**, **Hard cuts**; double-click a transition to use only that one), transition length and order, and clip direction (forward, reverse, alternate, ping-pong, random). On the timeline, drag cut lines along the beat grid, or double-click a segment to change its clip or transition.
 6. **Audition it.** **Loop** plays exactly the slice that drives the canvas, sample-accurately. **Listener** keeps the song playing while the canvas loops, which is what fans see. `H` toggles the Spotify player overlay and `S` the safe zones.
 7. **Export.** Press `E`, pick a size, and the studio renders every frame exactly, encodes, remuxes and verifies. The result shows a checklist and a link to reveal it in Finder. With a track loaded it also saves a `-audio.mp4` companion by default, for previewing with sound.
 
@@ -80,6 +82,7 @@ cd canvas
 | `Space` | Play / pause | `E` | Export |
 | `←` `→` | Previous / next look | `[` `]` | Previous / next loop suggestion |
 | `M` | Variations | `1`–`4` | Loop length 1 / 2 / 4 / 8 bars |
+| `D` | 🎲 Roll everything | `Shift` `D` | Undo the last roll |
 | `R` | Random look | `L` | Loop ↔ Listener audition |
 | `H` | Spotify player overlay | `S` | Safe zones |
 | `?` | Help | `Esc` | Close panels |
@@ -88,7 +91,9 @@ cd canvas
 
 ## 🎨 Looks, effects & transitions
 
-### 18 curated looks
+### 36 looks
+
+**Studio looks** — restraint: one hero effect, one supporting effect and a designed grade.
 
 | Look | Layers | Vibe |
 | :--- | :--- | :--- |
@@ -111,18 +116,43 @@ cd canvas
 | **Clone Wall** | tile · zoomblur | A sliding video wall that punches on the kick |
 | **Clean Cut** | bloom | Just the footage, graded and cut on the beat |
 
-### 31 GPU effects
+**Classic stacks** — the classic studio's 18 presets rebuilt on the GPU effects, with fuller stacks (the classic *zoom pulse*, *beat shake*, *grade*, *vignette*, *grain*, *halation* and *letterbox* now live in Camera and Finish).
+
+| Look | Layers | Vibe |
+| :--- | :--- | :--- |
+| **Hypnotic Tunnel** | tunnel · echo · chroma · bloom | Tunnel, prism echoes, chroma kicks & neon bloom |
+| **Acid Dither 2026** | dither · edges · crt | Bayer dither, cyber contours & CRT scanlines |
+| **Analog CRT Melt** | liquid · chroma · crt · bloom | Liquid warp, chroma split, phosphor glow & grain |
+| **Kaleido Rave** | mirror · hue · chroma · bloom | Quad mirror, hue orbit, chroma & bloom |
+| **Cyber Glitch** | glitch · edges · chroma · bloom | Block glitch, neon contours, RGB split & beat shake |
+| **Liquid Acid** | liquid · echo · solarize · bloom | Fluid warp, prism trails & solarized highlights |
+| **Dark Cinema** | filmstock · bloom · streaks | Teal & orange, soft bloom, beat shake & heavy vignette |
+| **VHS Retro Rewind** | lens · vhs · crt | Tape tracking, chroma bleed, scanlines & grain |
+| **Neon Tokyo 2026** | echo · edges · filmstock · bloom | Cyberpunk grade, neon contours, prism trails & bloom |
+| **Solar Flare** | solarize · filmstock · streaks · pulse | Anamorphic flares, solarize, golden hour & warm kick pulses |
+| **Matrix Data Stream** | ascii · glitch · chroma · bloom | Matrix glyphs, glitch tears, chroma & bloom |
+| **Prism Velocity** | zoomblur · echo · chroma · bloom | Kick zoom blur, prism echoes, chroma & beat shake |
+| **Thermal Infrared** | ripple · gradient · bloom | FLIR heat map, bass shockwaves, grain & halation |
+| **Duotone Acid Punk** | gradient · dither · edges · pulse | Acid duotone, contours, dither & warm kick pulses |
+| **35mm Noir** | filmstock · leak · bloom | Sepia noir, light leaks, cinema bars & grain |
+| **Kaleido Vortex** | kaleido · vortex · hue · bloom | Hex kaleidoscope, kick vortex, hue orbit & bloom |
+| **Sub-Bass Quake** | ripple · chroma · bassrim | Bass shockwaves, bass rim, chroma & heavy shake |
+| **Cosmic Hyperdrive** | tunnel · echo · glint · bloom | Star tunnel, prism echoes, star glints & bloom |
+
+### 45 GPU effects
 
 | Category | Effects |
 | :--- | :--- |
-| **Space** | Kaleidoscope · Mirror · Infinite Tunnel · Clone Grid · Fisheye |
-| **Warp** | Liquid Flow · Liquid Glass · Shockwave · Vortex · Zoom Blur |
-| **Time** | Feedback Trails · Chroma Echo |
-| **Light** | Bloom · Anamorphic Flare · God Rays · Spectral Aberration · Light Leak |
-| **Stylize** | 1-Bit Dither · Halftone · Pixel Sort · Glyph Matrix · Data Glitch · VHS Tape · CRT Monitor · Neon Contours · Mosaic |
-| **Color** | Gradient Map · Holographic · Liquid Chrome · Hue Orbit · Posterize |
+| **Space** | Kaleidoscope · Mirror · Infinite Tunnel · Clone Grid · Fisheye · Ribbon Split · Little Planet |
+| **Warp** | Liquid Flow · Liquid Glass · Shockwave · Vortex · Zoom Blur · Gravity Melt |
+| **Time** | Feedback Trails · Chroma Echo · Slit Scan · Datamosh Smear |
+| **Light** | Bloom · Anamorphic Flare · God Rays · Spectral Aberration · Light Leak · Star Glint · Tilt Shift · Double Vision · Warm Pulse · Beat Shutter · Bass Rim |
+| **Stylize** | 1-Bit Dither · Halftone · Pixel Sort · Glyph Matrix · Data Glitch · VHS Tape · CRT Monitor · Neon Contours · Mosaic · Frost Mist |
+| **Color** | Gradient Map · Holographic · Liquid Chrome · Hue Orbit · Posterize · Solarize · Film Stock (bleach bypass, cyberpunk, golden hour, sepia noir, cross process, teal & orange) |
 
-Every look also runs a **Camera** stage (zoom, drift, shake, sway) and a **Finish** stage: exposure, halation, temperature and tint, filmic tonemap, contrast, saturation, split toning, fade, vignette, grain, cinema bars and deband dithering.
+Together with Camera and Finish these cover all 52 of the classic studio's shaders. **Beat Shutter** only ever dims, never below half brightness and at most once per beat, to stay photosafe.
+
+Every look also runs a **Camera** stage (zoom, drift, shake, sway, clip speed) and a **Finish** stage: exposure, halation, temperature and tint, filmic tonemap, contrast, saturation, split toning, fade, vignette, grain, cinema bars and deband dithering.
 
 ### 16 beat-centred transitions
 
@@ -206,8 +236,8 @@ canvas/
 │   │   ├── app.js              #   UI, state, timeline, export sheet
 │   │   ├── engine.js           #   WebGL2 render graph
 │   │   ├── shaders.js          #   GLSL: camera, finish, bloom, flash guard, transitions
-│   │   ├── modules.js          #   the 31 effects and their parameters
-│   │   ├── looks.js            #   the 18 looks, mutation and random looks
+│   │   ├── modules.js          #   the 45 effects and their parameters
+│   │   ├── looks.js            #   the 36 looks, mutation, random looks and chaos rolls
 │   │   ├── composer.js         #   compose() and the video pool
 │   │   ├── timeline.js         #   beat-grid cut planning and sampling
 │   │   ├── audio.js            #   Web Audio transport and modulation sampler

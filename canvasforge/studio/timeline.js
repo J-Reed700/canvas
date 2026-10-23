@@ -2,13 +2,21 @@
 // including the loop seam at t = 0 — is a transition centred on its beat, so the loop is seamless.
 
 export const RHYTHMS = {
-  hits: { name: 'On hits', beats: null },
-  beat: { name: 'Every beat', beats: 1 },
-  half: { name: '½ bar', beats: 2 },
-  bar: { name: 'Bar', beats: 4 },
-  bar2: { name: '2 bars', beats: 8 },
-  build: { name: 'Build-up', beats: null },
-  even: { name: 'One per clip', beats: null },
+  hits: { name: 'On hits', short: 'Hits', beats: null },
+  eighth: { name: '½ beat', short: '½ beat', beats: 0.5 },
+  beat: { name: 'Every beat', short: 'Beat', beats: 1 },
+  half: { name: '½ bar', short: '½ bar', beats: 2 },
+  bar: { name: 'Bar', short: 'Bar', beats: 4 },
+  bar2: { name: '2 bars', short: '2 bars', beats: 8 },
+  sync: { name: '3-3-2 swing', short: '3-3-2', beats: null },
+  build: { name: 'Build-up', short: 'Build', beats: null },
+  varied: { name: 'Varied', short: 'Varied', beats: null },
+  even: { name: 'One per clip', short: '1/clip', beats: null },
+  twice: { name: 'Two per clip', short: '2/clip', beats: null },
+};
+
+export const DIRECTIONS = {
+  forward: 'Forward', reverse: 'Reverse', alternate: 'Alternate', pingpong: 'Ping-pong', random: 'Random',
 };
 
 export function rng(seed) {
@@ -31,13 +39,31 @@ export function loopBeats(L, beatDur) {
 }
 
 function cutTimes(opts) {
-  const { L, beatDur, rhythm, nClips, hitCurve, custom } = opts;
+  const { L, beatDur, rhythm, nClips, hitCurve, custom, seed = 1 } = opts;
   const beats = loopBeats(L, beatDur);
   const nb = beats.length;
   if (rhythm === 'custom' && custom?.length) return [0, ...custom.filter((c) => c > 0.05 && c < L - 0.05)].sort((a, b) => a - b);
   if (RHYTHMS[rhythm]?.beats) {
     const step = RHYTHMS[rhythm].beats;
+    if (step < 1) return Array.from({ length: Math.round(nb / step) }, (_, k) => k * step * beatDur).filter((t) => t < L - 1e-6);
     return beats.filter((_, i) => i % step === 0);
+  }
+  if (rhythm === 'sync') {
+    // 3-3-2 clave feel: cuts on beat 1, the "and" of 2, and beat 4 of every bar.
+    const cuts = [];
+    for (let b = 0; b < nb; b += 4) for (const o of [0, 1.5, 3]) if (b + o < nb) cuts.push((b + o) * beatDur);
+    return cuts;
+  }
+  if (rhythm === 'varied') {
+    const r = rng(seed * 7 + 3);
+    const cuts = [0];
+    let pos = 0;
+    for (;;) {
+      pos += [1, 2, 2, 3, 4][Math.floor(r() * 5)];
+      if (pos > nb - 1) break;
+      cuts.push(beats[pos]);
+    }
+    return cuts;
   }
   if (rhythm === 'build') {
     const cuts = [0];
@@ -61,8 +87,8 @@ function cutTimes(opts) {
     }
     return picked.sort((a, b) => a - b).map((i) => beats[i]);
   }
-  // even: one segment per clip, snapped to beats
-  const n = Math.max(1, Math.min(nClips, nb));
+  // even / twice: one (or two) segments per clip, snapped to beats
+  const n = Math.max(1, Math.min(nClips * (rhythm === 'twice' ? 2 : 1), nb));
   return Array.from({ length: n }, (_, k) => beats[Math.round((k * nb) / n)]);
 }
 
@@ -76,13 +102,16 @@ export function planTimeline(opts) {
   const transDur = Math.min(transBeats * beatDur, minDur * 0.9);
   const pool = transitions.length ? transitions : ['cut'];
   const cursor = new Map();
+  const dr = rng(seed * 40503 + 17);
   let prevTrans = null;
   segs.forEach((s, i) => {
     const clip = clips[i % clips.length];
     s.clipId = clip.id;
     s.dur = s.t1 - s.t0;
     s.speed = speed;
-    s.rev = direction === 'reverse' || (direction === 'alternate' && i % 2 === 1);
+    const d = direction === 'random' ? ['forward', 'reverse', 'pingpong'][Math.floor(dr() * 3)] : direction;
+    s.rev = d === 'reverse' || (d === 'alternate' && i % 2 === 1);
+    s.pp = d === 'pingpong';
     const need = (s.dur + transDur) * speed + 0.2;
     const span = Math.max(0, clip.duration - need - 0.1);
     let start = cursor.has(clip.id) ? cursor.get(clip.id) : r() * span * 0.6;
@@ -133,7 +162,9 @@ export function sampleTimeline(tl, t) {
 }
 
 export function clipTime(seg, local, clipDur) {
-  const span = seg.rev ? seg.in + (seg.dur - local) * seg.speed : seg.in + local * seg.speed;
+  // ping-pong plays forward to the middle of the segment, then back to its in-point
+  const u = seg.pp ? Math.min(local, seg.dur - local) : seg.rev ? seg.dur - local : local;
+  const span = seg.in + u * seg.speed;
   return Math.min(Math.max(0, span), Math.max(0, clipDur - 1 / 30));
 }
 

@@ -117,6 +117,21 @@ export class GPU {
   }
 }
 
+// Every effect layer runs through a dry/wet stage driven by the studio-wide FX intensity (uWet).
+const fxCache = new Map();
+function fxSource(id) {
+  if (!fxCache.has(id)) {
+    const src = moduleSource(id);
+    fxCache.set(id, src && `${src.replace(/void\s+main\s*\(\s*\)/, 'void fxMain()')}
+uniform float uWet;
+void main() {
+  fxMain();
+  if (uWet < 0.999) outColor = vec4(mix(texture(uSrc, vUv).rgb, outColor.rgb, uWet), 1.0);
+}`);
+  }
+  return fxCache.get(id);
+}
+
 // One render path at one resolution (main stage, a thumbnail, a variation tile...).
 export class Pipeline {
   constructor(gpu, w, h, { guard = false } = {}) {
@@ -129,12 +144,12 @@ export class Pipeline {
 
   dispose() {
     const g = this.g;
-    for (const t of [this.srcA, this.srcB, this.mixT, this.ping, this.pong, this.final, this.outA, this.outB, this.stA, this.stB]) g.free(t);
+    for (const t of [this.srcA, this.srcB, this.mixT, this.hold, this.ping, this.pong, this.final, this.outA, this.outB, this.stA, this.stB]) g.free(t);
     for (const pair of this.histories.values()) pair.forEach((t) => g.free(t));
     for (const chain of this.chains.values()) chain.forEach((t) => g.free(t));
     this.histories.clear();
     this.chains.clear();
-    this.srcA = this.srcB = this.mixT = this.ping = this.pong = this.final = this.outA = this.outB = this.stA = this.stB = null;
+    this.srcA = this.srcB = this.mixT = this.hold = this.ping = this.pong = this.final = this.outA = this.outB = this.stA = this.stB = null;
     this.w = this.h = 0;
   }
 
@@ -224,7 +239,7 @@ export class Pipeline {
       const glow = this._glow(cur, p.p_threshold, p.p_radius);
       const w = p.p_warmth;
       const tint = w >= 0 ? [1, 1 - 0.18 * w, 1 - 0.35 * w] : [1 + 0.25 * w, 1 + 0.08 * w, 1 - 0.1 * w];
-      g.draw('comp', S.COMPOSITE, out, { ...this.U(out), uTint: tint, uAmount: p.p_intensity }, { uSrc: cur, uAdd: glow });
+      g.draw('comp', S.COMPOSITE, out, { ...this.U(out), uTint: tint, uAmount: p.p_intensity * (p.uWet ?? 1) }, { uSrc: cur, uAdd: glow });
       return out;
     }
     if (kind === 'streaks') {
@@ -237,39 +252,23 @@ export class Pipeline {
         [src, dst] = [dst, src];
       }
       const rgb = hsv(p.p_hue, 0.75, 1);
-      g.draw('comp', S.COMPOSITE, out, { ...this.U(out), uTint: rgb, uAmount: p.p_intensity * 1.6 }, { uSrc: cur, uAdd: src });
+      g.draw('comp', S.COMPOSITE, out, { ...this.U(out), uTint: rgb, uAmount: p.p_intensity * 1.6 * (p.uWet ?? 1) }, { uSrc: cur, uAdd: src });
       return out;
     }
     if (kind === 'rays') {
       const [a, b] = this._chain(`rays:${key}`, [[this.w / 2, this.h / 2], [this.w / 2, this.h / 2]]);
       g.draw('bright', S.BRIGHT, a, { ...this.U(a), uThreshold: p.p_threshold, uKnee: 0.3 }, { uSrc: cur });
       g.draw('radial', S.RADIAL_BLUR, b, { ...this.U(b), uCenterUv: [0.5, p.p_height], uLength: 0.25 + p.p_length * 0.7 }, { uSrc: a });
-      g.draw('comp', S.COMPOSITE, out, { ...this.U(out), uTint: [1, 0.92, 0.8], uAmount: p.p_intensity * 1.4 }, { uSrc: cur, uAdd: b });
+      g.draw('comp', S.COMPOSITE, out, { ...this.U(out), uTint: [1, 0.92, 0.8], uAmount: p.p_intensity * 1.4 * (p.uWet ?? 1) }, { uSrc: cur, uAdd: b });
       return out;
     }
     return cur;
   }
 
-  // frame: { globals, sources: [{tex, vw, vh, cam}], trans: {name, p} | null, layers: [{m, key, params}], finish }
-  render(frame, aux) {
+  // Run a stack of effect layers over `cur`; returns the texture holding the result.
+  _layers(cur, layers, aux) {
     const g = this.g;
-    this.frame = frame;
-    this._used = new Set(['down', 'up']);
-    const [A, B] = frame.sources;
-    const cam = (s, t) => g.draw('source', S.SOURCE, t, {
-      ...this.U(t), uVidRes: [s.vw, s.vh], uCenter: s.cam.center, uZoom: s.cam.zoom, uRot: s.cam.rot, uShake: s.cam.shake, uFlip: s.cam.flip ? 1 : 0,
-    }, { uVideo: s.tex });
-
-    cam(A, this.srcA);
-    let cur = this.srcA;
-    if (B && frame.trans) {
-      cam(B, this.srcB);
-      const tr = S.TRANSITIONS[frame.trans.name] || S.TRANSITIONS.dissolve;
-      g.draw(`t:${frame.trans.name}`, tr.glsl, this.mixT, { ...this.U(this.mixT), uP: frame.trans.p }, { uA: this.srcA, uB: this.srcB });
-      cur = this.mixT;
-    }
-
-    for (const layer of frame.layers) {
+    for (const layer of layers) {
       const m = MODULES[layer.m];
       if (!m) continue;
       if (m.kind) { cur = this._runChain(m.kind, cur, layer.params, layer.key); continue; }
@@ -286,10 +285,44 @@ export class Pipeline {
         out = hist[1];
       }
       if (m.aux) samplers.uAux = aux?.[m.aux];
-      g.draw(`m:${layer.m}`, moduleSource(layer.m), out, { ...this.U(out), ...layer.params }, samplers);
+      g.draw(`m:${layer.m}`, fxSource(layer.m), out, { uWet: 1, ...this.U(out), ...layer.params }, samplers);
       if (hist) hist.reverse();
       cur = out;
     }
+    return cur;
+  }
+
+  // frame: { globals, sources: [{tex, vw, vh, cam}], trans: {name, p} | null, layers: [{m, key, params}], finish,
+  //          pre: [layersA, layersB] | null — per-clip stacks applied to each source before the transition }
+  render(frame, aux) {
+    const g = this.g;
+    this.frame = frame;
+    this._used = new Set(['down', 'up']);
+    const [A, B] = frame.sources;
+    const pre = frame.pre;
+    const cam = (s, t) => g.draw('source', S.SOURCE, t, {
+      ...this.U(t), uVidRes: [s.vw, s.vh], uCenter: s.cam.center, uZoom: s.cam.zoom, uRot: s.cam.rot, uShake: s.cam.shake, uFlip: s.cam.flip ? 1 : 0,
+    }, { uVideo: s.tex });
+
+    cam(A, this.srcA);
+    let cur = this.srcA;
+    if (pre?.[0]?.length) cur = this._layers(cur, pre[0], aux);
+    if (B && frame.trans) {
+      let a = cur;
+      // B's stack reuses ping/pong, so park A's result first.
+      if (pre?.[1]?.length && (a === this.ping || a === this.pong)) {
+        if (!this.hold) this.hold = g.target(this.w, this.h);
+        g.draw('blit', S.BLIT, this.hold, this.U(this.hold), { uSrc: a });
+        a = this.hold;
+      }
+      cam(B, this.srcB);
+      let b = this.srcB;
+      if (pre?.[1]?.length) b = this._layers(b, pre[1], aux);
+      const tr = S.TRANSITIONS[frame.trans.name] || S.TRANSITIONS.dissolve;
+      g.draw(`t:${frame.trans.name}`, tr.glsl, this.mixT, { ...this.U(this.mixT), uP: frame.trans.p }, { uA: a, uB: b });
+      cur = this.mixT;
+    }
+    cur = this._layers(cur, frame.layers, aux);
 
     const f = frame.finish;
     const glow = f.p_halation > 0.001 ? this._glow(cur, 0.85, 0.75) : null;
@@ -457,7 +490,7 @@ export class Engine {
   warmup() {
     const errors = [];
     const tryCompile = (key, src) => { try { this.gpu.program(key, src); } catch (e) { errors.push(e.message); } };
-    for (const id in MODULES) if (MODULES[id].glsl) tryCompile(`m:${id}`, moduleSource(id));
+    for (const id in MODULES) if (MODULES[id].glsl) tryCompile(`m:${id}`, fxSource(id));
     for (const id in S.TRANSITIONS) tryCompile(`t:${id}`, S.TRANSITIONS[id].glsl);
     for (const [k, src] of Object.entries({ source: S.SOURCE, blit: S.BLIT, finish: S.FINISH, gstate: S.GUARD_STATE, gout: S.GUARD_OUT,
       bright: S.BRIGHT, kdown: S.KAWASE_DOWN, kup: S.KAWASE_UP, dblur: S.DIR_BLUR, radial: S.RADIAL_BLUR, comp: S.COMPOSITE, stats: S.STATS })) {

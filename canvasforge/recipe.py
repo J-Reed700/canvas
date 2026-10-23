@@ -1,4 +1,4 @@
-"""Seeded recipe generation & curated 2026 style presets for Canvas Forge."""
+"""Seeded recipe generation and curated style presets for Canvas Forge."""
 from __future__ import annotations
 
 import dataclasses
@@ -121,7 +121,7 @@ PRESETS = {
         "cut_beats": 8,
         "transition": "luma",
     },
-    # 11 New 2026 Curated Presets
+    # Additional Curated Presets
     "anamorphic_flare": {
         "label": "Blade Runner Flare",
         "desc": "Horizontal cyan anamorphic lens streaks, neon cyberpunk split-tone & prism trails",
@@ -458,15 +458,18 @@ _PIPELINE_ORDER = [
 
 def build_effect_stack(
     effect_names: list[str],
-    seed: int,
+    seed: int | random.Random,
     intensity: float = 1.0,
+    max_effects: int | None = None,
 ) -> list[tuple[str, Callable, dict]]:
     """Build an ordered (name, fn, params) effect stack for a specific clip/segment."""
     valid = [e for e in effect_names if e in effects.EFFECTS]
     if not valid:
         valid = ["zoom_pulse", "neon_bloom", "color_grade", "vignette"]
     ordered = [e for e in _PIPELINE_ORDER if e in valid] + [e for e in valid if e not in _PIPELINE_ORDER]
-    rng = random.Random(seed)
+    if max_effects is not None:
+        ordered = ordered[: max(1, max_effects)]
+    rng = seed if isinstance(seed, random.Random) else random.Random(seed)
     return [(name, effects.EFFECTS[name]["fn"], _params(name, rng, intensity=intensity)) for name in ordered]
 
 
@@ -636,15 +639,8 @@ def make_recipe(
     if not picked:
         picked = ["zoom_pulse", "neon_bloom", "color_grade"]
 
-    ordered = [name for name in _PIPELINE_ORDER if name in picked]
-    for name in picked:
-        if name not in ordered:
-            ordered.append(name)
-
-    chosen = []
-    for name in ordered[: max(1, max_effects if not effect_names else len(ordered))]:
-        fn = effects.EFFECTS[name]["fn"]
-        chosen.append((name, fn, _params(name, rng, intensity=intensity)))
+    limit = len(picked) if effect_names else max_effects
+    chosen = build_effect_stack(picked, seed=rng, intensity=intensity, max_effects=limit)
 
     resolved_trans = transition or (transitions[0] if transitions else None) or "flash"
     resolved_transitions = list(transitions) if transitions else [resolved_trans]

@@ -15,6 +15,7 @@ import cv2
 import numpy as np
 
 from .audio import FrameAudioCurves, extract_frame_curves
+from .effects import coord_grid, zoom_in
 from .recipe import PRESETS, Recipe, build_effect_stack, evolve_effect_names
 from .source import GLOBAL_CACHE, Source
 
@@ -39,33 +40,8 @@ ALL_TRANSITIONS = [
     "kaleido_twist",
 ]
 
-_FLOW_GRID_CACHE: dict[tuple[int, int], tuple[np.ndarray, np.ndarray]] = {}
-
-
-def _zoom_in(frame: np.ndarray, factor: float, cx: float = 0.5, cy: float = 0.5) -> np.ndarray:
-    """True zoom-in crop + upscale without border smearing."""
-    if factor <= 1.002:
-        return frame
-    h, w = frame.shape[:2]
-    crop_w = max(16, min(w, int(round(w / factor))))
-    crop_h = max(16, min(h, int(round(h / factor))))
-    if crop_w >= w and crop_h >= h:
-        return frame
-    px = int(np.clip(cx, 0.15, 0.85) * w)
-    py = int(np.clip(cy, 0.15, 0.85) * h)
-    x0 = int(np.clip(px - crop_w // 2, 0, w - crop_w))
-    y0 = int(np.clip(py - crop_h // 2, 0, h - crop_h))
-    sub = frame[y0 : y0 + crop_h, x0 : x0 + crop_w]
-    return cv2.resize(sub, (w, h), interpolation=cv2.INTER_LINEAR)
-
-
-def _flow_grid(h: int, w: int) -> tuple[np.ndarray, np.ndarray]:
-    key = (h, w)
-    if key not in _FLOW_GRID_CACHE:
-        x = np.arange(w, dtype=np.float32)[None, :]
-        y = np.arange(h, dtype=np.float32)[:, None]
-        _FLOW_GRID_CACHE[key] = np.meshgrid(x, y)
-    return _FLOW_GRID_CACHE[key]
+_zoom_in = zoom_in
+_flow_grid = coord_grid
 
 
 def _blend_transition(
@@ -338,17 +314,20 @@ class RenderPlan:
         effs = seg.effects if seg.effects is not None else self.recipe.effects
         return self._apply_effects(raw, effs, t, audio_kw)
 
-    def _raw_frame_at(self, i: int) -> np.ndarray:
-        """Return the base portrait frame at canvas frame `i`, including loop topology & cut transitions."""
-        i = i % self.n_frames
+    def _compose_frame(
+        self,
+        i: int,
+        fetcher: Callable[[SegmentSlice, int], np.ndarray],
+    ) -> np.ndarray:
+        i_mod = i % self.n_frames
         loop_mode = getattr(self.recipe, "loop_mode", "crossfade")
 
         # Ping-Pong Rebound loop: second half plays the first half in reverse for a mathematically zero-seam loop
         if loop_mode == "rebound":
             half = self.n_frames // 2
-            eff_i = i if i < half else max(0, (self.n_frames - 1) - i)
+            eff_i = i_mod if i_mod < half else max(0, (self.n_frames - 1) - i_mod)
         else:
-            eff_i = i
+            eff_i = i_mod
 
         seg_idx = 0
         for idx, seg in enumerate(self.segments):
@@ -358,7 +337,7 @@ class RenderPlan:
 
         seg = self.segments[seg_idx]
         local_i = max(0, eff_i - seg.start_canvas_frame)
-        frame_curr = seg.frames[min(len(seg.frames) - 1, int(local_i * seg.speed) % len(seg.frames))]
+        frame_curr = fetcher(seg, local_i)
 
         # Check if we are in a transition window near the start of a cut
         seg_trans_frames = getattr(seg, "trans_frames", 12)
@@ -366,33 +345,39 @@ class RenderPlan:
         if len(self.segments) > 1 and local_i < trans_frames and eff_i >= trans_frames:
             prev_seg = self.segments[(seg_idx - 1) % len(self.segments)]
             prev_local = (prev_seg.end_canvas_frame - prev_seg.start_canvas_frame) + local_i
-            frame_prev = prev_seg.frames[min(len(prev_seg.frames) - 1, int(prev_local * prev_seg.speed) % len(prev_seg.frames))]
+            frame_prev = fetcher(prev_seg, prev_local)
             alpha = (local_i + 1) / (trans_frames + 1)
             seg_transition = getattr(seg, "transition", self.recipe.transition)
             return _blend_transition(frame_prev, frame_curr, alpha, seg_transition)
 
         # Seamless loop crossfade in the final 10 frames back to frame 0 (when loop_mode == "crossfade")
-        if loop_mode == "crossfade":
+        if loop_mode == "crossfade" and i_mod >= self.n_frames - 10:
             loop_tail = 10
-            if i >= self.n_frames - loop_tail:
-                first_seg = self.segments[0]
-                tail_offset = i - (self.n_frames - loop_tail)
-                alpha = (tail_offset + 1) / (loop_tail + 1)
-                frame_zero = first_seg.frames[tail_offset % len(first_seg.frames)]
-                return cv2.addWeighted(frame_curr, 1.0 - alpha, frame_zero, alpha, 0)
+            first_seg = self.segments[0]
+            tail_offset = i_mod - (self.n_frames - loop_tail)
+            alpha = (tail_offset + 1) / (loop_tail + 1)
+            frame_zero = fetcher(first_seg, tail_offset)
+            return cv2.addWeighted(frame_curr, 1.0 - alpha, frame_zero, alpha, 0)
 
         # Morph loop: seamless transition blend back into clip 0
         if loop_mode == "morph":
             loop_tail = min(14, max(6, getattr(self.recipe, "trans_frames", 12)))
-            if i >= self.n_frames - loop_tail:
+            if i_mod >= self.n_frames - loop_tail:
                 first_seg = self.segments[0]
-                tail_offset = i - (self.n_frames - loop_tail)
+                tail_offset = i_mod - (self.n_frames - loop_tail)
                 alpha = (tail_offset + 1) / (loop_tail + 1)
-                frame_zero = first_seg.frames[tail_offset % len(first_seg.frames)]
+                frame_zero = fetcher(first_seg, tail_offset)
                 seam_trans = getattr(first_seg, "transition", self.recipe.transition)
                 return _blend_transition(frame_curr, frame_zero, alpha, seam_trans)
 
         return frame_curr
+
+    def _raw_frame_at(self, i: int) -> np.ndarray:
+        """Return the base portrait frame at canvas frame `i`, including loop topology & cut transitions."""
+        return self._compose_frame(
+            i,
+            lambda seg, local_i: seg.frames[min(len(seg.frames) - 1, int(local_i * seg.speed) % len(seg.frames))],
+        )
 
     def render(self, i: int) -> np.ndarray:
         """Render canvas frame `i` with full beat-synced & audio-reactive effect stack."""
@@ -410,56 +395,39 @@ class RenderPlan:
         if not has_per_seg_fx:
             frame = self._raw_frame_at(i)
             frame = self._apply_effects(frame, self.recipe.effects, t, audio_kw)
-            return self.limit_luminance_slew(frame, i)
-
-        i_mod = i % self.n_frames
-        loop_mode = getattr(self.recipe, "loop_mode", "crossfade")
-
-        if loop_mode == "rebound":
-            half = self.n_frames // 2
-            eff_i = i_mod if i_mod < half else max(0, (self.n_frames - 1) - i_mod)
         else:
-            eff_i = i_mod
-
-        seg_idx = 0
-        for idx, s in enumerate(self.segments):
-            if s.start_canvas_frame <= eff_i < s.end_canvas_frame:
-                seg_idx = idx
-                break
-
-        seg = self.segments[seg_idx]
-        local_i = max(0, eff_i - seg.start_canvas_frame)
-        frame_curr = self._rendered_segment_frame(seg, local_i, t, audio_kw)
-
-        seg_trans_frames = getattr(seg, "trans_frames", 12)
-        trans_frames = min(seg_trans_frames, max(4, (seg.end_canvas_frame - seg.start_canvas_frame) // 2))
-
-        if len(self.segments) > 1 and local_i < trans_frames and eff_i >= trans_frames:
-            prev_seg = self.segments[(seg_idx - 1) % len(self.segments)]
-            prev_local = (prev_seg.end_canvas_frame - prev_seg.start_canvas_frame) + local_i
-            frame_prev = self._rendered_segment_frame(prev_seg, prev_local, t, audio_kw)
-            alpha = (local_i + 1) / (trans_frames + 1)
-            seg_transition = getattr(seg, "transition", self.recipe.transition)
-            frame = _blend_transition(frame_prev, frame_curr, alpha, seg_transition)
-        elif loop_mode == "crossfade" and i_mod >= self.n_frames - 10:
-            loop_tail = 10
-            first_seg = self.segments[0]
-            tail_offset = i_mod - (self.n_frames - loop_tail)
-            alpha = (tail_offset + 1) / (loop_tail + 1)
-            frame_zero = self._rendered_segment_frame(first_seg, tail_offset, t, audio_kw)
-            frame = cv2.addWeighted(frame_curr, 1.0 - alpha, frame_zero, alpha, 0)
-        elif loop_mode == "morph" and i_mod >= self.n_frames - min(14, max(6, getattr(self.recipe, "trans_frames", 12))):
-            loop_tail = min(14, max(6, getattr(self.recipe, "trans_frames", 12)))
-            first_seg = self.segments[0]
-            tail_offset = i_mod - (self.n_frames - loop_tail)
-            alpha = (tail_offset + 1) / (loop_tail + 1)
-            frame_zero = self._rendered_segment_frame(first_seg, tail_offset, t, audio_kw)
-            seam_trans = getattr(first_seg, "transition", self.recipe.transition)
-            frame = _blend_transition(frame_curr, frame_zero, alpha, seam_trans)
-        else:
-            frame = frame_curr
+            frame = self._compose_frame(
+                i,
+                lambda seg, local_i: self._rendered_segment_frame(seg, local_i, t, audio_kw),
+            )
 
         return self.limit_luminance_slew(frame, i)
+
+
+def _lengths_to_bounds(lengths: list[int], n_frames: int) -> list[tuple[int, int]]:
+    """Convert a sequence of segment lengths to cumulative (start, end) frame bounds."""
+    bounds: list[tuple[int, int]] = []
+    c = 0
+    for l in lengths:
+        bounds.append((c, c + l))
+        c += l
+    if bounds:
+        bounds[-1] = (bounds[-1][0], n_frames)
+    return bounds
+
+
+def _split_until_count(lengths: list[int], target_count: int, min_split_len: int = 16) -> list[int]:
+    """Split largest segments in half until reaching target_count segments or min_split_len."""
+    lengths = list(lengths)
+    while len(lengths) < target_count:
+        idx_max = max(range(len(lengths)), key=lambda k: lengths[k])
+        if lengths[idx_max] <= min_split_len:
+            break
+        h1 = lengths[idx_max] // 2
+        h2 = lengths[idx_max] - h1
+        lengths[idx_max] = h1
+        lengths.insert(idx_max + 1, h2)
+    return lengths
 
 
 def _weights_to_bounds(n_frames: int, weights: list[float], min_len: int = 12) -> list[tuple[int, int]]:
@@ -484,13 +452,7 @@ def _weights_to_bounds(n_frames: int, weights: list[float], min_len: int = 12) -
             idx = max(candidates, key=lambda k: lengths[k])
             lengths[idx] -= 1
             diff += 1
-    bounds: list[tuple[int, int]] = []
-    c = 0
-    for l in lengths:
-        bounds.append((c, c + l))
-        c += l
-    bounds[-1] = (bounds[-1][0], n_frames)
-    return bounds
+    return _lengths_to_bounds(lengths, n_frames)
 
 
 def _compute_segment_bounds(
@@ -540,21 +502,8 @@ def _compute_segment_bounds(
             remaining -= step
             idx += 1
         if ensure_all and len(lengths) < n_clips:
-            while len(lengths) < n_clips:
-                idx_max = max(range(len(lengths)), key=lambda k: lengths[k])
-                if lengths[idx_max] <= 16:
-                    break
-                h1 = lengths[idx_max] // 2
-                h2 = lengths[idx_max] - h1
-                lengths[idx_max] = h1
-                lengths.insert(idx_max + 1, h2)
-        bounds: list[tuple[int, int]] = []
-        c = 0
-        for l in lengths:
-            bounds.append((c, c + l))
-            c += l
-        bounds[-1] = (bounds[-1][0], n_frames)
-        return bounds
+            lengths = _split_until_count(lengths, n_clips)
+        return _lengths_to_bounds(lengths, n_frames)
 
     if cut_mode == "transient" and audio_curves is not None:
         min_dist = max(15, cut_frames // 2)
@@ -574,20 +523,8 @@ def _compute_segment_bounds(
         bounds = [(cuts[k], cuts[k + 1]) for k in range(len(cuts) - 1)]
         if ensure_all and len(bounds) < n_clips:
             lengths = [end - start for start, end in bounds]
-            while len(lengths) < n_clips:
-                idx_max = max(range(len(lengths)), key=lambda k: lengths[k])
-                if lengths[idx_max] <= 16:
-                    break
-                h1 = lengths[idx_max] // 2
-                h2 = lengths[idx_max] - h1
-                lengths[idx_max] = h1
-                lengths.insert(idx_max + 1, h2)
-            bounds = []
-            c = 0
-            for l in lengths:
-                bounds.append((c, c + l))
-                c += l
-            bounds[-1] = (bounds[-1][0], n_frames)
+            lengths = _split_until_count(lengths, n_clips)
+            return _lengths_to_bounds(lengths, n_frames)
         return bounds
 
     if cut_mode == "chaos":
@@ -603,21 +540,8 @@ def _compute_segment_bounds(
             lengths.append(l)
             remaining -= l
         if ensure_all and len(lengths) < n_clips:
-            while len(lengths) < n_clips:
-                idx_max = max(range(len(lengths)), key=lambda k: lengths[k])
-                if lengths[idx_max] <= 16:
-                    break
-                h1 = lengths[idx_max] // 2
-                h2 = lengths[idx_max] - h1
-                lengths[idx_max] = h1
-                lengths.insert(idx_max + 1, h2)
-        bounds = []
-        c = 0
-        for l in lengths:
-            bounds.append((c, c + l))
-            c += l
-        bounds[-1] = (bounds[-1][0], n_frames)
-        return bounds
+            lengths = _split_until_count(lengths, n_clips)
+        return _lengths_to_bounds(lengths, n_frames)
 
     # Default: "steady"
     if ensure_all and n_clips > 1 and (n_frames // max(1, cut_frames)) < n_clips:
@@ -635,6 +559,93 @@ def _compute_segment_bounds(
         bounds.append((cursor, end))
         cursor = end
     return bounds
+
+
+def _apply_clip_direction(
+    frames: list[np.ndarray],
+    direction: str,
+    clip_idx: int,
+    rng: random.Random,
+) -> tuple[list[np.ndarray], str]:
+    """Apply playback direction transformation (reverse, alternate, chaos, pingpong)."""
+    if direction == "reverse":
+        return frames[::-1], "reverse"
+    if direction == "alternate":
+        if clip_idx % 2 == 1:
+            return frames[::-1], "reverse"
+        return frames, "forward"
+    if direction == "chaos":
+        seg_dir = rng.choice(["forward", "reverse", "pingpong"])
+        if seg_dir == "reverse":
+            return frames[::-1], seg_dir
+        if seg_dir == "pingpong":
+            return frames + frames[::-1], seg_dir
+        return frames, seg_dir
+    if direction == "pingpong":
+        return frames + frames[::-1], "pingpong"
+    return frames, direction
+
+
+def _resolve_segment_effects(
+    filter_mode: str,
+    clip_effects: dict[str, list[str]],
+    src: Source,
+    clip_slot: int,
+    seg_idx: int,
+    base_fx_names: list[str],
+    recipe: Recipe,
+    preset_keys: list[str],
+) -> tuple[list[tuple[str, Callable, dict]] | None, list[str]]:
+    """Resolve per-segment or global shader effect stack based on filter_mode."""
+    if filter_mode == "global":
+        return None, list(base_fx_names)
+
+    custom_list = (
+        clip_effects.get(src.path)
+        or clip_effects.get(os.path.basename(src.path))
+        or clip_effects.get(str(clip_slot))
+        or clip_effects.get(f"clip_{clip_slot}")
+    )
+
+    if filter_mode == "per_clip":
+        if custom_list:
+            seg_fx_names = list(custom_list)
+        else:
+            seg_fx_names = evolve_effect_names(base_fx_names, clip_slot, recipe.seed)
+        seg_effects = build_effect_stack(
+            seg_fx_names,
+            seed=recipe.seed + clip_slot * 313,
+            intensity=recipe.intensity,
+        )
+        return seg_effects, seg_fx_names
+
+    if filter_mode == "preset_cycle":
+        if custom_list:
+            seg_fx_names = list(custom_list)
+        else:
+            if clip_slot == 0:
+                seg_fx_names = list(base_fx_names)
+            else:
+                if recipe.preset in preset_keys:
+                    preset_id = preset_keys[(preset_keys.index(recipe.preset) + clip_slot * 3) % len(preset_keys)]
+                else:
+                    preset_id = preset_keys[(recipe.seed + clip_slot * 3) % len(preset_keys)]
+                seg_fx_names = list(PRESETS[preset_id]["effects"])
+        seg_effects = build_effect_stack(
+            seg_fx_names,
+            seed=recipe.seed + clip_slot * 509,
+            intensity=recipe.intensity,
+        )
+        return seg_effects, seg_fx_names
+
+    # filter_mode == "evolve" (or fallback)
+    seg_fx_names = evolve_effect_names(base_fx_names, seg_idx, recipe.seed)
+    seg_effects = build_effect_stack(
+        seg_fx_names,
+        seed=recipe.seed + seg_idx * 409,
+        intensity=recipe.intensity,
+    )
+    return seg_effects, seg_fx_names
 
 
 def build_plan(
@@ -751,25 +762,9 @@ def build_plan(
         offset = (cycle * 12) % max(1, len(pool_frames) // 3)
         sliced_frames = pool_frames[offset:] + pool_frames[:offset]
 
-        seg_dir = effective_direction
-        if effective_direction == "reverse":
-            sliced_frames = sliced_frames[::-1]
-            seg_dir = "reverse"
-        elif effective_direction == "alternate":
-            if clip_idx % 2 == 1:
-                sliced_frames = sliced_frames[::-1]
-                seg_dir = "reverse"
-            else:
-                seg_dir = "forward"
-        elif effective_direction == "chaos":
-            seg_dir = rng.choice(["forward", "reverse", "pingpong"])
-            if seg_dir == "reverse":
-                sliced_frames = sliced_frames[::-1]
-            elif seg_dir == "pingpong":
-                sliced_frames = sliced_frames + sliced_frames[::-1]
-        elif effective_direction == "pingpong":
-            sliced_frames = sliced_frames + sliced_frames[::-1]
-            seg_dir = "pingpong"
+        sliced_frames, seg_dir = _apply_clip_direction(
+            sliced_frames, effective_direction, clip_idx, rng
+        )
 
         if eff_trans_mode == "single" and len(pool) >= 1:
             seg_trans = pool[0]
@@ -780,56 +775,16 @@ def build_plan(
             seg_trans = rng.choice(candidates)
         prev_trans = seg_trans
 
-        # Precompute per-source or per-segment effect stacks
-        if eff_filter_mode == "global":
-            seg_effects = None
-            seg_fx_names = list(base_fx_names)
-        elif eff_filter_mode == "per_clip":
-            custom_list = (
-                eff_clip_effects.get(src.path)
-                or eff_clip_effects.get(os.path.basename(src.path))
-                or eff_clip_effects.get(str(clip_slot))
-                or eff_clip_effects.get(f"clip_{clip_slot}")
-            )
-            if custom_list:
-                seg_fx_names = list(custom_list)
-            else:
-                seg_fx_names = evolve_effect_names(base_fx_names, clip_slot, recipe.seed)
-            seg_effects = build_effect_stack(
-                seg_fx_names,
-                seed=recipe.seed + clip_slot * 313,
-                intensity=recipe.intensity,
-            )
-        elif eff_filter_mode == "preset_cycle":
-            custom_list = (
-                eff_clip_effects.get(src.path)
-                or eff_clip_effects.get(os.path.basename(src.path))
-                or eff_clip_effects.get(str(clip_slot))
-                or eff_clip_effects.get(f"clip_{clip_slot}")
-            )
-            if custom_list:
-                seg_fx_names = list(custom_list)
-            else:
-                if clip_slot == 0:
-                    seg_fx_names = list(base_fx_names)
-                else:
-                    if recipe.preset in preset_keys:
-                        preset_id = preset_keys[(preset_keys.index(recipe.preset) + clip_slot * 3) % len(preset_keys)]
-                    else:
-                        preset_id = preset_keys[(recipe.seed + clip_slot * 3) % len(preset_keys)]
-                    seg_fx_names = list(PRESETS[preset_id]["effects"])
-            seg_effects = build_effect_stack(
-                seg_fx_names,
-                seed=recipe.seed + clip_slot * 509,
-                intensity=recipe.intensity,
-            )
-        else:  # eff_filter_mode == "evolve"
-            seg_fx_names = evolve_effect_names(base_fx_names, seg_idx, recipe.seed)
-            seg_effects = build_effect_stack(
-                seg_fx_names,
-                seed=recipe.seed + seg_idx * 409,
-                intensity=recipe.intensity,
-            )
+        seg_effects, seg_fx_names = _resolve_segment_effects(
+            eff_filter_mode,
+            eff_clip_effects,
+            src,
+            clip_slot,
+            seg_idx,
+            base_fx_names,
+            recipe,
+            preset_keys,
+        )
 
         segments.append(
             SegmentSlice(

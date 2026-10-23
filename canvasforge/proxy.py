@@ -10,11 +10,11 @@ import hashlib
 import itertools
 import os
 import queue
-import shutil
 import subprocess
 import threading
+from typing import Any
 
-from .encoder import _check_videotoolbox
+from .encoder import ffmpeg_path, has_videotoolbox, video_codec_args
 from .source import Source
 
 PROXY_VERSION = 1
@@ -84,6 +84,12 @@ class ProxyManager:
         if proc and proc.poll() is None:
             proc.kill()
 
+    def __enter__(self) -> ProxyManager:
+        return self
+
+    def __exit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
+        self.shutdown()
+
     def _worker(self) -> None:
         while True:
             _prio, _seq, dest, src = self._queue.get()
@@ -103,7 +109,7 @@ class ProxyManager:
             raise RuntimeError("proxy manager shut down")
         os.makedirs(self.root, exist_ok=True)
         tmp = f"{dest}.{os.getpid()}.part.mp4"  # unique per process: a restarted server can't clobber it
-        exe = shutil.which("ffmpeg") or "ffmpeg"
+        exe = ffmpeg_path()
         vf = (
             f"fps={FPS},"
             f"scale='min({MAX_SIDE},iw)':'min({MAX_SIDE},ih)':force_original_aspect_ratio=decrease"
@@ -112,10 +118,7 @@ class ProxyManager:
         scale = min(1.0, MAX_SIDE / max(src.width, src.height, 1))
         pixels_per_sec = src.width * scale * src.height * scale * FPS
         bitrate = int(min(24e6, max(6e6, pixels_per_sec * 0.2)))
-        if _check_videotoolbox():
-            codec = ["-c:v", "h264_videotoolbox", "-b:v", str(bitrate), "-profile:v", "high", "-allow_sw", "1"]
-        else:
-            codec = ["-c:v", "libx264", "-preset", "veryfast", "-crf", "17"]
+        codec = video_codec_args(use_hw=True, bitrate=bitrate, crf=17, allow_sw=True)
         cmd = [
             exe, "-y", "-v", "error", "-t", str(MAX_SECONDS), "-i", src.path,
             "-an", "-sn", "-dn", "-vf", vf, *codec, "-g", "8", "-bf", "0",

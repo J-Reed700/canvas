@@ -1,9 +1,5 @@
 #!/usr/bin/env bash
-# ============================================================================
-# Canvas Forge v4 — 1-Command Studio Bootstrap & Launcher
-# Automatically checks ffmpeg, creates .venv, installs numpy + opencv,
-# and launches the real-time GPU Studio at http://127.0.0.1:8765 (classic UI at /classic).
-# ============================================================================
+# Canvas Forge Studio bootstrap and launcher.
 set -euo pipefail
 
 cd "$(dirname "$0")"
