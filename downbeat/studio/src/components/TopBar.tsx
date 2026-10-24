@@ -1,6 +1,8 @@
-import React from 'react';
+import React, { useSyncExternalStore } from 'react';
 import { useStudioStore } from '../state/store.ts';
+import { historyDepth, subscribeHistory } from '../state/historyController.ts';
 import { openPop, closePop, h, ROLL_OPTS, fmtLength } from '../lib/utils.ts';
+import { Icon, ICONS } from './ui.tsx';
 
 export const TopBar: React.FC = () => {
   const trackId = useStudioStore((s) => s.trackId);
@@ -15,6 +17,10 @@ export const TopBar: React.FC = () => {
   const undoRoll = useStudioStore((s) => s.undoRoll);
   const openExport = useStudioStore((s) => s.openExport);
   const save = useStudioStore((s) => s.save);
+  const undo = useStudioStore((s) => s.undo);
+  const redo = useStudioStore((s) => s.redo);
+  const exporting = useStudioStore((s) => s.exporting);
+  const history = useSyncExternalStore(subscribeHistory, historyDepth);
 
   const tr = tracks.find((t) => t.id === trackId);
   const currentBpm = bpm;
@@ -87,8 +93,16 @@ export const TopBar: React.FC = () => {
       </div>
 
       <div className="top-actions">
+        <div className="split hist">
+          <button className="btn icon" id="btnUndo" title="Undo (⌘Z)" aria-label="Undo" disabled={exporting || !history.undo} onClick={undo}>
+            <Icon d={ICONS.undo} />
+          </button>
+          <button className="btn icon" id="btnRedo" title="Redo (⇧⌘Z)" aria-label="Redo" disabled={exporting || !history.redo} onClick={redo}>
+            <Icon d={ICONS.redo} />
+          </button>
+        </div>
         <button
-          className="btn icon"
+          className="btn icon hide-sm"
           id="btnHelp"
           title="Keyboard shortcuts (?)"
           onClick={() => useStudioStore.setState({ helpOpen: true })}

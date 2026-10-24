@@ -354,7 +354,7 @@ This section gives an overview. [docs/STUDIO_GUIDE.md](docs/STUDIO_GUIDE.md) cov
 
 ### The screen
 
-The left column holds the track, its tempo and beat grid, the level meters, your clips and your past exports. The middle shows the preview, the transport bar and the timeline. The bar along the top shows the track, tempo, loop length, look and clip count, with Roll and Export buttons on the right.
+The left column holds the track, its tempo and beat grid, the level meters, your clips and your past exports. The middle shows the preview, the transport bar and the timeline. The bar along the top shows the track, tempo, loop length, look and clip count. On its right are Undo and Redo (the ↶ and ↷ arrows), Roll and Export.
 
 The right column has three tabs. Looks is the gallery of 44 looks. Layers holds the effect stack, the Camera and Finish settings, the color palette and the modulators. Edit sets the cut rhythm, transitions, clip direction, speed ramps and loop length.
 
@@ -416,7 +416,7 @@ Loop mode plays only the slice of the song under the Canvas, over and over. List
 | `Left` / `Right` | Previous or next look | `[` / `]` | Previous or next loop suggestion |
 | `M` | Look variations | `1` to `4` | Loop length: 1, 2, 4 or 8 bars |
 | `D` | Roll a new look and edit | `Shift+D` | Undo the last roll |
-| `Cmd+Z` / `Shift+Cmd+Z` | Undo / redo (`Ctrl` on Windows and Linux, and `Ctrl+Y` also redoes) | `T` | Tap tempo |
+| `Cmd+Z` / `Shift+Cmd+Z` | Undo / redo, the same as the ↶ ↷ buttons (`Ctrl` on Windows and Linux, and `Ctrl+Y` also redoes) | `T` | Tap tempo |
 | `R` | Random look | `L` | Switch between Loop and Listener mode |
 | `H` | Show or hide the Spotify player overlay | `S` | Show or hide the safe zones (phone screen only) |
 | `O` | Next screen: phone, landscape, tablet, square | `?` | Keyboard help |

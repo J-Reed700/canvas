@@ -30,7 +30,7 @@ import {
   exportCompanion,
 } from './exportController.ts';
 import { surprise, rollClips, rollAll, undoRoll } from './rollController.ts';
-import { save, restore, snapshot, applySnapshot, undo, redo, saveLook, rememberLook } from './historyController.ts';
+import { save, restore, snapshot, applySnapshot, undo, redo, resetHistory, saveLook, rememberLook } from './historyController.ts';
 import { uploadFiles, autoFrame, reorderClips, toggleClip, fetchPalette } from './mediaActions.ts';
 import type { StudioState } from './storeTypes.ts';
 
@@ -572,6 +572,8 @@ export const useStudioStore = create<StudioState>((set, get) => ({
     transportInstance.setMuted(!!saved.muted);
 
     await get().selectTrack(initialTrack, { initial: true });
+    // Undo goes back as far as the session the studio opened with.
+    resetHistory();
 
     startRenderLoop(viewCanvas, ambientCanvas);
     pollProxies();

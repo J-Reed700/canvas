@@ -9,6 +9,8 @@ export const ICONS = {
   prev: 'M15.4 5.4 14 4l-8 8 8 8 1.4-1.4L8.8 12z',
   next: 'M8.6 5.4 10 4l8 8-8 8-1.4-1.4 6.6-6.6z',
   trash: 'M9 3h6l1 2h4v2H4V5h4l1-2zM6 9h12l-1 12H7L6 9zm4 2v8h1.5v-8H10zm3.5 0v8H15v-8h-1.5z',
+  undo: 'M9 5 3 10l6 5v-4h5a4 4 0 0 1 0 8h-3v2h3a6 6 0 0 0 0-12H9V5z',
+  redo: 'M15 5l6 5-6 5v-4h-5a4 4 0 0 0 0 8h3v2h-3a6 6 0 0 1 0-12h5V5z',
 };
 
 export const Icon: React.FC<{ d: string }> = ({ d }) => (

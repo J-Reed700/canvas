@@ -5,6 +5,7 @@ import { act, render, screen } from '@testing-library/react';
 import { vi } from 'vitest';
 import { useStudioStore } from '../../downbeat/studio/src/state/store.ts';
 import { LOOKS, cloneLook } from '../../downbeat/studio/src/engine/looks.ts';
+import { resetHistory } from '../../downbeat/studio/src/state/historyController.ts';
 import type { StudioState } from '../../downbeat/studio/src/state/store.ts';
 
 export const S = useStudioStore;
@@ -38,7 +39,7 @@ export const TRACKS = [
   { id: 't2', name: 'Sunrise.mp3', path: '/Users/me/Downloads/Sunrise.mp3', source: 'downloads', dir: '', mtime: 2 },
 ];
 
-/** Resets the store to three clips on the first studio look, no song, 4 bars at 120 BPM, then rebuilds. */
+/** Resets the store to three clips on the first studio look, no song, 4 bars at 120 BPM, then rebuilds and starts the undo history there. */
 export function resetStudio(over: Partial<StudioState> = {}) {
   act(() => {
     st().transport.pause();
@@ -85,6 +86,7 @@ export function resetStudio(over: Partial<StudioState> = {}) {
       ...over,
     });
     st().rebuild();
+    resetHistory();
   });
 }
 

@@ -251,6 +251,44 @@ describe('top bar', () => {
     expect(pop().className).toBe('pop');
   });
 
+  test('Undo and Redo step back and forward through edits, and are off with nothing to step to', () => {
+    vi.useFakeTimers();
+    resetStudio();
+    renderStudio(<TopBar />);
+    const undoBtn = document.getElementById('btnUndo') as HTMLButtonElement;
+    const redoBtn = document.getElementById('btnRedo') as HTMLButtonElement;
+    const edit = (bars: number) => {
+      update(() => st().setBars(bars));
+      act(() => vi.advanceTimersByTime(400)); // an edit becomes a step once it settles
+    };
+    expect([undoBtn.disabled, redoBtn.disabled]).toEqual([true, true]);
+    edit(8);
+    edit(2);
+    expect([undoBtn.disabled, redoBtn.disabled]).toEqual([false, true]);
+    fireEvent.click(undoBtn);
+    expect(st().bars).toBe(8);
+    expect(toastText()).toBe('↶ Undo');
+    fireEvent.click(undoBtn);
+    expect(st().bars).toBe(4);
+    expect([undoBtn.disabled, redoBtn.disabled]).toEqual([true, false]);
+    fireEvent.click(redoBtn);
+    fireEvent.click(redoBtn);
+    expect(st().bars).toBe(2);
+    expect(toastText()).toBe('↷ Redo');
+    expect([undoBtn.disabled, redoBtn.disabled]).toEqual([false, true]);
+
+    fireEvent.click(undoBtn);
+    edit(1);
+    expect(redoBtn.disabled, 'a new edit drops the steps you undid').toBe(true);
+    update(() => st().setBars(4));
+    fireEvent.click(undoBtn);
+    expect(st().bars, 'an edit made just now is undone too').toBe(1);
+
+    update(() => S.setState({ exporting: true }));
+    expect([undoBtn.disabled, redoBtn.disabled]).toEqual([true, true]);
+    vi.useRealTimers();
+  });
+
   test('Export opens the export sheet and ? opens the shortcuts', () => {
     resetStudio();
     renderStudio(<TopBar />);

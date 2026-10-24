@@ -71,8 +71,9 @@ Preview and export use the same renderer, so an export matches the preview frame
 ```
 
 The chips along the top are a summary: track, tempo, loop length, the main look's name and how many clips are
-in the edit. On the right, ? lists the shortcuts, 🎲 Roll (D) randomizes the canvas (the ▾ beside it sets what
-a roll changes and has Undo last roll), and Export Canvas (E) opens the export sheet.
+in the edit. On the right, the ↶ and ↷ buttons undo and redo your last change (⌘Z, ⇧⌘Z), ? lists the
+shortcuts, 🎲 Roll (D) randomizes the canvas (the ▾ beside it sets what a roll changes and has Undo last roll),
+and Export Canvas (E) opens the export sheet.
 
 ## 3. A first canvas
 
@@ -373,7 +374,7 @@ the layer tools says so. Reset clip N or Same look on all brings the main look b
 | Undo last roll | Shift+D | Goes back one roll at a time, up to 40 |
 | ⚄ Surprise me | R | A random two-layer look: one main effect plus a light or color layer. Like clicking a look, it resets your cuts unless Keep my edit is ticked |
 | Variations | M | Six mutations of the current look, playing live. Subtle/Wild sets how far they drift, ⟳ Mutate again deals six more, and clicking one keeps it without touching your edit |
-| Undo, redo | ⌘Z, ⇧⌘Z | Undoes nearly any change: layers, sliders, modulation, palette tints, cuts, clip order |
+| ↶ Undo, ↷ Redo | ⌘Z, ⇧⌘Z | The arrows in the top bar. Undoes nearly any change: looks, layers, sliders, modulation, palette tints, cuts, clip order. Each button is greyed out when there's nothing to step to |
 
 The studio saves your session (clips, look, edit, saved looks, toggles) in the browser and restores it next
 time you open it.
