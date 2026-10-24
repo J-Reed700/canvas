@@ -46,7 +46,6 @@ case "$OS" in
   *) die "Unsupported OS: $OS" ;;
 esac
 
-# ---- package managers -------------------------------------------------------------------------
 load_brew() {
   for b in /opt/homebrew/bin/brew /usr/local/bin/brew /home/linuxbrew/.linuxbrew/bin/brew; do
     if [ -x "$b" ]; then eval "$("$b" shellenv)"; return 0; fi
@@ -116,7 +115,6 @@ install_pkgs() {
   esac
 }
 
-# ---- ffmpeg ---------------------------------------------------------------------------------
 if ! command -v ffmpeg >/dev/null 2>&1 || ! command -v ffprobe >/dev/null 2>&1; then
   [ "$PLATFORM" = mac ] && load_brew || true
 fi
@@ -149,7 +147,6 @@ if ! has_x264; then
   has_x264 || die "ffmpeg still lacks libx264."
 fi
 
-# ---- Python 3.10+ -----------------------------------------------------------------------------
 py_ok() { "$1" -c 'import sys; sys.exit(0 if sys.version_info >= (3, 10) else 1)' >/dev/null 2>&1; }
 find_python() {
   local c
@@ -192,7 +189,6 @@ if [ ! -f "$STAMP" ] || [ pyproject.toml -nt "$STAMP" ] || ! ./.venv/bin/python 
   touch "$STAMP"
 fi
 
-# ---- Node.js 20.19+ (builds the studio UI) ------------------------------------------------------
 node_ok() {
   command -v node >/dev/null 2>&1 || return 1
   node -e 'const [a,b]=process.versions.node.split(".").map(Number); process.exit((a===20&&b>=19)||(a===22&&b>=12)||a>22 ? 0 : 1)' >/dev/null 2>&1

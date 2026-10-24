@@ -1,8 +1,8 @@
 import React, { useRef, useEffect, useSyncExternalStore } from 'react';
-import { useStudioStore, useVersion } from '../store.ts';
-import { clamp } from '../../looks.ts';
-import { room, toast } from '../utils.ts';
-import { BAR_CHOICES } from '../utils.ts';
+import { useStudioStore, useVersion } from '../state/store.ts';
+import { clamp } from '../engine/looks.ts';
+import { room, toast, BAR_CHOICES, fmtLength } from '../lib/utils.ts';
+import { getLastFrame } from '../canvas/renderLoop.ts';
 
 const PlayIcon: React.FC<{ playing: boolean }> = ({ playing }) => (
   <svg viewBox="0 0 24 24">
@@ -18,26 +18,26 @@ export const StagePanel: React.FC = () => {
   const tracks = useStudioStore((s) => s.tracks);
   const trackId = useStudioStore((s) => s.trackId);
   const features = useStudioStore((s) => s.features);
-  const bars = useStudioStore((s) => s.bars);
   const hud = useStudioStore((s) => s.hud);
   const safe = useStudioStore((s) => s.safe);
   const muted = useStudioStore((s) => s.muted);
   const exporting = useStudioStore((s) => s.exporting);
-  const clipFrame = useStudioStore((s) => s.clipFrame);
   const transport = useStudioStore((s) => s.transport);
-  const rebuild = useStudioStore((s) => s.rebuild);
   const save = useStudioStore((s) => s.save);
   const touch = useStudioStore((s) => s.touch);
-  const validBars = useStudioStore((s) => s.validBars());
   const barDur = useStudioStore((s) => s.barDur());
+  const maxBars = useStudioStore((s) => s.maxBars());
+  const loopLen = useStudioStore((s) => s.loopLen());
+  const setBars = useStudioStore((s) => s.setBars);
+  const setTab = useStudioStore((s) => s.setTab);
+  const bars = Math.round(loopLen / barDur);
   const playing = useSyncExternalStore(transport.subscribe, () => transport.playing);
 
   const rfRef = useRef<any>(null);
 
   const target = () => {
     const s = useStudioStore.getState();
-    const lastFr = s.ctx ? (s as any).lastFrame : null;
-    const n = lastFr?.needs?.[0];
+    const n = s.ctx ? getLastFrame()?.needs[0] : undefined;
     const c = n && s.clips?.find((x) => x.id === n.clipId);
     return c ? { c, n } : null;
   };
@@ -156,11 +156,6 @@ export const StagePanel: React.FC = () => {
     save();
   };
 
-  const handleBarChange = (b: number) => {
-    useStudioStore.setState({ bars: b, customCuts: null });
-    rebuild();
-  };
-
   return (
     <main className="stage">
       <div className="stage-badge" id="stageBadge" style={{ display: 'none' }} />
@@ -243,8 +238,8 @@ export const StagePanel: React.FC = () => {
         >
           <PlayIcon playing={playing} />
         </button>
-        <div className="time" id="time">
-          0.00 <small>/ 0.00</small>
+        <div className="time">
+          <span id="timeNow">0.00</span> <small>/ <span id="timeLen">0.00</span></small>
         </div>
         <div className="bbt" id="bbt">
           1.1
@@ -285,13 +280,18 @@ export const StagePanel: React.FC = () => {
             <button
               key={b}
               className={b === bars ? 'on' : ''}
-              disabled={!validBars.includes(b)}
+              disabled={b > maxBars}
               title={`${(b * barDur).toFixed(2)} s`}
-              onClick={() => handleBarChange(b)}
+              onClick={() => setBars(b)}
             >
               {b === BAR_CHOICES[0] ? `${b} bar` : `${b}`}
             </button>
           ))}
+          {!BAR_CHOICES.includes(bars) && (
+            <button className="on" title="A custom length. Change it in the Edit tab." onClick={() => setTab('edit')}>
+              {bars} · {fmtLength(loopLen)}
+            </button>
+          )}
         </div>
 
         <div className="tdiv" />

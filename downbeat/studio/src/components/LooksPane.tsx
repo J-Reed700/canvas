@@ -1,6 +1,6 @@
 import React, { useRef, useEffect } from 'react';
-import { useStudioStore, type LookJob } from '../store.ts';
-import { LOOKS } from '../../looks.ts';
+import { useStudioStore, type LookJob } from '../state/store.ts';
+import { LOOKS } from '../engine/looks.ts';
 
 export const LooksPane: React.FC = () => {
   const looksRef = useRef<HTMLDivElement>(null);

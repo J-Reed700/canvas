@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { useStudioStore } from '../store.ts';
+import { useStudioStore } from '../state/store.ts';
 import {
+  CHECK_ICONS,
   EXPORT_KINDS,
   EXPORT_SORTS,
   aspectOf,
@@ -12,28 +13,13 @@ import {
   specOf,
   timeAgo,
   titleOf,
-} from '../exportsView.ts';
-import { toast } from '../utils.ts';
-import type { RenderRecord } from '../../types.ts';
+} from '../lib/exportsView.ts';
+import { postJSON, toast } from '../lib/utils.ts';
+import { Icon, ICONS, SearchField, useArmed } from './ui.tsx';
+import type { RenderRecord } from '../engine/types.ts';
 
 const SIDE_PAGE = 4;
 const LIB_PAGE = 12;
-
-const ICONS = {
-  search: 'M10.5 3a7.5 7.5 0 0 1 5.9 12.1l4.3 4.3-1.4 1.4-4.3-4.3A7.5 7.5 0 1 1 10.5 3zm0 2a5.5 5.5 0 1 0 0 11 5.5 5.5 0 0 0 0-11z',
-  download: 'M11 3h2v10.2l3.6-3.6 1.4 1.4-6 6-6-6 1.4-1.4 3.6 3.6V3zM4 19h16v2H4z',
-  folder: 'M3 5h7l2 2h9v12H3V5zm2 4v8h14V9H5z',
-  expand: 'M4 4h7v2H7.4l4.3 4.3-1.4 1.4L6 7.4V11H4V4zm16 16h-7v-2h3.6l-4.3-4.3 1.4-1.4 4.3 4.3V13h2v7z',
-  prev: 'M15.4 5.4 14 4l-8 8 8 8 1.4-1.4L8.8 12z',
-  next: 'M8.6 5.4 10 4l8 8-8 8-1.4-1.4 6.6-6.6z',
-  trash: 'M9 3h6l1 2h4v2H4V5h4l1-2zM6 9h12l-1 12H7L6 9zm4 2v8h1.5v-8H10zm3.5 0v8H15v-8h-1.5z',
-};
-
-const Icon: React.FC<{ d: string }> = ({ d }) => (
-  <svg className="ico" viewBox="0 0 24 24" aria-hidden="true">
-    <path d={d} />
-  </svg>
-);
 
 const setFilter = (patch: Partial<{ q: string; kind: string; sort: string }>) =>
   useStudioStore.setState((s) => ({ exportFilter: { ...s.exportFilter, ...patch } }));
@@ -42,16 +28,9 @@ const openLibrary = (filename: string | null) => useStudioStore.setState({ libra
 
 /** Deletes the export and its companion files (audio and promo copies, cover art, teasers, banners) from out/. */
 async function deleteExport(r: RenderRecord) {
-  const res = await fetch('/api/export/delete', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ filename: r.filename }),
-  })
-    .then((x) => x.json())
-    .catch(() => null);
-  // A 404 means the file is already gone, so it still comes off the list.
-  if (!res?.ok && !res?.error?.includes('no longer exists')) {
-    toast(res?.error || "Couldn't delete the export");
+  const res = await postJSON('/api/export/delete', { filename: r.filename });
+  if (!res.ok) {
+    toast(res.error || "Couldn't delete the export");
     return;
   }
   useStudioStore.setState((s) => ({
@@ -63,12 +42,7 @@ async function deleteExport(r: RenderRecord) {
 
 /** Needs a second click within 3 s, so one stray click can't delete an export. */
 const DeleteButton: React.FC<{ r: RenderRecord; wide?: boolean }> = ({ r, wide }) => {
-  const [armed, setArmed] = useState(false);
-  useEffect(() => {
-    if (!armed) return;
-    const t = setTimeout(() => setArmed(false), 3000);
-    return () => clearTimeout(t);
-  }, [armed]);
+  const [armed, setArmed] = useArmed();
   return (
     <button
       className={`btn del ${wide ? '' : 'sm icon'} ${armed ? 'armed' : ''}`}
@@ -118,23 +92,19 @@ const ExportThumb: React.FC<{ r: RenderRecord }> = ({ r }) => {
 const SearchBox: React.FC<{ autoFocus?: boolean; inputRef?: React.Ref<HTMLInputElement> }> = ({ autoFocus, inputRef }) => {
   const q = useStudioStore((s) => s.exportFilter.q);
   return (
-    <label className="exp-search">
-      <Icon d={ICONS.search} />
-      <input
-        ref={inputRef}
-        type="search"
-        placeholder="Search by look, format or size"
-        value={q}
-        autoFocus={autoFocus}
-        onChange={(e) => setFilter({ q: e.target.value })}
-        onKeyDown={(e) => {
-          if (e.key === 'Escape' && q) {
-            e.stopPropagation();
-            setFilter({ q: '' });
-          }
-        }}
-      />
-    </label>
+    <SearchField
+      value={q}
+      onChange={(v) => setFilter({ q: v })}
+      placeholder="Search by look, format or size"
+      autoFocus={autoFocus}
+      inputRef={inputRef}
+      onKeyDown={(e) => {
+        if (e.key === 'Escape' && q) {
+          e.stopPropagation();
+          setFilter({ q: '' });
+        }
+      }}
+    />
   );
 };
 
@@ -207,7 +177,7 @@ const NoMatch: React.FC = () => (
   </div>
 );
 
-export const ExportsSection: React.FC = () => {
+const ExportsList: React.FC = () => {
   const renders = useStudioStore((s) => s.renders);
   const reveal = useStudioStore((s) => s.reveal);
   const filter = useStudioStore((s) => s.exportFilter);
@@ -275,7 +245,8 @@ export const ExportsSection: React.FC = () => {
   );
 };
 
-const CHECK_IC: Record<string, string> = { pass: '✓', warn: '!', fail: '✕' };
+// Memoized so the media panel's frequent re-renders don't reach the list.
+export const ExportsSection = React.memo(ExportsList);
 
 const ExportViewer: React.FC<{ r: RenderRecord; index: number; count: number; onStep: (d: number) => void }> = ({
   r,
@@ -381,16 +352,13 @@ const ExportViewer: React.FC<{ r: RenderRecord; index: number; count: number; on
           <>
             <div className="lib-ph">Spec checks</div>
             <div className="checks">
-              {(r.checks || []).map((c, i) => {
-                const level = c.level || (c.pass ? 'pass' : 'fail');
-                return (
-                  <div className={`ck ${level}`} key={i}>
-                    <span className="ic">{CHECK_IC[level] || '✓'}</span>
-                    <b>{c.name}</b>
-                    <span>{c.detail || c.desc || ''}</span>
-                  </div>
-                );
-              })}
+              {(r.checks || []).map((c) => (
+                <div className={`ck ${c.level}`} key={c.id}>
+                  <span className="ic">{CHECK_ICONS[c.level]}</span>
+                  <b>{c.label}</b>
+                  <span>{c.detail || ''}</span>
+                </div>
+              ))}
             </div>
           </>
         )}

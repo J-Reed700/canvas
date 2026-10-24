@@ -1,9 +1,10 @@
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { useStudioStore } from '../store.ts';
-import { fetchJSON, songTitle, sourceLabel, toast } from '../utils.ts';
-import { timeAgo } from '../exportsView.ts';
-import type { TrackMeta } from '../../types.ts';
+import { useStudioStore } from '../state/store.ts';
+import { fetchJSON, postJSON, songTitle, sourceLabel, toast } from '../lib/utils.ts';
+import { timeAgo } from '../lib/exportsView.ts';
+import type { TrackMeta } from '../engine/types.ts';
+import { SearchField } from './ui.tsx';
 
 interface LibraryInfo {
   ok?: boolean;
@@ -22,13 +23,9 @@ const MAX_ROWS = 250;
 
 const homeShort = (p: string) => p.replace(/^\/Users\/[^/]+/, '~');
 
-// Keeps the server's error message, which fetchJSON drops on a 4xx/5xx.
-const postLibrary = (url: string, body: object): Promise<LibraryInfo> =>
-  fetch(url, { method: 'POST', body: JSON.stringify(body) })
-    .then((r) => r.json())
-    .catch((e) => ({ ok: false, error: String(e) }) as LibraryInfo);
 
-export const TrackPicker: React.FC<{ onAddSong: () => void }> = ({ onAddSong }) => {
+
+const TrackPickerMenu: React.FC<{ onAddSong: () => void }> = ({ onAddSong }) => {
   const trackId = useStudioStore((s) => s.trackId);
   const tracks = useStudioStore((s) => s.tracks);
   const selectTrack = useStudioStore((s) => s.selectTrack);
@@ -91,6 +88,7 @@ export const TrackPicker: React.FC<{ onAddSong: () => void }> = ({ onAddSong }) 
   }, [open]);
 
   const groups = useMemo(() => {
+    if (!open) return [];
     const words = q.toLowerCase().split(/\s+/).filter(Boolean);
     const match = (t: TrackMeta) => words.every((w) => `${t.name} ${t.dir || ''}`.toLowerCase().includes(w));
     const order = ['added', 'downloads', ...(lib?.folders || [])];
@@ -98,7 +96,7 @@ export const TrackPicker: React.FC<{ onAddSong: () => void }> = ({ onAddSong }) 
     return order
       .map((key) => ({ key, items: tracks.filter((t) => (t.source || 'downloads') === key && match(t)) }))
       .filter((g) => g.items.length || (lib?.folders || []).includes(g.key));
-  }, [tracks, q, lib]);
+  }, [open, tracks, q, lib]);
 
   const total = groups.reduce((n, g) => n + g.items.length, 0);
   let budget = MAX_ROWS;
@@ -121,7 +119,7 @@ export const TrackPicker: React.FC<{ onAddSong: () => void }> = ({ onAddSong }) 
 
   const folderAction = async (body: { add?: string; remove?: string }) => {
     setErr('');
-    const r = await postLibrary('/api/library/folders', body);
+    const r = await postJSON<LibraryInfo>('/api/library/folders', body);
     if (r.ok === false) {
       setErr(r.error || 'That folder could not be added');
       return;
@@ -139,7 +137,7 @@ export const TrackPicker: React.FC<{ onAddSong: () => void }> = ({ onAddSong }) 
     }
     setWaiting(true);
     setErr('');
-    const r = await postLibrary('/api/library/pick_folder', {});
+    const r = await postJSON<LibraryInfo>('/api/library/pick_folder', {});
     setWaiting(false);
     if (r.ok === false) {
       setTyping(true);
@@ -183,19 +181,14 @@ export const TrackPicker: React.FC<{ onAddSong: () => void }> = ({ onAddSong }) 
       {open &&
         createPortal(
           <div className="tp-panel" ref={panelRef} style={pos} role="dialog" aria-label="Pick a track">
-            <label className="exp-search tp-search">
-              <svg className="ico" viewBox="0 0 24 24" aria-hidden="true">
-                <path d="M10.5 3a7.5 7.5 0 0 1 5.9 12.1l4.3 4.3-1.4 1.4-4.3-4.3A7.5 7.5 0 1 1 10.5 3zm0 2a5.5 5.5 0 1 0 0 11 5.5 5.5 0 0 0 0-11z" />
-              </svg>
-              <input
-                type="search"
-                autoFocus
-                placeholder={`Search ${tracks.length} song${tracks.length === 1 ? '' : 's'}`}
-                value={q}
-                onChange={(e) => setQ(e.target.value)}
-                onKeyDown={onKey}
-              />
-            </label>
+            <SearchField
+              className="tp-search"
+              value={q}
+              onChange={setQ}
+              placeholder={`Search ${tracks.length} song${tracks.length === 1 ? '' : 's'}`}
+              autoFocus
+              onKeyDown={onKey}
+            />
 
             <div className="tp-list" ref={listRef} role="listbox">
               {!q && (
@@ -300,3 +293,6 @@ export const TrackPicker: React.FC<{ onAddSong: () => void }> = ({ onAddSong }) 
     </>
   );
 };
+
+// The media panel re-renders on every look edit; the picker only needs to when its props or the songs change.
+export const TrackPicker = React.memo(TrackPickerMenu);

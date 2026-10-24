@@ -274,7 +274,7 @@ Finished exports download to your browser's Downloads folder. A copy stays in `o
 A walkthrough of every panel and control is in [docs/STUDIO_GUIDE.md](docs/STUDIO_GUIDE.md). The short version:
 
 1. Add clips and a track with + Add clips, art or tracks, or drop files anywhere on the window. Drag clips to reorder them. Playback proxies (30 fps H.264 with frequent keyframes) build in the background so scrubbing stays smooth.
-2. Pick the loop. The track panel shows the tempo and suggested starting points such as Drop, Peak and Intro. Choose 1, 2, 4 or 8 bars, or drag the highlighted region along the waveform. If the tempo is wrong, use ½×, 2× or Tap, or type the BPM.
+2. Pick the loop. The track panel shows the tempo and suggested starting points such as Drop, Peak and Intro. Choose 1, 2, 4 or 8 bars, or drag the highlighted region along the waveform. For a visualizer, the Edit tab takes any number of bars, a time such as 2:30, or Whole song. If the tempo is wrong, use ½×, 2× or Tap, or type the BPM.
 3. Choose a look in the Looks tab. `D` rolls a new look and edit, `M` shows variations of the current look, and `R` picks a random preset. `Cmd+Z` undoes any change.
 4. Adjust it in the Layers tab: overall FX intensity, per-clip looks, and each effect layer. The dot next to a slider sets what moves it: an audio band, a tempo clock, LFO A or B, the step sequencer, your drawn envelope or a macro. You edit the LFOs, envelope, steps and macros in the Modulators card on the same tab. Camera covers zoom, drift, shake and clip speed. Finish covers the color grade, grain, vignette and cinema bars.
 5. Shape the edit in the Edit tab: cut rhythm, which transitions to use, clip direction and speed ramps. On the timeline, drag a cut to move it along the beat grid, `Alt`-drag a segment to use a different part of its clip, or double-click a segment to change just that one.
@@ -287,7 +287,7 @@ A walkthrough of every panel and control is in [docs/STUDIO_GUIDE.md](docs/STUDI
 | :--- | :--- | :--- | :--- |
 | `Space` | Play / pause | `E` | Export |
 | `Left` / `Right` | Previous / next look | `[` / `]` | Previous / next loop suggestion |
-| `M` | Look variations | `1`–`4` | Loop length (1, 2, 4, 8 bars) |
+| `M` | Look variations | `1`–`4` | Loop length presets (1, 2, 4, 8 bars) |
 | `D` | Roll a new look and edit | `Shift` `D` | Undo the last roll |
 | `Cmd+Z` / `Shift+Cmd+Z` | Undo / redo | `T` | Tap tempo |
 | `R` | Random look | `L` | Toggle Loop / Listener mode |
@@ -405,13 +405,15 @@ Spotify's [Canvas guidelines](https://support.spotify.com/us/artists/article/can
 
 A Spotify Canvas export can also make a 15 or 30 second promo: the loop repeated with the song playing underneath, for Reels, TikTok or Shorts.
 
+Loops longer than 8 seconds, up to the whole song, are for YouTube 16:9 and Social 1:1 exports. Spotify and Apple Music have length limits of their own, and the export sheet warns when a loop doesn't fit. Videos over a minute are encoded at 20 Mbps, and every export streams to disk as it renders.
+
 Batch export renders four random rolls of the current edit, or the current look on every track in your library.
 
 ### What each export is checked for
 
 After an export, ffprobe inspects the file and the studio lists the results:
 
-- Length: 3 to 8 s for a Canvas (promos are 15 or 30 s)
+- Length: 3 to 8 s for a Canvas and at most 35 s for Apple Music. YouTube and Social files can be any length
 - Aspect: 9:16, or 3:4 and 1:1 for Apple Music
 - Codec: H.264, yuv420p, constant 30 fps
 - Audio: none in Canvas and Apple Music files. Only promos and the `-audio` copy have sound
@@ -468,44 +470,53 @@ canvas/
 ├── run.sh · run · Makefile     # one-command launcher and shortcuts
 ├── pyproject.toml              # package metadata and the `downbeat` entry point
 ├── downbeat/
-│   ├── server.py               # local HTTP server: media, features, proxies, export API
-│   ├── state.py                # server state management, proxies, export sessions
-│   ├── features.py             # beat grid, downbeats, loop suggestions, 30 fps envelopes
-│   ├── framing.py              # subject auto-framing, K-Means release color palette, aspect crops
-│   ├── proxy.py                # background 30 fps short-GOP playback proxies
-│   ├── delivery.py             # Annex B remux, release formats, cover art, banners, GIF/WebP, spec checks
-│   ├── effects/                # modular CPU shaders (color, digital, geometry, motion, etc.)
-│   ├── studio/                 # the v4 WebGL2 GPU studio (TypeScript + React + Zustand + Vite)
-│   │   ├── index.html          #   root entry HTML
-│   │   ├── styles.css          #   studio styles
-│   │   ├── types.ts            #   shared TypeScript interfaces
-│   │   ├── engine.ts           #   WebGL2 HDR render graph
-│   │   ├── shaders.ts          #   GLSL: camera, finish, bloom, flash guard, transitions
-│   │   ├── modules.ts          #   the 49 GPU effects and their parameters
-│   │   ├── looks.ts            #   the 44 looks, mutation, random looks and chaos rolls
-│   │   ├── composer.ts         #   compose() and the video pool
-│   │   ├── timeline.ts         #   beat-grid cut planning and sampling
-│   │   ├── audio.ts            #   Web Audio transport and modulation sampler
-│   │   ├── exporter.ts         #   WebCodecs export and seam / flash stats
-│   │   └── src/                #   React + Zustand UI components & store
-│   │       ├── main.tsx        #     React root entry
-│   │       ├── App.tsx         #     Main studio layout & keyboard shortcuts
-│   │       ├── store.ts        #     Zustand state store, WebGL loop & export actions
-│   │       ├── utils.ts        #     UI constants, format definitions & helpers
-│   │       └── components/     #     TopBar, MediaPanel, StagePanel, TimelinePanel, InspectorPanel, LooksPane, LayersPane, EditPane, ModulatorsCard, Modals
-│   ├── audio.py · source.py · recipe.py · compositor.py · encoder.py
-│   └── cli.py                  # headless CLI engine
+│   ├── cli.py                  # command line: renders a canvas with the CPU engine
+│   ├── delivery.py             # export formats, Annex B remux, cover art, banners, GIF/WebP, spec checks
+│   ├── media/                  # source.py (probe, thumbnails, stills), proxy.py (30 fps playback proxies), encoder.py (ffmpeg)
+│   ├── analysis/               # audio.py (decoding, tempo, envelopes), features.py (beat grid, loop suggestions),
+│   │                           #   framing.py (subject auto-framing, color palettes)
+│   ├── render/                 # the command line's CPU renderer: compositor.py, recipe.py, effects/ (NumPy/OpenCV)
+│   ├── server/                 # the studio's backend
+│   │   ├── app.py              #   HTTP routes: media, features, proxies, the export API
+│   │   ├── state.py            #   clips, songs and exports, and export sessions
+│   │   └── library.py          #   song library: Downloads, added songs, your music folders
+│   └── studio/                 # the WebGL2 studio (TypeScript, React, Zustand, Vite)
+│       ├── index.html · styles.css
+│       └── src/
+│           ├── main.tsx · App.tsx   # React root, layout and keyboard shortcuts
+│           ├── engine/         # no React: WebGL2 render graph, GLSL, the GPU effects and looks, compose(),
+│           │                   #   cut planning, Web Audio transport, WebCodecs export
+│           ├── state/          # Zustand store, plus history, roll, export and media actions
+│           ├── canvas/         # per-frame drawing: the render loop, the timeline lane and overview
+│           ├── lib/            # helpers, export formats, export search and paging
+│           └── components/     # the panels, plus shared Slider, Card and SearchField (ui.tsx)
 └── tests/
-    ├── test_pipeline.py        # classic engine
-    ├── test_studio.py          # beat grid, loop lengths, remux, verifier, proxies
-    └── studio.test.mjs         # timeline, modulation, looks, flash counter (node --test)
+    ├── test_media.py           # probing, thumbnails, stills, encoding, playback proxies
+    ├── test_analysis.py        # tempo, beat grid, loop lengths, envelopes, subject framing, palettes
+    ├── test_delivery.py        # remux, spec checks, export sessions, Apple repeats, promos, companions
+    ├── test_render.py          # the CPU renderer: effects, presets, transitions, the cut plan
+    ├── test_state.py           # export names, rediscovered renders, removing clips and exports
+    ├── test_library.py         # which songs are listed, music folders, format conversion
+    ├── test_server.py          # every HTTP route, uploads, streamed exports, launch and relaunch
+    ├── test_cli.py             # command-line options and a small real render
+    ├── test_studio_js.py       # runs the Node suite below from unittest
+    ├── helpers.py              # shared fixtures: ffprobe, a temp folder with generated media
+    ├── studio.test.mjs         # timeline, modulation, looks, flash counter (node --test)
+    ├── studio_store.test.mjs   # loop lengths, per-clip looks, undo, rolls, uploads, clip actions
+    ├── studio_media.test.mjs   # audio transport, video bank, export streaming, timeline lane
+    ├── studio_export.test.mjs  # export sheet: format settings, progress, cancel, batches
+    ├── studio_render.test.mjs  # preview loop: redraws, readouts, meters, step grid, slider markers
+    ├── studio_utils.test.mjs   # helpers and the exports browser's search and sort
+    ├── fakes.mjs               # stand-ins for the DOM, <video>, canvas, fetch and WebCodecs
+    ├── components/             # React panels rendered with Testing Library and happy-dom (npx vitest run)
+    └── e2e/smoke.test.mjs      # real server + headless Chrome + one real export (make e2e)
 ```
 
 ### Development
 
 ```bash
 make test               # Python suite, plus the JS suite when Node is installed
-node --test tests/studio.test.mjs   # just the studio's JS tests (Node 22.18+ runs the .ts modules directly)
+node --test tests/*.test.mjs        # just the studio's JS tests (Node 22.18+ runs the .ts modules directly)
 npm run typecheck       # TypeScript check without building
 npm run dev             # Vite dev server with hot reload; start ./run.sh first, it proxies /api and /out to :8765
 npm run build           # production build into downbeat/studio/dist (./run.sh does this when sources change)
@@ -674,7 +685,7 @@ The NumPy and OpenCV engine has its own set of 18 presets, 52 shaders, 14 transi
 
 ---
 
-#### Shaders (`downbeat/effects/`)
+#### Shaders (`downbeat/render/effects/`)
 
 ##### Motion (8)
 | Effect | Name | Description |

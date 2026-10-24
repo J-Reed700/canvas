@@ -1,9 +1,8 @@
-import React, { useRef, useEffect } from 'react';
-import { useStudioStore, type LookJob } from '../store.ts';
-import { FORMATS, SIZES, fmt, siblingTracks, sourceLabel } from '../utils.ts';
-import { mutate } from '../../looks.ts';
-import { MODULES } from '../../modules.ts';
-import type { Look } from '../../types.ts';
+import React, { useRef, useEffect, useMemo } from 'react';
+import { useStudioStore, type LookJob } from '../state/store.ts';
+import { FORMATS, SIZES, fmt, fmtLength, siblingTracks, sourceLabel } from '../lib/utils.ts';
+import { mutate } from '../engine/looks.ts';
+import { MODULES } from '../engine/modules.ts';
 
 export const Modals: React.FC = () => {
   const varsContainerRef = useRef<HTMLDivElement>(null);
@@ -18,7 +17,6 @@ export const Modals: React.FC = () => {
   const ctx = useStudioStore((s) => s.ctx);
   const exportOpts = useStudioStore((s) => s.exportOpts);
   const features = useStudioStore((s) => s.features);
-  const bars = useStudioStore((s) => s.bars);
   const selected = useStudioStore((s) => s.selected);
   const tracks = useStudioStore((s) => s.tracks);
   const trackId = useStudioStore((s) => s.trackId);
@@ -31,34 +29,30 @@ export const Modals: React.FC = () => {
   const exportCompanion = useStudioStore((s) => s.exportCompanion);
   const save = useStudioStore((s) => s.save);
 
+  // Six mutations of the current look, shared by the live thumbnails and the click that applies one.
+  const variations = useMemo(
+    () => (varOpen && look ? Array.from({ length: 6 }, (_, k) => mutate(look, mutAmt, varSeed * 1000 + k * 7919)) : []),
+    [varOpen, look, mutAmt, varSeed],
+  );
+
   useEffect(() => {
-    if (!varOpen || !look || !varsContainerRef.current) return;
+    if (!variations.length || !varsContainerRef.current) return;
 
-    const container = varsContainerRef.current;
-    const cards = container.querySelectorAll('.look') as NodeListOf<HTMLElement>;
+    const cards = varsContainerRef.current.querySelectorAll<HTMLElement>('.look');
     const jobs: LookJob[] = [];
-
     cards.forEach((card, k) => {
-      const cv = card.querySelector('canvas') as HTMLCanvasElement | null;
-      if (cv) {
-        const l = mutate(look, mutAmt, varSeed * 1000 + k * 7919);
-        jobs.push({
-          id: `var:${k}`,
-          look: l,
-          card,
-          ctx2d: cv.getContext('2d'),
-          visible: true,
-        });
+      const cv = card.querySelector('canvas');
+      if (cv && variations[k]) {
+        jobs.push({ id: `var:${k}`, look: variations[k], card, ctx2d: cv.getContext('2d'), visible: true });
       }
     });
-
     useStudioStore.setState({ varJobs: jobs });
 
     return () => {
       jobs.forEach((j) => engine?.dropThumb?.(j.id));
       useStudioStore.setState({ varJobs: [] });
     };
-  }, [varOpen, mutAmt, varSeed, look, engine]);
+  }, [variations, engine]);
 
   const mutateAgain = () => {
     useStudioStore.setState((prev) => ({ varSeed: prev.varSeed + 1 }));
@@ -68,7 +62,7 @@ export const Modals: React.FC = () => {
     useStudioStore.setState({ varOpen: false, helpOpen: false, exportOpen: false });
   };
 
-  const batchTracks = siblingTracks(tracks, trackId);
+  const batchTracks = useMemo(() => siblingTracks(tracks, trackId), [tracks, trackId]);
   const batchCur = tracks.find((t) => t.id === trackId);
   const batchFolder = batchCur?.dir ? batchCur.dir.split('/').pop() : sourceLabel(batchCur?.source);
 
@@ -76,13 +70,21 @@ export const Modals: React.FC = () => {
   const isSpotify = currentFormat === 'spotify';
   const hasAudioSupport = currentFormat === 'spotify' || currentFormat === 'youtube_16_9' || currentFormat === 'social_square';
   const currentSizeKey = exportOpts.size || 'master';
-  const sizeArr = (FORMATS as any)[currentFormat]?.size || (SIZES as any)[currentSizeKey] || SIZES.master;
+  const sizeArr = FORMATS[currentFormat]?.size || SIZES[currentSizeKey] || SIZES.master;
   const [W, H] = sizeArr;
 
   const L = ctx?.L || 8;
   const frames = Math.round(L * 30);
   const minSeg = ctx?.tl?.segs?.length ? Math.min(...ctx.tl.segs.map((x) => x.dur)) : 1;
   const rapidCuts = ctx && ctx.tl.segs.length > 1 && (minSeg < 0.3 || ctx.tl.segs.length / L > 2.5);
+  const bars = Math.round((L * bpm) / 240);
+  // Formats with a length rule of their own; the rest take any length.
+  const lengthWarning =
+    isSpotify && (L < 3 - 1e-6 || L > 8 + 1e-6)
+      ? `This loop is ${fmtLength(L)}, and Spotify only takes a Canvas of 3 to 8 s, so the length check will fail. For a longer video choose YouTube 16:9 or Social 1:1, or set a shorter loop in the Edit tab.`
+      : (currentFormat === 'apple_tall' || currentFormat === 'apple_square') && L > 35 + 1e-6
+        ? `This loop is ${fmtLength(L)}, and Apple Music motion art can be at most 35 s, so the length check will fail.`
+        : null;
 
   const optCard = (on: boolean, title: string, sub: string, pick: () => void) => (
     <div className={`opt-card ${on ? 'on' : ''}`} onClick={pick} key={title}>
@@ -133,7 +135,7 @@ export const Modals: React.FC = () => {
           </div>
           <div className="vars" id="vars" ref={varsContainerRef}>
             {Array.from({ length: 6 }, (_, k) => {
-              const l = look ? mutate(look, mutAmt, varSeed * 1000 + k * 7919) : null;
+              const l = variations[k];
               return (
                 <div
                   className="look"
@@ -213,262 +215,268 @@ export const Modals: React.FC = () => {
       </div>
 
       <div className={`sheet ${exportOpen ? 'on' : ''}`} id="exportSheet">
-        <div className="row" style={{ justifyContent: 'space-between' }}>
-          <h2>Export</h2>
-          <button className="btn icon" onClick={() => useStudioStore.setState({ exportOpen: false })}>
-            ✕
-          </button>
-        </div>
-
-        <div className="seg fmt-seg">
-          {Object.entries(FORMATS).map(([k, f]) => (
-            <button
-              key={k}
-              className={currentFormat === k ? 'on' : ''}
-              title={f.sub}
-              onClick={() => {
-                useStudioStore.setState({ exportOpts: { ...exportOpts, format: k } });
-                save();
-              }}
-            >
-              {f.short}
+        <div id="exportForm">
+          <div className="row" style={{ justifyContent: 'space-between' }}>
+            <h2>Export</h2>
+            <button className="btn icon" onClick={() => useStudioStore.setState({ exportOpen: false })}>
+              ✕
             </button>
-          ))}
-        </div>
+          </div>
 
-        <div className="note">
-          {(() => {
-            switch (currentFormat) {
-              case 'spotify':
-                return 'Every frame is rendered on the GPU, frame-exact, encoded to H.264 in hardware and verified against the Spotify Canvas spec.';
-              case 'apple_tall':
-              case 'apple_square':
-                return "Apple Music motion artwork: the same edit re-framed for Apple's aspect ratio, silent, looping and repeated to at least 15 s. Square art is rendered at 2048 px, then upscaled to Apple's 3840 × 3840.";
-              case 'youtube_16_9':
-                return 'YouTube visualizer: 1920 × 1080 landscape video muxed with high-fidelity song audio, ready for YouTube uploads.';
-              case 'social_square':
-                return 'Social feed loop: 1080 × 1080 square format for Instagram, Twitter/X, and Facebook feeds, with optional synced song audio.';
-              case 'cover_art':
-                return 'Album cover art: 3000 × 3000 sRGB cover JPEG suitable for digital distributors (DistroKid, TuneCore, etc.) plus a 1:1 motion preview.';
-              default:
-                return (FORMATS as any)[currentFormat]?.sub || 'Rendered on the GPU, frame-exact and encoded in hardware.';
-            }
-          })()}
-        </div>
-
-        {isSpotify && (
-          <>
-            {optCard(
-              currentSizeKey === 'master',
-              '1080 × 1920 · Master',
-              'The widely used Canvas size, sharpest on modern phones',
-              () => {
-                useStudioStore.setState({ exportOpts: { ...exportOpts, size: 'master' } });
-                save();
-              },
-            )}
-            {optCard(
-              currentSizeKey === 'lite',
-              '720 × 1280 · Lite',
-              'Smaller file, still crisp on most phones',
-              () => {
-                useStudioStore.setState({ exportOpts: { ...exportOpts, size: 'lite' } });
-                save();
-              },
-            )}
-            {optCard(
-              currentSizeKey === 'strict',
-              '608 × 1080 · Spec-literal',
-              'Matches the 720 to 1080 px height Spotify lists. Use it if an upload is rejected',
-              () => {
-                useStudioStore.setState({ exportOpts: { ...exportOpts, size: 'strict' } });
-                save();
-              },
-            )}
-          </>
-        )}
-
-        {hasAudioSupport && features && (
-          <>
-            <label className="check">
-              <input
-                type="checkbox"
-                checked={exportOpts.audio !== false}
-                onChange={(e) => {
-                  useStudioStore.setState({ exportOpts: { ...exportOpts, audio: e.target.checked } });
+          <div className="seg fmt-seg">
+            {Object.entries(FORMATS).map(([k, f]) => (
+              <button
+                key={k}
+                className={currentFormat === k ? 'on' : ''}
+                title={f.sub}
+                onClick={() => {
+                  useStudioStore.setState({ exportOpts: { ...exportOpts, format: k } });
                   save();
                 }}
-              />
-              Also save a copy with the audio slice
-            </label>
+              >
+                {f.short}
+              </button>
+            ))}
+          </div>
 
-            <div className="field" style={{ margin: '8px 0 0' }}>
-              <label>Promo copy with the song · Reels / TikTok / Spotify countdown</label>
-              <div className="seg">
-                {[
-                  [0, 'Off'],
-                  [15, '15 s'],
-                  [30, '30 s'],
-                ].map(([v, l]) => (
-                  <button
-                    key={v}
-                    className={exportOpts.promo === v ? 'on' : ''}
-                    onClick={() => {
-                      useStudioStore.setState({ exportOpts: { ...exportOpts, promo: v as number } });
-                      save();
-                    }}
-                  >
-                    {l}
-                  </button>
-                ))}
+          <div className="note">
+            {(() => {
+              switch (currentFormat) {
+                case 'spotify':
+                  return 'Every frame is rendered on the GPU, frame-exact, encoded to H.264 in hardware and verified against the Spotify Canvas spec.';
+                case 'apple_tall':
+                case 'apple_square':
+                  return "Apple Music motion artwork: the same edit re-framed for Apple's aspect ratio, silent, looping and repeated to at least 15 s. Square art is rendered at 2048 px, then upscaled to Apple's 3840 × 3840.";
+                case 'youtube_16_9':
+                  return 'YouTube visualizer: 1920 × 1080 landscape video with the song as its audio, as long as the loop you set in the Edit tab.';
+                case 'social_square':
+                  return 'Social feed loop: 1080 × 1080 square format for Instagram, Twitter/X, and Facebook feeds, with optional synced song audio.';
+                case 'cover_art':
+                  return 'Album cover art: a 3000 × 3000 sRGB JPEG for distributors such as DistroKid and TuneCore, plus a 1:1 motion preview.';
+                default:
+                  return FORMATS[currentFormat]?.sub || 'Rendered on the GPU, frame-exact and encoded in hardware.';
+              }
+            })()}
+          </div>
+
+          {lengthWarning && <div className="warn-note">{lengthWarning}</div>}
+
+          {isSpotify && (
+            <>
+              {optCard(
+                currentSizeKey === 'master',
+                '1080 × 1920 · Master',
+                'The widely used Canvas size, sharpest on modern phones',
+                () => {
+                  useStudioStore.setState({ exportOpts: { ...exportOpts, size: 'master' } });
+                  save();
+                },
+              )}
+              {optCard(
+                currentSizeKey === 'lite',
+                '720 × 1280 · Lite',
+                'Smaller file, still crisp on most phones',
+                () => {
+                  useStudioStore.setState({ exportOpts: { ...exportOpts, size: 'lite' } });
+                  save();
+                },
+              )}
+              {optCard(
+                currentSizeKey === 'strict',
+                '608 × 1080 · Spec-literal',
+                'Matches the 720 to 1080 px height Spotify lists. Use it if an upload is rejected',
+                () => {
+                  useStudioStore.setState({ exportOpts: { ...exportOpts, size: 'strict' } });
+                  save();
+                },
+              )}
+            </>
+          )}
+
+          {hasAudioSupport && features && (
+            <>
+              <label className="check">
+                <input
+                  type="checkbox"
+                  checked={exportOpts.audio !== false}
+                  onChange={(e) => {
+                    useStudioStore.setState({ exportOpts: { ...exportOpts, audio: e.target.checked } });
+                    save();
+                  }}
+                />
+                {L > 8 + 1e-6 ? 'Also save a copy with the song' : 'Also save a copy with the audio slice'}
+              </label>
+
+              <div className="field" style={{ margin: '8px 0 0' }}>
+                <label>Promo copy with the song · Reels / TikTok / Spotify countdown</label>
+                <div className="seg">
+                  {[
+                    [0, 'Off'],
+                    [15, '15 s'],
+                    [30, '30 s'],
+                  ].map(([v, l]) => (
+                    <button
+                      key={v}
+                      className={exportOpts.promo === v ? 'on' : ''}
+                      onClick={() => {
+                        useStudioStore.setState({ exportOpts: { ...exportOpts, promo: v as number } });
+                        save();
+                      }}
+                    >
+                      {l}
+                    </button>
+                  ))}
+                </div>
               </div>
+            </>
+          )}
+
+          <label className="check">
+            <input
+              type="checkbox"
+              checked={exportOpts.autoSave !== false}
+              onChange={(e) => {
+                useStudioStore.setState({ exportOpts: { ...exportOpts, autoSave: e.target.checked } });
+                save();
+              }}
+            />
+            Save to my Downloads folder when it's done
+          </label>
+
+          {rapidCuts && isSpotify && (
+            <div className="warn-note">
+              <b>⚠ Rapid cuts. </b>
+              The shortest segment is {minSeg.toFixed(2)} s. Spotify asks Canvases to avoid rapid video cuts. Try a slower rhythm (½ bar or Bar) in Edit.
             </div>
-          </>
-        )}
+          )}
 
-        <label className="check">
-          <input
-            type="checkbox"
-            checked={exportOpts.autoSave !== false}
-            onChange={(e) => {
-              useStudioStore.setState({ exportOpts: { ...exportOpts, autoSave: e.target.checked } });
-              save();
-            }}
-          />
-          Save to my Downloads folder when it's done
-        </label>
-
-        {rapidCuts && (
-          <div className="warn-note">
-            <b>⚠ Rapid cuts. </b>
-            The shortest segment is {minSeg.toFixed(2)} s. Spotify asks Canvases to avoid rapid video cuts. Try a slower rhythm (½ bar or Bar) in Edit.
+          <div className="summary">
+            <span>Look</span>
+            <b>{look?.name}</b>
+            <span>Size</span>
+            <b>
+              {currentFormat === 'apple_square'
+                ? '3840 × 3840 (rendered at 2048)'
+                : `${W} × ${H} · ${FORMATS[currentFormat]?.name}`}
+            </b>
+            <span>Length</span>
+            <b>
+              {L < 60 ? `${L.toFixed(3)} s` : fmtLength(L)} · {frames} frames @ 30 fps
+            </b>
+            <span>Tempo</span>
+            <b>
+              {bpm.toFixed(2)} BPM · {bars || '-'} bars
+            </b>
+            <span>Edit</span>
+            <b>
+              {ctx?.tl.segs.length || 0} cuts · {selected.length} clips
+            </b>
+            <span>Audio</span>
+            <b>
+              {features ? `${fmt(audioStart)} → ${fmt(audioStart + L)}` : 'none (silent canvas)'}
+            </b>
           </div>
-        )}
 
-        <div className="summary">
-          <span>Look</span>
-          <b>{look?.name}</b>
-          <span>Size</span>
-          <b>
-            {currentFormat === 'apple_square'
-              ? '3840 × 3840 (rendered at 2048)'
-              : `${W} × ${H} · ${FORMATS[currentFormat]?.name}`}
-          </b>
-          <span>Length</span>
-          <b>
-            {L.toFixed(3)} s · {frames} frames @ 30 fps
-          </b>
-          <span>Tempo</span>
-          <b>
-            {bpm.toFixed(2)} BPM · {bars || '-'} bars
-          </b>
-          <span>Edit</span>
-          <b>
-            {ctx?.tl.segs.length || 0} cuts · {selected.length} clips
-          </b>
-          <span>Audio</span>
-          <b>
-            {features ? `${fmt(audioStart)} → ${fmt(audioStart + L)}` : 'none (silent canvas)'}
-          </b>
-        </div>
-
-        <div className="actions">
-          <button
-            className="btn primary"
-            onClick={() => {
-              runExport();
-            }}
-          >
-            Render & verify
-          </button>
-          <button className="btn" onClick={() => useStudioStore.setState({ exportOpen: false })}>
-            Cancel
-          </button>
-        </div>
-
-        <div className="batch">
-          <div className="ph">Stills and teasers</div>
-          <div className="row" style={{ gap: '6px', flexWrap: 'wrap' }}>
+          <div className="actions">
             <button
-              className="btn sm"
-              disabled={!selected.length}
-              title="Export 3000 × 3000 release cover art from current clip"
-              onClick={() => exportCompanion({ clip_id: selected[0], kind: 'cover' })}
-            >
-              Cover 3000×3000
-            </button>
-            <button
-              className="btn sm"
-              disabled={!selected.length}
-              title="Export 2660 × 1140 Spotify artist header banner"
-              onClick={() => exportCompanion({ clip_id: selected[0], kind: 'spotify_header' })}
-            >
-              Spotify Header 2660×1140
-            </button>
-            <button
-              className="btn sm"
-              disabled={!selected.length}
-              title="Export 2560 × 1440 YouTube channel banner"
-              onClick={() => exportCompanion({ clip_id: selected[0], kind: 'youtube_banner' })}
-            >
-              YouTube Banner 2560×1440
-            </button>
-            <button
-              className="btn sm"
-              disabled={!selected.length}
-              title="Export 2480 × 520 SoundCloud profile banner"
-              onClick={() => exportCompanion({ clip_id: selected[0], kind: 'soundcloud_header' })}
-            >
-              SoundCloud Header 2480×520
-            </button>
-            {renders.length > 0 && (
-              <>
-                <button
-                  className="btn sm"
-                  title="Export animated GIF teaser from latest render"
-                  onClick={() => exportCompanion({ filename: renders[0].filename, kind: 'gif' })}
-                >
-                  GIF Loop
-                </button>
-                <button
-                  className="btn sm"
-                  title="Export animated WebP teaser from latest render"
-                  onClick={() => exportCompanion({ filename: renders[0].filename, kind: 'webp' })}
-                >
-                  WebP Loop
-                </button>
-              </>
-            )}
-          </div>
-        </div>
-
-        <div className="batch">
-          <div className="ph">Batch</div>
-          <div className="row" style={{ gap: '6px', flexWrap: 'wrap' }}>
-            <button
-              className="btn sm"
-              title="Roll 4 times and export each roll; studio returns to this edit afterwards"
+              className="btn primary"
               onClick={() => {
-                useStudioStore.setState({ exportOpen: false });
-                runBatch('rolls');
+                runExport();
               }}
             >
-              🎲 Export 4 rolls
+              Render & verify
             </button>
-            {batchTracks.length > 1 && (
+            <button className="btn" onClick={() => useStudioStore.setState({ exportOpen: false })}>
+              Cancel
+            </button>
+          </div>
+
+          <div className="batch">
+            <div className="ph">Stills and teasers</div>
+            <div className="row" style={{ gap: '6px', flexWrap: 'wrap' }}>
               <button
                 className="btn sm"
-                title={`This look and edit on the ${batchTracks.length} newest songs in the same folder as this one, each at its top loop suggestion, so a release shares one theme`}
+                disabled={!selected.length}
+                title="Export 3000 × 3000 release cover art from current clip"
+                onClick={() => exportCompanion({ clip_id: selected[0], kind: 'cover' })}
+              >
+                Cover 3000×3000
+              </button>
+              <button
+                className="btn sm"
+                disabled={!selected.length}
+                title="Export 2660 × 1140 Spotify artist header banner"
+                onClick={() => exportCompanion({ clip_id: selected[0], kind: 'spotify_header' })}
+              >
+                Spotify Header 2660×1140
+              </button>
+              <button
+                className="btn sm"
+                disabled={!selected.length}
+                title="Export 2560 × 1440 YouTube channel banner"
+                onClick={() => exportCompanion({ clip_id: selected[0], kind: 'youtube_banner' })}
+              >
+                YouTube Banner 2560×1440
+              </button>
+              <button
+                className="btn sm"
+                disabled={!selected.length}
+                title="Export 2480 × 520 SoundCloud profile banner"
+                onClick={() => exportCompanion({ clip_id: selected[0], kind: 'soundcloud_header' })}
+              >
+                SoundCloud Header 2480×520
+              </button>
+              {renders.length > 0 && (
+                <>
+                  <button
+                    className="btn sm"
+                    title="Export animated GIF teaser from latest render"
+                    onClick={() => exportCompanion({ filename: renders[0].filename, kind: 'gif' })}
+                  >
+                    GIF Loop
+                  </button>
+                  <button
+                    className="btn sm"
+                    title="Export animated WebP teaser from latest render"
+                    onClick={() => exportCompanion({ filename: renders[0].filename, kind: 'webp' })}
+                  >
+                    WebP Loop
+                  </button>
+                </>
+              )}
+            </div>
+          </div>
+
+          <div className="batch">
+            <div className="ph">Batch</div>
+            <div className="row" style={{ gap: '6px', flexWrap: 'wrap' }}>
+              <button
+                className="btn sm"
+                title="Roll 4 times and export each roll; studio returns to this edit afterwards"
                 onClick={() => {
                   useStudioStore.setState({ exportOpen: false });
-                  runBatch('tracks');
+                  runBatch('rolls');
                 }}
               >
-                This look on {batchTracks.length} songs in {batchFolder}
+                🎲 Export 4 rolls
               </button>
-            )}
+              {batchTracks.length > 1 && (
+                <button
+                  className="btn sm"
+                  title={`This look and edit on the ${batchTracks.length} newest songs in the same folder as this one, each at its top loop suggestion, so a release shares one theme`}
+                  onClick={() => {
+                    useStudioStore.setState({ exportOpen: false });
+                    runBatch('tracks');
+                  }}
+                >
+                  This look on {batchTracks.length} songs in {batchFolder}
+                </button>
+              )}
+            </div>
           </div>
         </div>
+        {/* Progress and results are drawn here by exportController. React never renders into it. */}
+        <div id="exportStatus" />
       </div>
 
       <div className="pop" id="pop" />

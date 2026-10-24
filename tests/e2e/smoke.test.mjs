@@ -1,0 +1,269 @@
+// End-to-end smoke test: the real server, the built studio in headless Chrome (WebGL and all), clicks
+// on the controls people use most, and one real export checked by the server.
+//
+// Run it with `make e2e` or `node --test tests/e2e/`. It needs Chrome or Chromium, ffmpeg and the
+// built studio (downbeat/studio/dist); it skips itself when one is missing. Everything happens in a
+// temporary folder that stands in for your home directory and out/, so your files are never touched.
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { spawn, spawnSync } from 'node:child_process';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { createServer } from 'node:net';
+import { tmpdir } from 'node:os';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const which = (name) => {
+  const r = spawnSync('which', [name], { encoding: 'utf8' });
+  return r.status === 0 ? r.stdout.trim() : null;
+};
+
+function findChrome() {
+  const paths = [
+    process.env.CHROME_PATH,
+    '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
+    '/Applications/Chromium.app/Contents/MacOS/Chromium',
+  ];
+  for (const p of paths) if (p && existsSync(p)) return p;
+  for (const name of ['google-chrome', 'google-chrome-stable', 'chromium', 'chromium-browser']) {
+    const p = which(name);
+    if (p) return p;
+  }
+  return null;
+}
+
+const chromePath = findChrome();
+const python = existsSync(join(ROOT, '.venv/bin/python')) ? join(ROOT, '.venv/bin/python') : 'python3';
+const missing = [
+  !chromePath && 'Chrome or Chromium (set CHROME_PATH)',
+  !which('ffmpeg') && 'ffmpeg',
+  !existsSync(join(ROOT, 'downbeat/studio/dist/index.html')) && 'the built studio (npm run build)',
+].filter(Boolean);
+
+const freePort = () =>
+  new Promise((res) => {
+    const s = createServer();
+    s.listen(0, '127.0.0.1', () => {
+      const { port } = s.address();
+      s.close(() => res(port));
+    });
+  });
+
+/** 16-bit stereo WAV of kick-like thumps on every beat. */
+function writeSong(path, seconds, bpm) {
+  const rate = 22050;
+  const n = Math.round(rate * seconds);
+  const pcm = new Int16Array(n * 2);
+  for (let t = 0.1; t < seconds - 0.2; t += 60 / bpm) {
+    const i0 = Math.round(t * rate);
+    for (let k = 0; k < rate * 0.1 && i0 + k < n; k++) {
+      const v = Math.sin((2 * Math.PI * 60 * k) / rate) * Math.exp(-k / (rate * 0.03)) * 28000;
+      pcm[(i0 + k) * 2] = pcm[(i0 + k) * 2 + 1] = v;
+    }
+  }
+  const head = Buffer.alloc(44);
+  head.write('RIFF', 0); head.writeUInt32LE(36 + pcm.byteLength, 4); head.write('WAVE', 8);
+  head.write('fmt ', 12); head.writeUInt32LE(16, 16); head.writeUInt16LE(1, 20); head.writeUInt16LE(2, 22);
+  head.writeUInt32LE(rate, 24); head.writeUInt32LE(rate * 4, 28); head.writeUInt16LE(4, 32); head.writeUInt16LE(16, 34);
+  head.write('data', 36); head.writeUInt32LE(pcm.byteLength, 40);
+  writeFileSync(path, Buffer.concat([head, Buffer.from(pcm.buffer)]));
+}
+
+function makeClip(path, source, size) {
+  const r = spawnSync('ffmpeg', ['-v', 'error', '-y', '-f', 'lavfi', '-i', `${source}=size=${size}:rate=30`, '-t', '4',
+    '-c:v', 'libx264', '-preset', 'ultrafast', '-pix_fmt', 'yuv420p', path]);
+  assert.equal(r.status, 0, String(r.stderr));
+}
+
+// Minimal Chrome DevTools Protocol client.
+async function openBrowser(userDir) {
+  const args = ['--headless=new', '--remote-debugging-port=0', `--user-data-dir=${userDir}`, '--no-first-run',
+    '--no-default-browser-check', '--autoplay-policy=no-user-gesture-required', '--mute-audio', '--window-size=1600,1000'];
+  if (process.platform === 'darwin') args.push('--use-angle=metal');
+  else args.push('--use-angle=swiftshader', '--enable-unsafe-swiftshader');
+  if (process.getuid?.() === 0) args.push('--no-sandbox');
+  const proc = spawn(chromePath, [...args, 'about:blank'], { stdio: 'ignore' });
+  const portFile = join(userDir, 'DevToolsActivePort');
+  for (let i = 0; i < 100 && !existsSync(portFile); i++) await sleep(100);
+  const port = readFileSync(portFile, 'utf8').split('\n')[0];
+  let page;
+  for (let i = 0; i < 50 && !page; i++) {
+    page = (await (await fetch(`http://127.0.0.1:${port}/json`)).json()).find((t) => t.type === 'page');
+    if (!page) await sleep(100);
+  }
+  const ws = new WebSocket(page.webSocketDebuggerUrl);
+  await new Promise((r, j) => { ws.onopen = r; ws.onerror = j; });
+  let id = 0;
+  const pending = new Map();
+  const problems = [];
+  ws.onmessage = (ev) => {
+    const m = JSON.parse(ev.data);
+    if (m.id && pending.has(m.id)) { pending.get(m.id)(m); pending.delete(m.id); }
+    if (m.method === 'Runtime.exceptionThrown') problems.push(`exception: ${m.params.exceptionDetails?.exception?.description || m.params.exceptionDetails?.text}`);
+    if (m.method === 'Runtime.consoleAPICalled' && m.params.type === 'error') problems.push(`console.error: ${m.params.args.map((a) => a.value ?? a.description).join(' ')}`);
+  };
+  const send = (method, params = {}) => new Promise((r) => { const i = ++id; pending.set(i, r); ws.send(JSON.stringify({ id: i, method, params })); });
+  await send('Page.enable');
+  await send('Runtime.enable');
+  /** Runs an async function body in the page and returns its JSON result; page errors become test failures. */
+  const run = async (body) => {
+    const r = await send('Runtime.evaluate', { expression: `(async () => { ${body} })()`, awaitPromise: true, returnByValue: true });
+    if (r.result?.exceptionDetails) throw new Error(r.result.exceptionDetails.exception?.description || r.result.exceptionDetails.text);
+    return r.result?.result?.value;
+  };
+  return { proc, ws, send, run, problems };
+}
+
+// Helpers defined in the page before each step.
+const PAGE = `
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  const $ = (s) => document.querySelector(s);
+  const $$ = (s) => [...document.querySelectorAll(s)];
+  const S = { getState: () => window.__studio.store.getState() };
+  const until = async (fn, ms = 20000, what = 'a condition') => {
+    const t0 = performance.now();
+    for (;;) { const v = fn(); if (v) return v; if (performance.now() - t0 > ms) throw new Error('timed out waiting for ' + what); await sleep(100); }
+  };
+  const byText = (sel, text) => $$(sel).find((e) => e.textContent.trim() === text);
+  const card = (title) => $$('.card').find((c) => c.querySelector('.ct')?.firstChild?.textContent === title);
+  const setRange = (input, v) => {
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(input, String(v));
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+  };
+  const key = (k) => window.dispatchEvent(new KeyboardEvent('keydown', { key: k, bubbles: true }));
+  // A person's clicks are separate events, so React redraws between them; give it that chance.
+  const tap = async (el) => { el.click(); await sleep(0); };
+`;
+
+test('the studio works end to end in a real browser', { skip: missing.length ? `needs ${missing.join(', ')}` : false, timeout: 240_000 }, async (t) => {
+  const tmp = mkdtempSync(join(tmpdir(), 'downbeat-e2e-'));
+  const home = join(tmp, 'home');
+  const out = join(tmp, 'out');
+  mkdirSync(join(home, 'Downloads'), { recursive: true });
+  mkdirSync(out);
+  makeClip(join(home, 'Downloads', '1 bars.mp4'), 'testsrc2', '360x640');
+  makeClip(join(home, 'Downloads', '2 swirl.mp4'), 'mandelbrot', '640x360');
+  writeSong(join(home, 'Downloads', 'Test Song.wav'), 24, 120);
+
+  // The real server, pointed at the temporary out/ folder.
+  const port = await freePort();
+  const launcher = [
+    'import sys',
+    'from downbeat.server import state, app',
+    'state.OUT_DIR = app.OUT_DIR = sys.argv[1]',
+    'state.STATE = app.STATE = state.StudioState()',
+    'app.serve_studio(port=int(sys.argv[2]), open_browser=False)',
+  ].join('\n');
+  const server = spawn(python, ['-c', launcher, out, String(port)], { cwd: ROOT, env: { ...process.env, HOME: home }, stdio: ['ignore', 'ignore', 'pipe'] });
+  let serverErr = '';
+  server.stderr.on('data', (d) => { serverErr += d; });
+  const browser = await openBrowser(join(tmp, 'chrome'));
+  t.after(async () => {
+    browser.ws.close();
+    browser.proc.kill();
+    server.kill();
+    await sleep(300);
+    rmSync(tmp, { recursive: true, force: true });
+  });
+  for (let i = 0; ; i++) {
+    try { if ((await fetch(`http://127.0.0.1:${port}/api/status`)).ok) break; } catch {}
+    assert.ok(i < 150, `the server did not start: ${serverErr.slice(-1500)}`);
+    await sleep(200);
+  }
+
+  await browser.send('Page.navigate', { url: `http://127.0.0.1:${port}/` });
+  // Steps run in order on one page; after a failure the rest are skipped rather than failing for the same reason.
+  let broken = null;
+  const step = (name, body) =>
+    t.test(name, { skip: broken ? `an earlier step failed: ${broken}` : false }, async () => {
+      try {
+        await browser.run(PAGE + body);
+      } catch (e) {
+        broken = name;
+        const files = readdirSync(out).filter((f) => !f.startsWith('.')).map((f) => `${f} (${statSync(join(out, f)).size} B)`);
+        throw new Error(`${e.message}\nout/: ${files.join(', ') || 'empty'}\nserver: ${serverErr.slice(-800)}`);
+      }
+    });
+
+  await step('loads the clips and the song, with every clip ready to play', `
+    await until(() => window.__studio?.ctx, 30000, 'the studio to start');
+    await until(() => S.getState().features && !S.getState().trackStateText, 30000, 'the song analysis');
+    await until(() => S.getState().clips.length === 2 && S.getState().clips.every((c) => c.proxy === 'ready'), 90000, 'playback proxies');
+    if (!$('#trackSelect').textContent.includes('Test Song')) throw new Error('song not picked: ' + $('#trackSelect').textContent);
+    if (Math.abs(S.getState().bpm() - 120) > 1) throw new Error('tempo ' + S.getState().bpm());
+  `);
+
+  await step('Layers: the step grid, a layer switch, Add effect, a macro and the palette respond', `
+    byText('#tabs button', 'Layers ' + $('#layerCount').textContent).click();
+    await until(() => $('#pane-layers'), 5000, 'the Layers tab');
+    const n = S.getState().look.layers.length;
+    const cell = $$('.seqgrid button')[5];
+    const was = cell.className;
+    await tap(cell);
+    await until(() => $$('.seqgrid button')[5].className !== was, 2000, 'the step to light');
+    const firstCard = $$('.card').find((c) => c.querySelector('.sw'));
+    await tap(firstCard.querySelector('.sw'));
+    await until(() => firstCard.className.includes('off'), 2000, 'the layer switch');
+    await tap(byText('.layer-tools button', '+ Add effect'));
+    await tap($$('#pop button').find((b) => b.textContent.startsWith('Feedback Trails')));
+    await until(() => card('Feedback Trails') && $('#layerCount').textContent === String(n + 1), 2000, 'the new layer card');
+    const macro = $$('.prm').find((r) => r.querySelector('label')?.textContent === 'Macro A');
+    setRange(macro.querySelector('input'), 0.7);
+    await until(() => macro.querySelector('output').textContent === '70%', 2000, 'the macro slider');
+    await until(() => $('.pal-row'), 20000, 'the clip palette');
+    await tap($('.pal-row'));
+    await until(() => $('.pal-row').className.includes('on'), 2000, 'the palette tint');
+  `);
+
+  await step('Edit and transport: a 2-bar loop, play and pause, and the readouts move', `
+    byText('#tabs button', 'Edit').click();
+    await until(() => $('#pane-edit'), 5000, 'the Edit tab');
+    byText('#pane-edit .seg button', '2 bars').click();
+    await until(() => S.getState().bars === 2 && Math.abs(S.getState().ctx.L - 2 * S.getState().barDur()) < 1e-6, 2000, 'the 2-bar loop');
+    key(' ');
+    await until(() => S.getState().transport.playing, 2000, 'playback');
+    const t0 = $('#timeNow').textContent;
+    await until(() => $('#timeNow').textContent !== t0, 5000, 'the time readout');
+    key(' ');
+    await until(() => !S.getState().transport.playing, 2000, 'pause');
+    await until(() => /^\\d+ fps$/.test($('#fps').textContent), 2000, 'the frame rate readout');
+  `);
+
+  await step('exports a Spotify Canvas that passes every check', `
+    key('e');
+    await until(() => S.getState().exportOpen, 2000, 'the export sheet');
+    await tap(byText('.fmt-seg button', 'Spotify 9:16'));
+    await tap($$('.opt-card').find((c) => c.textContent.includes('720 × 1280')));
+    const auto = $$('#exportForm label.check').find((l) => l.textContent.includes('Downloads folder')).querySelector('input');
+    if (auto.checked) await tap(auto);
+    await tap(byText('#exportForm button', 'Render & verify'));
+    try {
+      await until(() => /^(Ready for Spotify|Exported, but some checks failed|Export failed|Export cancelled)$/.test($('#exportStatus h2')?.textContent || ''), 120000, 'the export');
+    } catch (e) {
+      const videos = $$('#videoBank video').map((v) => v.src.split('/api/proxy/')[1] + ' ready=' + v.readyState + ' net=' + v.networkState + ' err=' + (v.error?.code ?? '-') + ' t=' + v.currentTime.toFixed(2) + (v.seeking ? ' seeking' : '') + (v.paused ? '' : ' playing'));
+      throw new Error(e.message + ': ' + ($('#exportStatus')?.textContent || 'no status') + ' | videos: ' + videos.join('; '));
+    }
+    const h2 = $('#exportStatus h2').textContent;
+    const r = S.getState().renders[0];
+    const fails = (r?.checks || []).filter((c) => c.level === 'fail').map((c) => c.label + ': ' + c.detail);
+    if (h2 !== 'Ready for Spotify') throw new Error(h2 + ' ' + ($('#exportStatus .note')?.textContent || '') + ' ' + fails.join('; '));
+    if (r.resolution !== '720x1280') throw new Error('size ' + r.resolution);
+    if (!(r.stats.mean_luminance > 0.02)) throw new Error('the render is black: ' + JSON.stringify(r.stats));
+    window.__render = r.filename;
+  `);
+
+  await t.test('the export landed in out/ at the right length', { skip: broken ? 'no export' : false }, async () => {
+    const name = await browser.run('return window.__render;');
+    const file = join(out, name);
+    assert.ok(existsSync(file), file);
+    const probe = spawnSync('ffprobe', ['-v', 'error', '-show_entries', 'stream=width,height,nb_frames', '-of', 'json', file], { encoding: 'utf8' });
+    const [s] = JSON.parse(probe.stdout).streams;
+    assert.deepEqual([s.width, s.height, +s.nb_frames], [720, 1280, 120]);
+  });
+
+  await t.test('no errors in the page', () => {
+    assert.deepEqual(browser.problems, []);
+  });
+});

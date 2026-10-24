@@ -1,9 +1,17 @@
-import React, { useRef, useEffect } from 'react';
-import { useStudioStore } from '../store.ts';
-import { fmt, openPop, closePop, h } from '../utils.ts';
-import { clamp } from '../../looks.ts';
-import { RHYTHMS, VELOCITY } from '../../timeline.ts';
-import { TRANSITIONS } from '../../shaders.ts';
+import React, { useRef, useEffect, useLayoutEffect } from 'react';
+import { useStudioStore } from '../state/store.ts';
+import { fmt, openPop, closePop, h } from '../lib/utils.ts';
+import { clamp } from '../engine/looks.ts';
+import { RHYTHMS, VELOCITY } from '../engine/timeline.ts';
+import { TRANSITIONS } from '../engine/shaders.ts';
+import type { SegmentOverride } from '../engine/types.ts';
+
+/** Merge a change into one segment's overrides: its clip, in-point, speed ramp or transition. */
+function patchSegment(i: number, patch: SegmentOverride) {
+  const ov = { ...useStudioStore.getState().segOverrides };
+  ov[i] = { ...(ov[i] || {}), ...patch };
+  useStudioStore.setState({ segOverrides: ov });
+}
 
 export const TimelinePanel: React.FC = () => {
   const overviewRef = useRef<HTMLCanvasElement>(null);
@@ -15,8 +23,6 @@ export const TimelinePanel: React.FC = () => {
   const customCuts = useStudioStore((s) => s.customCuts);
   const look = useStudioStore((s) => s.look);
   const selected = useStudioStore((s) => s.selected);
-  const clips = useStudioStore((s) => s.clips);
-  const segOverrides = useStudioStore((s) => s.segOverrides);
   const ctx = useStudioStore((s) => s.ctx);
   const rebuild = useStudioStore((s) => s.rebuild);
   const save = useStudioStore((s) => s.save);
@@ -63,7 +69,8 @@ export const TimelinePanel: React.FC = () => {
   const editClip = useStudioStore((s) => s.editClip);
   const clipLooks = useStudioStore((s) => s.clipLooks);
 
-  useEffect(() => {
+  // Layout effect, so a drag that rebuilds the edit shows the new timeline in the same frame.
+  useLayoutEffect(() => {
     drawTimeline();
   }, [drawTimeline, ctx, features, loopStart, editClip, clipLooks, selected]);
 
@@ -90,9 +97,7 @@ export const TimelinePanel: React.FC = () => {
         const seg = currentCtx.tl.segs[slip.i];
         const dur = clipDur.get(seg.clipId) || 10;
         const v = clamp(slip.in0 - (laneTime(e) - slip.t0) * seg.speed, 0, Math.max(0, dur - seg.dur * seg.speed - 0.1));
-        const overrides = { ...useStudioStore.getState().segOverrides };
-        overrides[slip.i] = { ...(overrides[slip.i] || {}), in: v };
-        useStudioStore.setState({ segOverrides: overrides });
+        patchSegment(slip.i, { in: v });
         rebuild();
         return;
       }
@@ -179,9 +184,7 @@ export const TimelinePanel: React.FC = () => {
               {
                 class: `pi ${seg.clipId === cid ? 'on' : ''}`,
                 onclick: () => {
-                  const ov = { ...useStudioStore.getState().segOverrides };
-                  ov[si] = { ...(ov[si] || {}), clipId: cid };
-                  useStudioStore.setState({ segOverrides: ov });
+                  patchSegment(si, { clipId: cid });
                   rebuild();
                   closePop();
                 },
@@ -210,9 +213,7 @@ export const TimelinePanel: React.FC = () => {
               style: 'flex:1;accent-color:var(--accent)',
               oninput: (ev: Event) => {
                 const val = +(ev.target as HTMLInputElement).value;
-                const ov = { ...useStudioStore.getState().segOverrides };
-                ov[si] = { ...(ov[si] || {}), in: val };
-                useStudioStore.setState({ segOverrides: ov });
+                patchSegment(si, { in: val });
                 inLabel.textContent = `${val.toFixed(2)} s`;
                 transport.seek(seg.t0 + Math.min(seg.dur / 2, 0.25));
                 rebuild();
@@ -229,16 +230,14 @@ export const TimelinePanel: React.FC = () => {
                 'button',
                 {
                   class: seg.vel === k ? 'on' : '',
-                  title: (v as any).desc || 'Constant clip speed',
+                  title: v.desc || 'Constant clip speed',
                   onclick: () => {
-                    const ov = { ...useStudioStore.getState().segOverrides };
-                    ov[si] = { ...(ov[si] || {}), vel: k };
-                    useStudioStore.setState({ segOverrides: ov });
+                    patchSegment(si, { vel: k });
                     rebuild();
                     closePop();
                   },
                 },
-                (v as any).name,
+                v.name,
               ),
             ),
           ),
@@ -252,14 +251,12 @@ export const TimelinePanel: React.FC = () => {
                 {
                   class: seg.trans === k ? 'on' : '',
                   onclick: () => {
-                    const ov = { ...useStudioStore.getState().segOverrides };
-                    ov[si] = { ...(ov[si] || {}), trans: k };
-                    useStudioStore.setState({ segOverrides: ov });
+                    patchSegment(si, { trans: k });
                     rebuild();
                     closePop();
                   },
                 },
-                (t as any).name,
+                t.name,
               ),
             ),
           ),
@@ -395,7 +392,7 @@ export const TimelinePanel: React.FC = () => {
             <button
               key={k}
               className={k === curRhythm ? 'on' : ''}
-              title={(r as any).name}
+              title={r.name}
               onClick={() => {
                 if (!look) return;
                 look.cut.rhythm = k;
@@ -403,7 +400,7 @@ export const TimelinePanel: React.FC = () => {
                 rebuild();
               }}
             >
-              {(r as any).short}
+              {r.short}
             </button>
           ))}
           {customCuts && (

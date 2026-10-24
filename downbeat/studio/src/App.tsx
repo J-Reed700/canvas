@@ -1,6 +1,6 @@
 import React, { useEffect, useRef } from 'react';
-import { useStudioStore } from './store.ts';
-import { BAR_CHOICES, closePop, toast } from './utils.ts';
+import { useStudioStore } from './state/store.ts';
+import { BAR_CHOICES, closePop, toast } from './lib/utils.ts';
 import { TopBar } from './components/TopBar.tsx';
 import { MediaPanel } from './components/MediaPanel.tsx';
 import { StagePanel } from './components/StagePanel.tsx';
@@ -88,10 +88,7 @@ export const App: React.FC = () => {
         toast(`Loop: ${l.label}`);
       } else if ('1234'.includes(k)) {
         const b = BAR_CHOICES[+k - 1];
-        if (s.validBars().includes(b)) {
-          useStudioStore.setState({ bars: b, customCuts: null });
-          s.rebuild();
-        }
+        if (b <= s.maxBars()) s.setBars(b);
       }
     };
 

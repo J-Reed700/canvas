@@ -1,13 +1,13 @@
 import React from 'react';
-import { useStudioStore } from '../store.ts';
-import { openPop, closePop, h, ROLL_OPTS } from '../utils.ts';
+import { useStudioStore } from '../state/store.ts';
+import { openPop, closePop, h, ROLL_OPTS, fmtLength } from '../lib/utils.ts';
 
 export const TopBar: React.FC = () => {
   const trackId = useStudioStore((s) => s.trackId);
   const tracks = useStudioStore((s) => s.tracks);
   const look = useStudioStore((s) => s.look);
   const selected = useStudioStore((s) => s.selected);
-  const bars = useStudioStore((s) => s.bars);
+  const barDur = useStudioStore((s) => s.barDur());
   const bpm = useStudioStore((s) => s.bpm());
   const loopLen = useStudioStore((s) => s.loopLen());
   const rollOpts = useStudioStore((s) => s.rollOpts);
@@ -19,6 +19,7 @@ export const TopBar: React.FC = () => {
   const tr = tracks.find((t) => t.id === trackId);
   const currentBpm = bpm;
   const loopDuration = loopLen;
+  const loopBars = Math.round(loopLen / barDur);
 
   const handleRollOpts = (e: React.MouseEvent<HTMLButtonElement>) => {
     const anchor = e.currentTarget;
@@ -31,10 +32,10 @@ export const TopBar: React.FC = () => {
             { class: 'pi chk' },
             h('input', {
               type: 'checkbox',
-              checked: !!(rollOpts as any)[k],
+              checked: !!rollOpts[k],
               onchange: (ev: Event) => {
-                (rollOpts as any)[k] = (ev.target as HTMLInputElement).checked;
-                useStudioStore.setState({ rollOpts: { ...rollOpts } });
+                const on = (ev.target as HTMLInputElement).checked;
+                useStudioStore.setState((prev) => ({ rollOpts: { ...prev.rollOpts, [k]: on } }));
                 save();
               },
             }),
@@ -75,7 +76,7 @@ export const TopBar: React.FC = () => {
           <b>{currentBpm.toFixed(currentBpm % 1 ? 2 : 0)}</b> BPM
         </span>
         <span className="chip">
-          <b>{loopDuration.toFixed(2)}s</b> {bars ? `${bars} bar${bars > 1 ? 's' : ''} loop` : 'loop'}
+          <b>{fmtLength(loopDuration)}</b> {loopBars} bar{loopBars > 1 ? 's' : ''} loop
         </span>
         <span className="chip">
           Look <b>{look?.name || ''}</b>
