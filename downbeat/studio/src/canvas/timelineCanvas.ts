@@ -1,5 +1,6 @@
 import type { StudioState } from '../state/store.ts';
 import { sizeCanvas, roundRect } from '../lib/utils.ts';
+import { loadThumb } from '../lib/thumbs.ts';
 import { MOD_SOURCES } from '../engine/modules.ts';
 import type { Segment } from '../engine/types.ts';
 
@@ -118,9 +119,7 @@ export function drawLane(s: StudioState, onRedraw?: () => void) {
       const k = `${seg.clipId}@${seg.in.toFixed(1)}`;
       let img = thumbImgsMap.get(k);
       if (!img) {
-        img = new Image();
-        img.onload = () => onRedraw ? onRedraw() : s.drawLane();
-        img.src = `/api/thumb/${seg.clipId}?w=200&t=${seg.in.toFixed(2)}`;
+        img = loadThumb(`/api/thumb/${seg.clipId}?w=200&t=${seg.in.toFixed(2)}`, () => onRedraw ? onRedraw() : s.drawLane());
         thumbImgsMap.set(k, img);
       }
       if (img.complete && img.naturalWidth) {

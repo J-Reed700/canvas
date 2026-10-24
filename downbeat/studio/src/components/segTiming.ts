@@ -2,6 +2,7 @@
 // on a strip zoomed in on the segment and its neighbours, with steppers that move a cut along the snap grid.
 import { useStudioStore } from '../state/store.ts';
 import { h } from '../lib/utils.ts';
+import { thumbBackground } from '../lib/thumbs.ts';
 import { clamp } from '../engine/looks.ts';
 import { MIN_BEATS, SNAPS, moveCut, segAt, snapBeat } from '../engine/blocks.ts';
 import { editTime } from '../engine/timeline.ts';
@@ -205,7 +206,9 @@ export function timingSection(id: string, render: () => void, length: HTMLElemen
       }
       const x0 = Math.max(0, at(sg.t0 + off)), x1 = Math.min(100, at(sg.t1 + off));
       el.className = `zb${sg.id === id && off === 0 ? ' on' : ''}`;
-      el.style.cssText = `left:${x0}%;width:${x1 - x0}%;background-image:url(/api/thumb/${sg.clipId}?w=160&t=${sg.in.toFixed(2)})`;
+      el.style.left = `${x0}%`;
+      el.style.width = `${x1 - x0}%`;
+      thumbBackground(el, `/api/thumb/${sg.clipId}?w=160&t=${sg.in.toFixed(2)}`);
       el.firstElementChild!.textContent = `#${s.selected.indexOf(sg.clipId) + 1}`;
       seen.add(key);
     }
