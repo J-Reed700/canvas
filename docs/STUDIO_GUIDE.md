@@ -202,6 +202,40 @@ clip's blocks, dims the rest, and the header says which clip is highlighted.
 | Double-click | a block | Opens the segment menu: the clip, in-point (click a frame in the filmstrip or drag the slider), direction, speed ramp, the transition into that block, and its framing (see [Framing one segment](#framing-one-segment)). A lime dot marks what you've set, and Back to auto clears it. ‹ › or ← → move to the next block, and ▶ Play the cut plays the transition into it |
 | Click a rhythm button | top right | Re-cuts the loop and drops any cuts you dragged |
 
+### Where each clip starts
+
+Each block plays its clip from an in-point, the moment of the footage the block starts on. The studio picks
+them for you:
+
+- A clip's first block starts at a random point, early enough that the footage lasts through the block and
+  its transition. The pick stays in the first 60% of that range.
+- When the clip comes back, its next block starts half a second after the last one's footage ended. If that
+  wouldn't leave enough footage, it starts at a random point early in the clip instead.
+- The picks come from the edit seed in the Edit tab, so they stay the same every time you play, export or
+  reopen the project. ⚄ Re-roll in-points & order picks new ones for every block.
+- Only the first 60 seconds of a clip are used, because its playback copy stops there. If the part you want
+  is later in a long video, trim the file first.
+
+To pick one yourself, double-click the block and drag the In-point slider. The playhead jumps to the block so
+you can see the frame, and the slider stops where the block would run out of footage. You can also Option-drag
+the block: drag right for an earlier moment, left for a later one. The cuts stay where they are.
+
+A reversed block (Clip direction set to Reverse, Alternate or Random) plays backward and ends on its in-point.
+A Ping-pong block starts and ends on it.
+
+The in-points you set, and any clip, speed ramp or transition you picked for a single block, are cleared
+when you:
+
+- add, remove or reorder clips, including All, Solo, Reverse and Shuffle
+- click a rhythm button
+- change which transitions the edit uses
+- click ⚄ Re-roll in-points & order, or 🎲 Roll
+- switch songs
+- click a look or ⚄ Surprise me, unless Keep my edit is ticked
+
+⌘Z brings them back. Changing the loop length or moving the loop keeps them, matched to blocks by number, so
+they can end up on different footage. Set up the clips, rhythm and transitions first and pick in-points last.
+
 ## 7. Looks
 
 A look is a saved recipe: the layer stack, camera, Finish grade, cut settings and its own modulators. The Looks
@@ -368,7 +402,7 @@ the layer tools says so. Reset clip N or Same look on all brings the main look b
 | Transition order | Cycle through the list in order, or Shuffle (never the same one twice in a row) |
 | Clip direction | Forward, Reverse, Alternate (every other cut reversed), Ping-pong, Random |
 | Speed ramp | Speed curves locked to the beat. Each one averages out to normal speed, so cut timing doesn't change. Double-click a block on the timeline to ramp only that cut |
-| Edit seed | The random seed behind in-points, cut variety and transition picks. ⚄ Re-roll picks a new one |
+| Edit seed | The random seed behind in-points, cut variety and transition picks. ⚄ Re-roll picks a new one. See [Where each clip starts](#where-each-clip-starts) |
 | Tempo (no track) | The BPM of the synthetic beat when no song is loaded |
 | Keep my edit | When ticked, switching looks leaves your cuts and transitions alone |
 
@@ -656,6 +690,12 @@ again in the Looks tab.
 ### Cuts land early or late
 
 Nudge the beat grid in 10 ms steps, and check the tempo wasn't detected at half or double speed (½× or 2×).
+
+### The in-points I picked went back
+
+Changing the clips, the rhythm or the transitions clears them, and so do re-rolling, switching songs, and
+clicking a look with Keep my edit unticked. Press ⌘Z to get them back. The full list is in
+[Where each clip starts](#where-each-clip-starts).
 
 ### Some loop lengths are grayed out
 
