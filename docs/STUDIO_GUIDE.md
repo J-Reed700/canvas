@@ -199,7 +199,7 @@ clip's blocks, dims the rest, and the header says which clip is highlighted.
 | Click | cut lane | Moves the playhead |
 | Drag a cut line | cut lane, cursor shows ↔ | Moves that cut, snapped to the beat. The rhythm switches to Custom |
 | Option-drag | a block | Slips the clip: same timing, different moment of the footage |
-| Double-click | a block | Opens the segment menu: the clip, in-point (click a frame in the filmstrip or drag the slider), direction, speed ramp and the transition into that block. A lime dot marks what you've set, and Back to auto clears it. ‹ › or ← → move to the next block, and ▶ Play the cut plays the transition into it |
+| Double-click | a block | Opens the segment menu: the clip, in-point (click a frame in the filmstrip or drag the slider), direction, speed ramp, the transition into that block, and its framing (see [Framing one segment](#framing-one-segment)). A lime dot marks what you've set, and Back to auto clears it. ‹ › or ← → move to the next block, and ▶ Play the cut plays the transition into it |
 | Click a rhythm button | top right | Re-cuts the loop and drops any cuts you dragged |
 
 ## 7. Looks
@@ -390,7 +390,9 @@ time you open it.
 The preview shows what the export will look like, on a device of the export's shape: a phone for Spotify
 9:16, a landscape screen for YouTube 16:9, a tablet for Apple 3:4, and a square screen for the 1:1 formats.
 Drag on it to reframe the clip on screen, scroll to zoom in (up to 3×), and double-click to reset that clip's
-framing. "Preparing clip…" means a clip is still loading.
+framing. This framing belongs to the clip, so it applies everywhere the clip plays. A segment with its own
+framing ignores it, and dragging the preview there tells you to use the segment menu instead. "Preparing clip…"
+means a clip is still loading.
 
 | Control | Does |
 |---|---|
@@ -405,6 +407,26 @@ framing. "Preparing clip…" means a clip is still loading.
 | Safe zones (S) | What Spotify's interface covers (top 14%, bottom 33%) and what tall phones crop (9% each side). Phone only |
 | Sound | Mute |
 | fps | Preview frame rate |
+
+### Framing one segment
+
+The Framing part of the segment menu (double-click a block on the timeline) sets where the crop sits and how far
+it zooms for that one segment. It can hold still or move across the segment, which is how you get a push in, a
+pull out or a pan that starts on one cut and lands on the next.
+
+| Control | Does |
+|---|---|
+| Crop box | The clip at the segment's in-point, with the part the screen shows outlined. Drag the outline to move it, press outside it to jump there, and scroll on it to zoom. A moving segment shows a solid Start box and a dashed End box. While the playhead is in the segment, a thin white box follows the crop, since the menu covers the preview |
+| Motion | Auto lets the look's drift wander around the clip's framing. Still holds one framing for the whole segment. Smooth, Steady and On the beat move from the start framing to the end framing: Smooth eases out and in, Steady keeps one speed, and On the beat takes a quick step on each beat and holds in between |
+| Start, End | Which end of the move the box and sliders change. The preview jumps to that end of the segment. ⇄ Swap turns a push in into a pull out, or reverses a pan |
+| X, Y | Left to right and down to up, as a share of the room the crop has to move. "No room" means the clip only just fills the screen that way: a 16:9 clip on the 9:16 phone screen fills it top to bottom, so it has to zoom in before it can move up or down |
+| Zoom | 1× to 3×, on top of the look's camera zoom (shown next to the Framing label). 1× is as wide as the clip goes while still filling the screen |
+| Quick moves | Push in zooms in by half again over the segment, Pull out does the reverse, and Pan ← → ↑ ↓ sweep most of the way across the clip, zooming in first if there isn't room. Each one replaces the current framing |
+
+The move runs from cut to cut and holds still through the transitions on either side. Shake and sway from the
+look still apply on top, and so does any modulation on the camera zoom (many looks push it a little on each kick).
+Auto, or Back to auto, drops the segment's framing. Like the other segment settings, it goes back to automatic
+when you change the clips, the rhythm or the transitions.
 
 ## 14. Exporting
 
@@ -479,7 +501,7 @@ at its top loop suggestion, so every song on a release shares one style.
 | Drag | envelope | Draw |
 | Drag | cut line | Move the cut |
 | Option-drag | timeline block | Slip the footage |
-| Double-click | timeline block | Segment menu: clip, in-point, direction, speed ramp, transition |
+| Double-click | timeline block | Segment menu: clip, in-point, direction, speed ramp, transition, framing |
 | Drag | clip | Reorder |
 
 ## 16. Effects

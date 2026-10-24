@@ -5,6 +5,7 @@ import { TimelinePanel } from '../../downbeat/studio/src/components/TimelinePane
 import { RHYTHMS, VELOCITY } from '../../downbeat/studio/src/engine/timeline.ts';
 import { TRANSITIONS } from '../../downbeat/studio/src/engine/shaders.ts';
 import { S, pop, popButton, renderStudio, resetStudio, screen, st, update, withSong } from './studio.tsx';
+import { cropRect, room } from '../../downbeat/studio/src/lib/utils.ts';
 
 const lane = () => document.getElementById('lane') as HTMLCanvasElement;
 const overview = () => document.getElementById('overview') as HTMLCanvasElement;
@@ -122,7 +123,7 @@ describe('lane', () => {
     expect(pop().querySelector('h4')!.textContent).toBe('Segment 2 of 4');
     expect(pop().querySelector('.seg-head .meta')!.textContent).toMatch(/^Bar 2 · \d+\.\d\d s long$/);
     const labels = Array.from(pop().querySelectorAll('.seg-l > span:first-child')).map((l) => l.textContent);
-    expect(labels).toEqual(['Clip', 'In-point', 'Direction', 'Speed ramp', 'Transition in']);
+    expect(labels).toEqual(['Clip', 'In-point', 'Direction', 'Speed ramp', 'Transition in', 'Framing', 'Motion', 'Quick moves']);
     expect(Array.from(pop().querySelectorAll('.seg-group small')).map((g) => g.textContent)).toEqual(['Smooth', 'Kinetic', 'Glitch', 'Other']);
 
     expect(tile('#2 city.mp4').className).toContain('on');
@@ -220,6 +221,160 @@ describe('lane', () => {
     fireEvent.click(popButton('▶ Play the cut'));
     expect(st().transport.loopTime(), 'the seam starts from the end of the loop').toBeCloseTo(8 - st().ctx!.tl.transDur / 2 - 0.5, 1);
     st().transport.pause();
+  });
+});
+
+describe('segment framing', () => {
+  const open = () => {
+    barEdit();
+    fireEvent.doubleClick(lane(), { clientX: 125, clientY: 30 }); // segment 2, city.mp4, a 16:9 clip in the 9:16 frame
+  };
+  const slider = (name: string) => pop().querySelector<HTMLInputElement>(`input[aria-label="${name}"]`)!;
+  const value = (name: string) => slider(name).parentElement!.querySelector('.seg-val')!.textContent;
+  const frame = () => st().segOverrides[1]?.frame;
+  const seg = () => st().ctx!.tl.segs[1];
+  const cz = () => st().look!.camera.p.zoom;
+  const roomX = (z: number) => room({ width: 1920, height: 1080 }, cz() * z).room[0];
+  const crop = () => pop().querySelector('.seg-crop') as HTMLElement;
+
+  test('starts automatic, and X, Y and zoom set a still framing for the segment alone', () => {
+    open();
+    expect(popButton('Auto').className).toBe('on');
+    expect(pop().querySelectorAll('.seg-win')).toHaveLength(1);
+    expect(value('X')).toBe('Center');
+    expect(crop().style.backgroundImage).toBe(`url("/api/thumb/b?w=320&t=${seg().in.toFixed(2)}")`);
+
+    fireEvent.input(slider('X'), { target: { value: '0.5' } });
+    expect(frame()).toEqual({ a: [0.5 + 0.5 * roomX(1), 0.5, 1] });
+    expect(seg().frame).toEqual(frame());
+    expect(st().ctx!.tl.segs.filter((x) => x.frame), 'only this segment').toHaveLength(1);
+    expect(value('X')).toBe('50% right');
+    fireEvent.change(slider('X'));
+    expect(popButton('Still').className).toBe('on');
+    expect(Array.from(pop().querySelectorAll('.seg-l > span:first-child')).filter((l) => l.querySelector('.seg-mine')).map((l) => l.textContent)).toEqual(['Framing']);
+
+    fireEvent.input(slider('Zoom'), { target: { value: '2' } });
+    expect(frame()!.a[2]).toBe(2);
+    expect(value('Zoom')).toBe('2.00×');
+    // zoomed in, the crop has more room, so the same X sits a smaller share of the way to the edge
+    expect(+slider('X').value).toBeCloseTo((0.5 * roomX(1)) / roomX(2), 9);
+    fireEvent.input(slider('Y'), { target: { value: '-1' } });
+    expect(frame()!.a[1]).toBeCloseTo(0.5 - room({ width: 1920, height: 1080 }, cz() * 2).room[1], 9);
+    expect(value('Y')).toBe('100% down');
+
+    // the box shows the crop where the shader puts it
+    const [l, t, w, hh] = cropRect({ width: 1920, height: 1080 }, cz() * 2, ...(frame()!.a.slice(0, 2) as [number, number]));
+    const win = pop().querySelector('.seg-win') as HTMLElement;
+    expect([win.style.left, win.style.top, win.style.width, win.style.height].map(parseFloat).map((v) => +v.toFixed(6))).toEqual([l, t, w, hh].map((v) => +(v * 100).toFixed(6)));
+
+    fireEvent.click(popButton(TRANSITIONS.zoom.name));
+    fireEvent.click(popButton('Auto'));
+    expect(st().segOverrides[1], 'Auto forgets the framing and nothing else').toEqual({ trans: 'zoom' });
+    expect(seg().frame).toBeUndefined();
+  });
+
+  test("without room to move, a slider says so; the look's zoom counts", () => {
+    open();
+    update(() => { st().look!.camera.p.zoom = 1; st().rebuild(); });
+    fireEvent.click(pop().querySelector('[aria-label="Next segment"]')!);
+    fireEvent.click(pop().querySelector('[aria-label="Previous segment"]')!);
+    expect(slider('Y').disabled).toBe(true);
+    expect(value('Y')).toBe('No room');
+    expect(slider('X').disabled).toBe(false);
+    fireEvent.input(slider('Zoom'), { target: { value: '1.5' } });
+    expect(slider('Y').disabled).toBe(false);
+  });
+
+  test('a move has a start and an end to adjust, a curve, and swaps', () => {
+    open();
+    fireEvent.click(popButton('Steady'));
+    expect(frame()).toEqual({ a: [0.5, 0.5, 1], b: [0.5, 0.5, 1.25], ease: 'linear' });
+    expect(pop().querySelectorAll('.seg-win:not(.live)')).toHaveLength(2);
+    expect(popButton('End').className, 'the end is ready to adjust').toBe('on');
+    const pad = Math.min(st().ctx!.tl.transDur / 2 + 0.02, seg().dur * 0.3);
+    expect(st().transport.loopTime(), 'the preview shows the end').toBeCloseTo(seg().t1 - pad, 9);
+
+    fireEvent.input(slider('X'), { target: { value: '-1' } });
+    expect(frame()!.b![0]).toBeCloseTo(0.5 - roomX(1.25), 9);
+    expect(frame()!.a).toEqual([0.5, 0.5, 1]);
+    fireEvent.click(popButton('Start'));
+    expect(st().transport.loopTime(), 'and then the start').toBeCloseTo(seg().t0 + pad, 9);
+    fireEvent.input(slider('Zoom'), { target: { value: '1.1' } });
+    expect(frame()!.a[2]).toBe(1.1);
+
+    fireEvent.click(popButton('On the beat'));
+    expect(frame()!.ease).toBe('beats');
+    fireEvent.click(popButton('⇄ Swap'));
+    expect(frame()!.a[2]).toBe(1.25);
+    expect(frame()!.b![2]).toBe(1.1);
+    fireEvent.click(popButton('Still'));
+    expect(frame()).toEqual({ a: [frame()!.a[0], 0.5, 1.25] });
+  });
+
+  test('while the playhead is in the segment, a thin box follows the crop through the move', async () => {
+    open();
+    fireEvent.click(popButton('Pan →'));
+    const live = () => pop().querySelector('.seg-win.live') as HTMLElement;
+    const frame2 = () => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+    const left = (k: number) => parseFloat((pop().querySelectorAll('.seg-win')[k] as HTMLElement).style.left);
+    st().transport.seek(seg().t0 + seg().dur / 2);
+    await frame2();
+    expect(live().hidden).toBe(false);
+    expect(parseFloat(live().style.left)).toBeCloseTo((left(0) + left(1)) / 2, 6);
+    st().transport.seek(seg().t1 + 0.1);
+    await frame2();
+    expect(live().hidden, 'outside the segment').toBe(true);
+    fireEvent.click(pop().querySelector('.seg-x')!);
+  });
+
+  test('quick moves push in, pull out and pan across the room the clip has', () => {
+    open();
+    // a 16:9 clip fills the 9:16 frame top to bottom, so tilting zooms in first to make room
+    fireEvent.click(popButton('Pan ↑'));
+    const [a, b] = [frame()!.a, frame()!.b!];
+    expect(a[2]).toBeCloseTo(1 / 0.76 / cz(), 9);
+    expect(a[1]).toBeLessThan(0.5);
+    expect(b[1]).toBeCloseTo(1 - a[1], 9);
+    expect([a[0], b[0], b[2], frame()!.ease]).toEqual([0.5, 0.5, a[2], 'smooth']);
+
+    fireEvent.click(popButton('Auto'));
+    fireEvent.click(popButton('Push in'));
+    expect(frame()).toEqual({ a: [0.5, 0.5, 1], b: [0.5, 0.5, 1.5], ease: 'smooth' });
+    fireEvent.click(popButton('Pan →'));
+    expect(frame()!.a[0], 'pans keep the start zoom').toBeCloseTo(0.5 - 0.9 * roomX(1), 9);
+    expect(frame()!.b![0]).toBeCloseTo(0.5 + 0.9 * roomX(1), 9);
+    fireEvent.input(slider('Zoom'), { target: { value: '2.5' } });
+    fireEvent.click(popButton('Pull out'));
+    expect(frame()!.a[2], 'near the top of the range it pulls from 3x to 2x').toBe(3);
+    expect(frame()!.b![2]).toBe(2);
+    expect(frame()!.a[0]).toBe(frame()!.b![0]);
+  });
+
+  test('dragging the box moves the crop and scrolling on it zooms', () => {
+    open();
+    vi.spyOn(crop(), 'getBoundingClientRect').mockReturnValue({ left: 0, top: 0, width: 160, height: 90, right: 160, bottom: 90, x: 0, y: 0, toJSON() {} });
+    crop().setPointerCapture = () => {};
+    fireEvent.pointerDown(crop(), { clientX: 80, clientY: 45, pointerId: 1 });
+    expect(frame()!.a[0], 'a press inside the crop grabs it where it is').toBeCloseTo(0.5, 9);
+    fireEvent.pointerMove(crop(), { clientX: 96, clientY: 45, pointerId: 1 });
+    expect(frame()!.a[0]).toBeCloseTo(0.6, 9);
+    fireEvent.pointerMove(crop(), { clientX: 400, clientY: 45, pointerId: 1 });
+    expect(frame()!.a[0], 'stops at the edge of the clip').toBeCloseTo(0.5 + roomX(1), 9);
+    fireEvent.pointerUp(crop(), { pointerId: 1 });
+
+    vi.spyOn(crop(), 'getBoundingClientRect').mockReturnValue({ left: 0, top: 0, width: 160, height: 90, right: 160, bottom: 90, x: 0, y: 0, toJSON() {} });
+    crop().setPointerCapture = () => {};
+    fireEvent.pointerDown(crop(), { clientX: 8, clientY: 45, pointerId: 1 });
+    expect(frame()!.a[0], 'a press outside brings the crop to it').toBeCloseTo(0.5 - roomX(1), 9);
+    fireEvent.pointerUp(crop(), { pointerId: 1 });
+
+    fireEvent.wheel(crop(), { deltaY: -200 });
+    expect(frame()!.a[2]).toBeCloseTo(Math.exp(0.3), 9);
+    fireEvent.wheel(crop(), { deltaY: 100000 });
+    expect(frame()!.a[2]).toBe(1);
+    fireEvent.wheel(crop(), { deltaY: -200 });
+    fireEvent.click(popButton('Smooth'));
+    expect(frame()!.a[2], 'a pick after scrolling keeps the zoom').toBeCloseTo(Math.exp(0.3), 9);
   });
 });
 

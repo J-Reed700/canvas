@@ -207,6 +207,21 @@ export interface SegmentOverride {
   in?: number;
   /** Plays this segment forward, reversed or ping-pong, whatever the edit's direction. */
   dir?: 'forward' | 'reverse' | 'pingpong';
+  /** Frames this segment its own way, in place of its clip's framing and the look's drift. */
+  frame?: SegmentFrame;
+}
+
+/** Where a segment's crop sits, as [x, y, zoom]: x and y are the crop centre from 0 to 1 across the clip
+ * (y up), zoom runs 1 to 3 on top of the look's camera zoom. */
+export type FramePoint = [number, number, number];
+
+export interface SegmentFrame {
+  /** The framing at the start of the segment. */
+  a: FramePoint;
+  /** The framing it moves to by the end. Without it the framing holds still. */
+  b?: FramePoint;
+  /** How the move gets from a to b: eased, at a steady speed, or a step on each beat. */
+  ease?: 'smooth' | 'linear' | 'beats';
 }
 
 export interface Segment {
@@ -219,6 +234,7 @@ export interface Segment {
   vel: string;
   bd: number;
   focus?: [number, number, number] | null;
+  frame?: SegmentFrame;
   rev: boolean;
   pp: boolean;
   in: number;

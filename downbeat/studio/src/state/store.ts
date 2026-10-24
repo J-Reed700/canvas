@@ -250,6 +250,7 @@ export const useStudioStore = create<StudioState>((set, get) => ({
         seg.rev = o.dir === 'reverse';
         seg.pp = o.dir === 'pingpong';
       }
+      if (o.frame) seg.frame = o.frame;
       if (o.in != null) seg.in = clamp(o.in, 0, Math.max(0, (s.clipDur.get(seg.clipId) || 10) - 0.1));
     }
 

@@ -211,6 +211,16 @@ describe('reframing on the preview', () => {
     expect(toastText()).toBe('Framing reset for city.mp4');
   });
 
+  test('a segment framed in its own menu says where to change it', () => {
+    setup();
+    onScreen.frame.seg = { a: { seg: { i: 2, frame: { a: [0.5, 0.5, 1] } } } };
+    fireEvent.pointerDown(view(), { clientX: 100, clientY: 100, pointerId: 1 });
+    fireEvent.pointerMove(view(), { clientX: 150, clientY: 100, pointerId: 1 });
+    fireEvent.wheel(view(), { deltaY: -200 });
+    expect(st().clipFrame.b).toBeUndefined();
+    expect(toastText()).toBe('Segment 3 has its own framing. Double-click it in the timeline to change it.');
+  });
+
   test('a click without a drag changes nothing, and nothing happens before a frame is drawn', () => {
     setup();
     fireEvent.pointerDown(view(), { clientX: 100, clientY: 100, pointerId: 1 });

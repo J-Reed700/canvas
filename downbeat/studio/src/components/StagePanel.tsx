@@ -53,9 +53,17 @@ export const StagePanel: React.FC = () => {
 
   const target = () => {
     const s = useStudioStore.getState();
-    const n = s.ctx ? getLastFrame()?.needs[0] : undefined;
+    const fr = s.ctx ? getLastFrame() : undefined;
+    const n = fr?.needs[0];
     const c = n && s.clips?.find((x) => x.id === n.clipId);
-    return c ? { c, n } : null;
+    if (!c) return null;
+    // a segment framed in its own menu ignores the clip's framing, so dragging here would do nothing
+    const seg = fr.seg?.a.seg;
+    if (seg?.frame) {
+      toast(`Segment ${seg.i + 1} has its own framing. Double-click it in the timeline to change it.`);
+      return null;
+    }
+    return { c, n };
   };
 
   useEffect(() => {
