@@ -403,7 +403,7 @@ In the Edit tab, choose the cut rhythm, which transitions to use, the clip direc
 - Drag a cut to move it along the beat grid, or to half or quarter beats with Snap (`N`). Hold `Shift` to put it anywhere.
 - Drag the edge of a transition's pink band to set how long that one lasts.
 - `Alt`-drag (Option on a Mac) a segment to use a different part of its clip.
-- Double-click a segment, or long-press it on a touch screen, to change just that one, including the in-point: the moment of the clip it starts on.
+- Double-click a segment, right-click it, press Enter, or long-press it on a touch screen to change just that one: where its cuts sit (on or off the beat), its transition and how long it lasts, and the in-point, the moment of the clip it starts on.
 
 The studio picks each segment's in-point at random from the edit seed, within the clip's first 60 seconds, and a clip that comes back picks up where it left off. What you cut and set by hand is cleared when you change the clips, the rhythm or the loop, so set those first. The [studio guide](docs/STUDIO_GUIDE.md#cutting-blocks-by-hand) has the details.
 

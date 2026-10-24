@@ -4,6 +4,7 @@ import { describe, expect, test, vi } from 'vitest';
 import { act, fireEvent, render, within } from '@testing-library/react';
 import { App } from '../../downbeat/studio/src/App.tsx';
 import { TimelinePanel } from '../../downbeat/studio/src/components/TimelinePanel.tsx';
+import { beatName, stepBeat } from '../../downbeat/studio/src/components/segTiming.ts';
 import { S, pop, popButton, renderStudio, resetStudio, st, toastText, update } from './studio.tsx';
 
 const lane = () => document.getElementById('lane') as HTMLCanvasElement;
@@ -208,6 +209,90 @@ describe('segment menu actions', () => {
   });
 });
 
+describe('segment timing', () => {
+  const timing = () => pop().querySelector('.seg-time') as HTMLElement;
+  const cut = (label: string) => Array.from(timing().querySelectorAll('.seg-cut')).find((c) => c.querySelector('.lbl')!.textContent === label) as HTMLElement;
+  const val = (label: string) => cut(label).querySelector('.seg-val')!.textContent;
+  const later = (label: string) => within(cut(label)).getByLabelText(/later$/) as HTMLButtonElement;
+  const earlier = (label: string) => within(cut(label)).getByLabelText(/earlier$/) as HTMLButtonElement;
+
+  test('names beats by bar, beat and eighth, and steps along the snap grid', () => {
+    expect([0, 4, 6.5, 7.25, 3.875, 5.33].map(beatName)).toEqual(['Bar 1, beat 1', 'Bar 2, beat 1', 'Bar 2, beat 3½', 'Bar 2, beat 4¼', 'Bar 1, beat 4⅞', 'Bar 2, beat 2.33']);
+    expect([stepBeat(4, 1, 1), stepBeat(4.3, -1, 1), stepBeat(4.3, 1, 2), stepBeat(4, -1, 4), stepBeat(4, 1, 0)]).toEqual([5, 4, 4.5, 3.75, 4.125]);
+  });
+
+  test('the steppers move either cut of a segment along the grid, off the bar lines, and the seam stays put', () => {
+    laneEdit();
+    fireEvent.doubleClick(lane(), { clientX: 125, clientY: 30 });
+    expect([val('Starts'), val('Ends')]).toEqual(['Bar 2, beat 1', 'Bar 3, beat 1']);
+    fireEvent.click(later('Starts'));
+    expect(t0s(), 'a beat later').toEqual([0, 2.5, 4, 6]);
+    expect(val('Starts')).toBe('Bar 2, beat 2');
+    fireEvent.click(within(timing().querySelector('.seg-snap') as HTMLElement).getByText('¼'));
+    expect(st().snap).toBe(4);
+    fireEvent.click(earlier('Ends'));
+    expect(t0s(), 'the end cut is the next segment\'s start').toEqual([0, 2.5, 3.875, 6]);
+    expect(val('Ends')).toBe('Bar 2, beat 4¾');
+    expect(timing().querySelector('.seg-len')!.textContent).toBe('1.38 s, 2.75 beats');
+    expect(st().ctx!.tl.handCut).toBe(true);
+
+    fireEvent.click(pop().querySelector('[aria-label="Previous segment"]')!);
+    expect(val('Starts')).toBe('Start of the loop');
+    expect(earlier('Starts').disabled && later('Starts').disabled, 'the loop seam').toBe(true);
+  });
+
+  test('on the strip, a cut line drags to anywhere with Shift, a band edge sets the length, and a double-click splits', () => {
+    laneEdit();
+    fireEvent.doubleClick(lane(), { clientX: 125, clientY: 30 });
+    const zoom = () => timing().querySelector('.seg-zoom') as HTMLElement;
+    // the strip shows 4 s around segment 2 (2 to 4 s), from 0 to 6 s: 400 px is 66.7 px a second
+    rect(zoom(), 400);
+    const px = (t: number) => (t / 6) * 400;
+    expect(timing().querySelectorAll('.zcut')).toHaveLength(2);
+    fireEvent.pointerDown(within(timing()).getByLabelText('The start cut'), { clientX: px(2), pointerId: 1, button: 0 });
+    fireEvent.pointerMove(window, { clientX: px(2.3), shiftKey: true });
+    fireEvent.pointerUp(window, {});
+    expect(t0s()[1]).toBeCloseTo(2.3, 6);
+    expect(val('Starts')).toBe('Bar 2, beat 1.60');
+
+    // segment 2 now starts at 2.3 s, so the strip runs from 0.3 s
+    const px2 = (t: number) => ((t - 0.3) / 5.7) * 400;
+    rect(zoom(), 400);
+    const band = st().ctx!.tl.segs[2]; // the end cut, at 4 s, a beat long
+    fireEvent.pointerDown(timing().querySelectorAll('.zedge')[3], { clientX: px2(4.25), pointerId: 1, button: 0 });
+    fireEvent.pointerMove(window, { clientX: px2(4.5) });
+    fireEvent.pointerUp(window, {});
+    expect(st().blocks!.find((b) => b.id === band.id)!.transBeats).toBe(2);
+
+    rect(zoom(), 400);
+    fireEvent.dblClick(zoom(), { clientX: px2(3.4) });
+    expect(t0s().map((t) => +t.toFixed(3))).toEqual([0, 2.3, 3.5, 4, 6]);
+  });
+});
+
+describe('opening the segment menu', () => {
+  test('right-click a block, the Edit chip on the selected block and the toolbar button all open it', () => {
+    laneEdit();
+    const e = new MouseEvent('contextmenu', { clientX: 225, clientY: 30, bubbles: true, cancelable: true });
+    act(() => void lane().dispatchEvent(e));
+    expect(e.defaultPrevented, 'no browser menu').toBe(true);
+    expect(pop().querySelector('h4')!.textContent).toBe('Segment 3 of 4');
+    expect(st().selectedBlock).toBe(st().ctx!.tl.segs[2].id);
+
+    act(() => document.body.dispatchEvent(new Event('pointerdown', { bubbles: true })));
+    expect(pop().classList.contains('on')).toBe(false);
+    fireEvent.click(document.querySelector('.lane-edit')!);
+    expect(pop().querySelector('h4')!.textContent).toBe('Segment 3 of 4');
+
+    update(() => st().selectBlock(null));
+    seek(0.5);
+    expect(document.querySelector('.lane-edit'), 'no chip without a selection').toBeNull();
+    fireEvent.click(tool('✎ Edit segment'));
+    expect(pop().querySelector('h4')!.textContent, 'the one under the playhead').toBe('Segment 1 of 4');
+    expect(tool('✎ Edit segment 1')).toBeTruthy();
+  });
+});
+
 describe('block keys', () => {
   const press = (key: string, o: Record<string, unknown> = {}) => fireEvent.keyDown(window, { key, ...o });
   function renderApp() {
@@ -238,5 +323,17 @@ describe('block keys', () => {
     expect(st().snap).toBe(1);
     press('Escape');
     expect(st().selectedBlock).toBe(null);
+  });
+
+  test('Enter opens the menu for the segment under the playhead, but not over a focused button', () => {
+    renderApp();
+    seek(4.5);
+    const btn = document.createElement('button');
+    document.body.append(btn);
+    fireEvent.keyDown(btn, { key: 'Enter' });
+    expect(pop().classList.contains('on')).toBe(false);
+    btn.remove();
+    press('Enter');
+    expect(pop().querySelector('h4')!.textContent).toBe('Segment 3 of 4');
   });
 });

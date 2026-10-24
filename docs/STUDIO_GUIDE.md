@@ -203,7 +203,7 @@ clip's blocks, dims the rest, and the header says which clip is highlighted.
 | Drag a cut line | cut lane, cursor shows ↔ | Moves that cut, snapped to the Snap setting (the beat at first). Hold Shift to put it anywhere. The rhythm shows Custom |
 | Drag the edge of the pink shading | cut lane, cursor shows ⇹ | Sets how long that one transition lasts, in quarter beats. Hold Shift for any length |
 | Option-drag | a block | Slips the clip: same timing, different moment of the footage |
-| Double-click, or long-press on a touch screen | a block | Opens the segment menu: Split, Repeat, Put a clip in and Delete for that block, then the clip, in-point (click a frame in the filmstrip or drag the slider), direction, speed ramp, the transition into that block and its length, and its framing (see [Framing one segment](#framing-one-segment)). A lime dot marks what you've set, and Back to auto clears it. ‹ › or ← → move to the next block, and ▶ Play the cut plays the transition into it |
+| Double-click, right-click, or long-press on a touch screen | a block | Opens the segment menu. Enter, the ✎ Edit segment button above the timeline and the ✎ Edit chip on the selected block open it too. It has Split, Repeat, Put a clip in and Delete for that block, then Timing (see [Moving a cut off the bar lines](#moving-a-cut-off-the-bar-lines)), then the clip, in-point (click a frame in the filmstrip or drag the slider), direction, speed ramp, the transition into that block and its length, and its framing (see [Framing one segment](#framing-one-segment)). A lime dot marks what you've set, and Back to auto clears it. ‹ › or ← → move to the next block, and ▶ Play the cut plays the transition into it |
 | Click a rhythm button | top right | Re-cuts the loop and starts the cuts over, dropping any you moved, split or added |
 
 ### Cutting blocks by hand
@@ -226,6 +226,18 @@ A hand-cut edit keeps going through changes to the tempo, the beat grid, the tra
 their order, the default transition length, clip speed, direction and speed ramp, and a 🎲 Roll that only
 changes the look. It starts over when the cuts would no longer make sense: see the list in
 [Where each clip starts](#where-each-clip-starts).
+
+
+### Moving a cut off the bar lines
+
+The Timing section at the top of the segment menu shows the segment zoomed in, with a bar either side. Bar numbers run along the top, and the pink bands are the transitions.
+
+- Drag the white handle on either cut line to move that cut. It snaps to the grid you pick with Snap (Beat, ½, ¼ or Off). Hold Shift to place it anywhere.
+- Starts and Ends have ‹ › buttons that move a cut one step of the grid. The readout says where it sits, such as "Bar 2, beat 3½".
+- Drag the edge of a pink band to change how long that transition lasts, or pick a length under Transition length.
+- Click the strip to move the playhead there. Double-click it to split the segment at that point.
+
+The cut at the start of segment 1 is the loop seam. It stays put, so pick another loop to move it.
 
 ### Where each clip starts
 
@@ -570,7 +582,7 @@ at its top loop suggestion, so every song on a release shares one style.
 | Drag | cut line | Move the cut; hold Shift to leave the snap grid |
 | Drag | edge of a transition's pink shading | That transition's length |
 | Option-drag | timeline block | Slip the footage |
-| Double-click, or long-press on a touch screen | timeline block | Segment menu: split, repeat, put a clip in, delete, clip, in-point, direction, speed ramp, transition and its length, framing |
+| Double-click, right-click, Enter, or long-press on a touch screen | timeline block | Segment menu: split, repeat, put a clip in, delete, timing, clip, in-point, direction, speed ramp, transition and its length, framing |
 | Drag | clip | Reorder |
 
 ## 16. Effects

@@ -4,6 +4,8 @@ import { fmt, openPop, closePop, h, POOLS, clipAspect, cropRect, room } from '..
 import { clamp } from '../engine/looks.ts';
 import { setMenuSeg } from '../canvas/timelineCanvas.ts';
 import { mirrors } from '../canvas/renderLoop.ts';
+import { targetBlock } from '../state/blockActions.ts';
+import { beatName, beatsText, timingSection } from './segTiming.ts';
 import { MOVES, RHYTHMS, VELOCITY, frameAt, moveAt } from '../engine/timeline.ts';
 import { SNAPS, snapBeat } from '../engine/blocks.ts';
 import { TRANSITIONS } from '../engine/shaders.ts';
@@ -364,7 +366,7 @@ function segmentMenu(box: HTMLElement, start: string) {
   const onKey = (e: KeyboardEvent) => {
     if (!open()) return detachMenu?.();
     if ((e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') || e.metaKey || e.ctrlKey || e.altKey) return;
-    if ((e.target as HTMLElement | null)?.closest?.('input, select, textarea, [contenteditable]')) return;
+    if ((e.target as HTMLElement | null)?.closest?.('input, select, textarea, [contenteditable], .seg-zoom')) return;
     e.preventDefault();
     e.stopPropagation(); // everywhere else ← → step through the looks
     go(e.key === 'ArrowRight' ? 1 : -1);
@@ -418,9 +420,7 @@ function segmentMenu(box: HTMLElement, start: string) {
       h('button', { class: on ? 'on' : '', title, onclick: () => !on && onclick() }, text);
     const chips = (...kids: HTMLElement[]) => h('div', { class: 'seg-chips' }, ...kids);
 
-    const b = seg.t0 / beatDur + 1e-6;
-    const beat = Math.floor(b % 4) + 1;
-    const where = `Bar ${Math.floor(b / 4) + 1}${beat > 1 ? `, beat ${beat}` : ''} · ${seg.dur.toFixed(2)} s long`;
+    const where = `${beatName(seg.t0 / beatDur)} · ${seg.dur.toFixed(2)} s long`;
     // a beat of the segment before, then the transition
     const lead = seg.transDur / 2 + beatDur;
     const playCut = () => {
@@ -483,7 +483,21 @@ function segmentMenu(box: HTMLElement, start: string) {
     // the transition's length: what this cut asks for, and what it gets once held to its neighbours
     const want = block?.transBeats ?? s.look?.cut.beats ?? 1;
     const got = seg.transDur / beatDur;
-    const beatsText = (b: number) => `${+b.toFixed(2)} beat${Math.abs(b - 1) < 1e-9 ? '' : 's'}`;
+
+    const length = field(
+      'Transition length',
+      'transBeats',
+      seg.trans !== 'cut' && h('b', { class: 'seg-val' }, beatsText(got)),
+      seg.trans === 'cut'
+        ? h('div', { class: 'seg-note' }, 'A hard cut has no length.')
+        : chips(
+            chip(block?.transBeats == null, 'Auto', () => pick({ transBeats: undefined }), `The edit's length, ${beatsText(s.look?.cut.beats ?? 1)}`),
+            ...LENGTHS.map(([b, label]) => chip(block?.transBeats === b, label, () => pick({ transBeats: b }), beatsText(b))),
+          ),
+      seg.trans !== 'cut' &&
+        got < want - 1e-6 &&
+        h('div', { class: 'seg-note' }, `Shortened from ${beatsText(want)} to fit the segments either side.`),
+    );
 
     box.replaceChildren(
       h(
@@ -530,6 +544,7 @@ function segmentMenu(box: HTMLElement, start: string) {
             }),
           ),
       ),
+      timingSection(id, render, length),
       h(
         'div',
         { class: 'seg-body' },
@@ -566,20 +581,6 @@ function segmentMenu(box: HTMLElement, start: string) {
               h('div', { class: 'seg-group' }, h('small', {}, group), chips(...ids.map((k) => chip(seg.trans === k, TRANSITIONS[k].name, () => pick({ trans: k }))))),
             ),
           ),
-          field(
-            'Transition length',
-            'transBeats',
-            seg.trans !== 'cut' && h('b', { class: 'seg-val' }, beatsText(got)),
-            seg.trans === 'cut'
-              ? h('div', { class: 'seg-note' }, 'A hard cut has no length.')
-              : chips(
-                  chip(block?.transBeats == null, 'Auto', () => pick({ transBeats: undefined }), `The edit's length, ${beatsText(s.look?.cut.beats ?? 1)}`),
-                  ...LENGTHS.map(([b, label]) => chip(block?.transBeats === b, label, () => pick({ transBeats: b }), beatsText(b))),
-                ),
-            seg.trans !== 'cut' &&
-              got < want - 1e-6 &&
-              h('div', { class: 'seg-note' }, `Shortened from ${beatsText(want)} to fit the segments either side.`),
-          ),
         ),
       ),
       framingSection(id, seg, block?.frame, edit, render),
@@ -614,6 +615,33 @@ function segmentMenu(box: HTMLElement, start: string) {
 
   outline();
   render();
+}
+
+/** Opens the segment menu on block `id`, from the element or point it was asked for at, or else from the block
+ * on the lane. Double-click, right-click, a long press, Enter, the toolbar's Edit button and the Edit chip on
+ * the selected block all come here. */
+export function openSegmentMenu(id: string, from?: HTMLElement | { x: number; y: number }) {
+  const s = useStudioStore.getState();
+  const seg = segOf(id);
+  if (!s.ctx || !seg) return;
+  if (!from) {
+    const r = document.getElementById('lane')?.getBoundingClientRect();
+    from = r ? { x: r.left + ((seg.t0 + seg.dur / 2) / s.ctx.L) * r.width, y: r.top + r.height / 2 } : { x: innerWidth / 2, y: innerHeight / 2 };
+  }
+  let anchor = from as HTMLElement;
+  if (!(from instanceof HTMLElement)) {
+    anchor = document.createElement('div');
+    anchor.style.cssText = `position:fixed;left:${from.x}px;top:${from.y}px;width:1px;height:1px`;
+    document.body.append(anchor);
+  }
+  s.selectBlock(id);
+  openPop(anchor, (box) => segmentMenu(box, id), 'seg-menu');
+  if (anchor !== from) anchor.remove();
+  const p = document.getElementById('pop')!;
+  if (placeMenu(p) && menuPeek) {
+    showPeek(menuPeek);
+    keepOnScreen(p);
+  }
 }
 
 // How close, in CSS pixels, a press has to land to a cut line or a transition's edge to grab it.
@@ -694,17 +722,7 @@ export const TimelinePanel: React.FC = () => {
 
   const openMenu = (e: MouseEvent | PointerEvent) => {
     const seg = segAtTime(laneTime(e));
-    if (!seg) return;
-    const anchor = document.createElement('div');
-    anchor.style.cssText = `position:fixed;left:${e.clientX}px;top:${e.clientY}px;width:1px;height:1px`;
-    document.body.append(anchor);
-    openPop(anchor, (box) => segmentMenu(box, seg.id), 'seg-menu');
-    anchor.remove();
-    const p = document.getElementById('pop')!;
-    if (placeMenu(p) && menuPeek) {
-      showPeek(menuPeek);
-      keepOnScreen(p);
-    }
+    if (seg) openSegmentMenu(seg.id, { x: e.clientX, y: e.clientY });
   };
 
   const editClip = useStudioStore((s) => s.editClip);
@@ -766,7 +784,7 @@ export const TimelinePanel: React.FC = () => {
     const onPointerDown = (e: PointerEvent) => {
       const s = useStudioStore.getState();
       const currentCtx = s.ctx;
-      if (!currentCtx) return;
+      if (!currentCtx || e.button === 2) return; // a right-click opens the menu, on contextmenu
 
       if (e.altKey) {
         const seg = segAtTime(laneTime(e));
@@ -815,12 +833,19 @@ export const TimelinePanel: React.FC = () => {
     const onDblClick = (e: MouseEvent) => {
       if (useStudioStore.getState().ctx) openMenu(e);
     };
+    const onContextMenu = (e: MouseEvent) => {
+      if (!useStudioStore.getState().ctx) return;
+      e.preventDefault();
+      transport.seek(laneTime(e));
+      openMenu(e);
+    };
 
     lane.addEventListener('pointermove', onPointerMove);
     lane.addEventListener('pointerdown', onPointerDown);
     lane.addEventListener('pointerup', onPointerUp);
     lane.addEventListener('pointercancel', onPointerUp);
     lane.addEventListener('dblclick', onDblClick);
+    lane.addEventListener('contextmenu', onContextMenu);
 
     return () => {
       cancelPress();
@@ -829,6 +854,7 @@ export const TimelinePanel: React.FC = () => {
       lane.removeEventListener('pointerup', onPointerUp);
       lane.removeEventListener('pointercancel', onPointerUp);
       lane.removeEventListener('dblclick', onDblClick);
+      lane.removeEventListener('contextmenu', onContextMenu);
     };
   }, [clipDur, save, transport]);
 
@@ -896,7 +922,8 @@ export const TimelinePanel: React.FC = () => {
 
   const handCut = !!ctx?.tl.handCut;
   const curRhythm = handCut ? 'custom' : look?.cut?.rhythm || 'bar';
-  const selNo = ctx && selectedBlock ? ctx.tl.segs.findIndex((x) => x.id === selectedBlock) + 1 : 0;
+  const selSeg = ctx && selectedBlock ? ctx.tl.segs.find((x) => x.id === selectedBlock) : undefined;
+  const selNo = selSeg ? selSeg.i + 1 : 0;
   const st = useStudioStore.getState;
 
   return (
@@ -967,6 +994,18 @@ export const TimelinePanel: React.FC = () => {
       </div>
 
       <div className="tl-tools" id="blockTools">
+        <button
+          className="btn tl-edit"
+          data-pop
+          disabled={!ctx}
+          title="Open the menu for the selected segment, or the one under the playhead: its timing, clip, transition and framing (Enter)"
+          onClick={(e) => {
+            const id = targetBlock();
+            if (id) openSegmentMenu(id, e.currentTarget);
+          }}
+        >
+          ✎ {selNo ? `Edit segment ${selNo}` : 'Edit segment'}
+        </button>
         <div className="seg">
           <button disabled={!ctx} title="Split the segment at the playhead, on the snap grid (B)" onClick={() => st().splitAtPlayhead()}>
             ✂ Split
@@ -1008,9 +1047,20 @@ export const TimelinePanel: React.FC = () => {
         <canvas
           id="lane"
           ref={laneRef}
-          title={'The loop, left to right. Each block is one cut: #n is clip n from the Clips list (thumbnail = the moment it starts on).\nDiamonds are transitions (pink = animated, white = hard cut), and the pink band is how long each one lasts. Curves: kick (red), hats (blue), energy (green).\nClick: select and seek · drag a cut line: move it (Shift: off the grid) · drag a band edge: transition length · double-click or long-press a block: its menu · ⌥-drag: slip the clip · B: split at the playhead'}
+          title={'The loop, left to right. Each block is one cut: #n is clip n from the Clips list (thumbnail = the moment it starts on).\nDiamonds are transitions (pink = animated, white = hard cut), and the pink band is how long each one lasts. Curves: kick (red), hats (blue), energy (green).\nClick: select and seek · drag a cut line: move it (Shift: off the grid) · drag a band edge: transition length · double-click, right-click or long-press a block, or press Enter: its menu · ⌥-drag: slip the clip · B: split at the playhead'}
         />
         <div className="playhead" id="playhead" />
+        {selSeg && ctx && (
+          <button
+            className="lane-edit"
+            data-pop
+            title="Open this segment's menu (Enter)"
+            style={{ left: `${((selSeg.t0 + selSeg.dur / 2) / ctx.L) * 100}%` }}
+            onClick={(e) => openSegmentMenu(selSeg.id, e.currentTarget)}
+          >
+            ✎ Edit
+          </button>
+        )}
       </div>
     </section>
   );
