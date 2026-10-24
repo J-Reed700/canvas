@@ -280,16 +280,15 @@ class StudioHandler(BaseHTTPRequestHandler):
             self._send_json({"error": f"The playback copy of {src.name} could not be made"}, status=500)
             return
         try:
-            total, first, jpegs = clip_frames.read_frames(path, start, count)
+            info, body = clip_frames.read_frames(path, start, count)
         except Exception as exc:
             self._send_json({"error": f"{src.name}: {exc}"}, status=500)
             return
-        body = clip_frames.pack(jpegs)
         self.send_response(HTTPStatus.OK)
         self.send_header("Content-Type", "application/octet-stream")
         self.send_header("Content-Length", str(len(body)))
-        self.send_header("X-Frame-Start", str(first))
-        self.send_header("X-Frame-Total", str(total))
+        for k, v in info.items():
+            self.send_header(f"X-Frame-{k.capitalize()}", str(v))
         self.send_header("Cache-Control", "no-store")
         self.end_headers()
         self.wfile.write(body)

@@ -46,7 +46,10 @@ export interface FootageClip {
 // moves a frame about every 0.9 s), so only a longer hold counts.
 export const HOLD_LIMIT = 1.5;
 
-const clock = (s: number): string => `${Math.floor(s / 60)}:${(s % 60).toFixed(1).padStart(4, '0')}`;
+const clock = (s: number): string => {
+  const t = Math.round(s * 10) / 10;
+  return `${Math.floor(t / 60)}:${(t % 60).toFixed(1).padStart(4, '0')}`;
+};
 
 /** Group samples into stretches of consecutive output frames that show the same cut. */
 function runs(samples: FootageSample[]): FootageSample[][] {
@@ -96,10 +99,10 @@ export function checkFootage(samples: FootageSample[], clips: (id: string) => Fo
     if (b - a >= limit) {
       const idx = run[a].idx;
       const where = clock(idx / CLIP_FPS);
-      const why = idx === 0
-        ? `runs backwards off the start of ${c.name} and holds its first frame`
-        : c.last !== undefined && idx >= c.last
-          ? `starts or runs past the end of ${c.name}'s footage (${where}) and holds its last frame. Exports use the first 60 s of a clip; pick an earlier start point`
+      const why = c.last !== undefined && idx >= c.last
+        ? `starts or runs past the end of ${c.name}'s footage (${where}) and holds its last frame. Exports use the first 60 s of a clip; pick an earlier start point`
+        : idx === 0
+          ? `holds the first frame of ${c.name}: the cut runs backwards past the clip's start, or its speed stops the footage`
           : `holds frame ${where} of ${c.name}: the speed settings for this cut stop the footage`;
       issues.push({ level: 'fail', clip: c.name, ...span(a, b), why });
       continue;

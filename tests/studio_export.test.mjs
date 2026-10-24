@@ -1,6 +1,6 @@
 import test, { after } from 'node:test';
 import assert from 'node:assert/strict';
-import { installDom, FakeElement, stubFetch, fakeEngine, fakeBank, FakeEncoder, FakeFrame } from './fakes.mjs';
+import { installDom, FakeElement, stubFetch, fakeEngine, framesReply, FakeEncoder, FakeFrame } from './fakes.mjs';
 
 const dom = installDom();
 const form = new FakeElement('div');
@@ -45,7 +45,7 @@ function fresh(over = {}) {
     exportOpen: false,
     exportOpts: { size: 'master', audio: true, format: 'spotify', promo: 0, autoSave: true },
     engine: fakeEngine(),
-    bank: fakeBank(),
+    bank: { get: () => ({}) },
     ...over,
   });
   st().rebuild();
@@ -55,6 +55,7 @@ function fresh(over = {}) {
 const withSong = (over = {}) => fresh({ features: structuredClone(SONG), trackId: 't1', loopStart: 33.5, ...over });
 
 const server = (o = {}) => stubFetch({
+  'GET /api/frames/*': framesReply(),
   'POST /api/export/raw/begin': () => ({ ok: true, sid: 's1' }),
   'POST /api/export/raw/frames': o.frames || (() => ({ ok: true })),
   'POST /api/export/raw/abort': () => ({ ok: true }),
@@ -227,6 +228,18 @@ test('result headers name the format, and failed checks say so', () => {
   const links = [];
   status.find((c) => { if (c.tagName === 'A') links.push(c.text); return false; });
   assert.deepEqual(links, ['↓ Download MP4', '↓ 3000×3000 Cover JPG', '↓ With audio', '↓ Promo with song']);
+});
+
+test('an export whose clips froze says so, says why, and is not downloaded', async () => {
+  const frozen = { id: 'footage', label: 'Clips play, not stills', level: 'fail', detail: '0:01.6 for 1.6 s: 48 different frames of a.mp4 were decoded, but the browser kept drawing the same picture' };
+  server({ end: () => ({ ok: true, render: { filename: 'canvas-neon.mp4', url: '/out/canvas-neon.mp4', size_mb: 2.5, format: 'spotify', checks: [{ id: 'len', label: 'Length', level: 'ok' }, frozen] } }) });
+  fresh();
+  await X.runExport();
+  assert.equal(status.find((c) => c.tagName === 'H2').text, 'Export failed: the clips froze');
+  assert.ok(status.find((c) => c.text === frozen.detail), 'the reason is in the sheet');
+  assert.deepEqual(downloads, [], 'a frozen export is not saved to Downloads');
+  assert.equal(lastToast(), 'Export failed: the clips froze. The reason is in the export sheet.');
+  assert.equal(st().renders[0].filename, 'canvas-neon.mp4', 'it is still listed, with its failed check');
 });
 
 test('auto-save also downloads the promo and cover art, a moment apart', (t) => {

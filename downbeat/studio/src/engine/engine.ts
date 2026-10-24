@@ -411,6 +411,7 @@ export class Engine {
   main: Pipeline;
   thumbs: Map<string, Pipeline>;
   videoTex: Map<string, any>;
+  frameTex: Map<string, any> = new Map();
   aux: Record<string, any>;
   statsT: RenderTarget;
   printT?: RenderTarget;
@@ -473,31 +474,78 @@ export class Engine {
     return v;
   }
 
-  // Upload a decoded export frame (see clipFrames.ts), unless that frame is already in the texture.
-  frame(key: string, f: { clipId: string; idx: number; img: TexImageSource; w: number; h: number }): any {
-    const v = this._videoTex(key);
+  // Upload an export frame (raw 4:2:0 planes, see clipFrames.ts) and convert it to RGB in a texture of
+  // its own, laid out like an uploaded <video> frame. Nothing happens if that frame is already there.
+  frame(key: string, f: { clipId: string; idx: number; w: number; h: number; data: Uint8Array }): any {
+    const gl = this.gl;
+    let v = this.frameTex.get(key);
+    if (v && (v.vw !== f.w || v.vh !== f.h)) { this._freeFrame(v); v = undefined; }
+    if (!v) {
+      const plane = (w: number, h: number) => {
+        const t = gl.createTexture();
+        if (!t) throw new Error('Failed to create a frame texture');
+        gl.bindTexture(gl.TEXTURE_2D, t);
+        gl.texStorage2D(gl.TEXTURE_2D, 1, gl.R8, w, h);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+        return t;
+      };
+      const rt = this.gpu.target(f.w, f.h, { float: false });
+      v = { rt, tex: rt.tex, y: plane(f.w, f.h), u: plane(f.w / 2, f.h / 2), v: plane(f.w / 2, f.h / 2), vw: f.w, vh: f.h, stamp: '' };
+      this.frameTex.set(key, v);
+    }
     const stamp = `${f.clipId}:${f.idx}`;
-    if (stamp !== v.stamp || v.el !== f.img) {
-      this._upload(v, f.img);
-      v.vw = f.w; v.vh = f.h; v.stamp = stamp; v.el = f.img;
+    if (v.stamp !== stamp) {
+      const { w, h, data } = f;
+      const q = (w * h) / 4;
+      gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
+      gl.bindTexture(gl.TEXTURE_2D, v.y);
+      gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, w, h, gl.RED, gl.UNSIGNED_BYTE, data.subarray(0, w * h));
+      gl.bindTexture(gl.TEXTURE_2D, v.u);
+      gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, w / 2, h / 2, gl.RED, gl.UNSIGNED_BYTE, data.subarray(w * h, w * h + q));
+      gl.bindTexture(gl.TEXTURE_2D, v.v);
+      gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, w / 2, h / 2, gl.RED, gl.UNSIGNED_BYTE, data.subarray(w * h + q, w * h + 2 * q));
+      gl.pixelStorei(gl.UNPACK_ALIGNMENT, 4);
+      this.gpu.draw('yuv', S.YUV, v.rt, { uRes: [w, h] }, { uY: v.y, uU: v.u, uV: v.v });
+      v.stamp = stamp;
+      v.print = undefined;
     }
     return v;
   }
 
-  // Hash of a 16×16 readback of a clip's texture: tells the export whether a new frame really landed.
-  sourcePrint(key: string): number {
-    const v = this.videoTex.get(key);
-    if (!v) return 0;
-    if (v.print === undefined) {
-      const gl = this.gl;
-      if (!this.printT) this.printT = this.gpu.target(16, 16, { float: false });
-      this.gpu.draw('blit', S.BLIT, this.printT, { uRes: [16, 16] }, { uSrc: v });
-      const px = new Uint8Array(16 * 16 * 4);
-      gl.bindFramebuffer(gl.FRAMEBUFFER, this.printT.fb);
-      gl.readPixels(0, 0, 16, 16, gl.RGBA, gl.UNSIGNED_BYTE, px);
-      v.print = fnv(px);
+  _freeFrame(v: any): void {
+    this.gpu.free(v.rt);
+    for (const t of [v.y, v.u, v.v]) this.gl.deleteTexture(t);
+  }
+
+  /** Free the export's frame textures. */
+  dropFrames(): void {
+    for (const v of this.frameTex.values()) this._freeFrame(v);
+    this.frameTex.clear();
+  }
+
+  // Hashes of a 16×16 readback of each cut's frame texture, all in one read: they tell the export
+  // whether a new frame really landed on the GPU.
+  sourcePrints(keys: string[]): number[] {
+    const gl = this.gl;
+    const texOf = (k: string) => this.frameTex.get(k) ?? this.videoTex.get(k);
+    const todo = [...new Set(keys.map(texOf).filter((v) => v && v.print === undefined))];
+    if (!this.printT && todo.length) this.printT = this.gpu.target(64, 16, { float: false });
+    for (let i = 0; i < todo.length; i += 4) {
+      const part = todo.slice(i, i + 4);
+      part.forEach((v, j) => this.gpu.draw('blit', S.BLIT, this.printT!, { uRes: [16, 16] }, { uSrc: v }, [16 * j, 0, 16, 16]));
+      const px = new Uint8Array(64 * 16 * 4);
+      gl.bindFramebuffer(gl.FRAMEBUFFER, this.printT!.fb);
+      gl.readPixels(0, 0, 64, 16, gl.RGBA, gl.UNSIGNED_BYTE, px);
+      part.forEach((v, j) => {
+        const block = new Uint8Array(16 * 16 * 4);
+        for (let y = 0; y < 16; y++) block.set(px.subarray((y * 64 + 16 * j) * 4, (y * 64 + 16 * j + 16) * 4), y * 64);
+        v.print = fnv(block);
+      });
     }
-    return v.print;
+    return keys.map((k) => texOf(k)?.print ?? 0);
   }
 
   dropVideo(key: string): void {

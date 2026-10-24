@@ -577,6 +577,23 @@ class TestServerMedia(_ServerCase):
         with mock.patch.object(self.state.proxies, "ensure", return_value=None):
             self.assertEqual(self.request("GET", f"/api/proxy/{cid}")[0], 500)
 
+    def test_export_frames_are_raw_planes_with_their_size_in_the_headers(self) -> None:
+        cid = self.clip()["id"]
+        status, headers, raw = self.request("GET", f"/api/frames/{cid}?start=5&count=3")
+        self.assertEqual((status, headers["Content-Type"]), (200, "application/octet-stream"))
+        got = {k: headers[f"X-Frame-{k}"] for k in ("Start", "Count", "Total", "Width", "Height")}
+        self.assertEqual(got, {"Start": "5", "Count": "3", "Total": "60", "Width": "96", "Height": "160"})
+        self.assertEqual(len(raw), 3 * 96 * 160 * 3 // 2)
+        self.assertEqual(self.request("GET", f"/api/frames/{cid}?start=many")[0], 400)
+        status, _, body = self.request("GET", "/api/frames/nope?start=0")
+        self.assertEqual((status, json.loads(body)["error"]), (404, "This clip is no longer in the library"))
+        with mock.patch.object(server_mod.clip_frames, "read_frames", side_effect=RuntimeError("ffmpeg could not decode frames 5-7: boom")):
+            status, _, body = self.request("GET", f"/api/frames/{cid}?start=5&count=3")
+        self.assertEqual((status, json.loads(body)["error"]), (500, "1001_stock.mp4: ffmpeg could not decode frames 5-7: boom"))
+        with mock.patch.object(self.state.proxies, "ensure", return_value=None):
+            status, _, body = self.request("GET", f"/api/frames/{cid}")
+        self.assertEqual((status, json.loads(body)["error"]), (500, "The playback copy of 1001_stock.mp4 could not be made"))
+
     def test_thumbnails_are_jpegs_at_a_clamped_width(self) -> None:
         cid = self.clip()["id"]
         for asked, width in (("10", 32), ("64", 64), ("5000", 720)):

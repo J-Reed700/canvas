@@ -9,7 +9,7 @@ from unittest import mock
 import cv2
 import numpy as np
 
-from downbeat.media import encoder, proxy, source
+from downbeat.media import encoder, frames, proxy, source
 from downbeat.media.proxy import ProxyManager
 from downbeat.media.source import probe
 from helpers import HAS_FFMPEG, TempDirCase, _ffprobe, _video
@@ -238,6 +238,72 @@ class TestPlaybackProxy(TempDirCase):
         self.assertEqual((video["width"], video["height"]), (640, 360))
         self.assertEqual(int(video.get("has_b_frames", 0)), 0)
         self.assertEqual(pm.status(probe(clip)), "ready")
+
+
+
+@unittest.skipUnless(HAS_FFMPEG, "ffmpeg required")
+class TestExportFrames(TempDirCase):
+    """Numbered frames of a playback copy for exports: frame n of a 30 fps file is the picture at n / 30 s."""
+
+    def ramp(self, name: str, n: int = 40) -> str:
+        """Frame k is flat grey at Y = 20 + 4k (studio range), losslessly coded."""
+        dest = self.path(name)
+        subprocess.run(
+            ["ffmpeg", "-v", "error", "-y", "-f", "lavfi", "-i", "color=c=black:s=64x48:r=30", "-frames:v", str(n),
+             "-vf", "geq=lum='20+4*N':cb=128:cr=128", "-c:v", "libx264", "-qp", "0", "-pix_fmt", "yuv420p", dest],
+            check=True,
+        )
+        return dest
+
+    def test_frames_start_on_the_frame_asked_for_and_come_out_full_range(self) -> None:
+        clip = self.ramp("ramp.mp4")
+        info, body = frames.read_frames(clip, 10, 5)
+        self.assertEqual(info, {"start": 10, "count": 5, "total": 40, "width": 64, "height": 48})
+        size = 64 * 48 * 3 // 2
+        self.assertEqual(len(body), 5 * size)
+        for k in range(5):
+            y = np.frombuffer(body[k * size : k * size + 64 * 48], np.uint8).astype(float)
+            want = (20 + 4 * (10 + k) - 16) * 255 / 219
+            self.assertAlmostEqual(y.mean(), want, delta=1.5, msg=f"frame {10 + k}")
+            u = np.frombuffer(body[k * size + 64 * 48 : k * size + 64 * 48 + 16 * 24 * 2], np.uint8)
+            self.assertLess(abs(u.astype(float).mean() - 128), 1.5, "grey stays grey")
+        info, body = frames.read_frames(clip, 0, 1)
+        self.assertEqual((info["start"], info["count"]), (0, 1))
+
+    def test_asking_past_the_end_gets_the_last_frame(self) -> None:
+        clip = self.ramp("short.mp4", 12)
+        info, body = frames.read_frames(clip, 500, 30)
+        self.assertEqual((info["start"], info["count"], info["total"]), (11, 1, 12))
+        info, _ = frames.read_frames(clip, 8, 30)
+        self.assertEqual((info["start"], info["count"]), (8, 4))
+
+    def test_a_request_is_capped_by_count_and_by_size(self) -> None:
+        clip = self.ramp("long.mp4", 90)
+        self.assertEqual(frames.read_frames(clip, 0, 500)[0]["count"], frames.MAX_COUNT)
+        with mock.patch.object(frames, "BATCH_BYTES", 64 * 48 * 3):
+            self.assertEqual(frames.read_frames(clip, 0, 30)[0]["count"], 4, "never fewer than four")
+        with mock.patch.object(frames, "BATCH_BYTES", 64 * 48 * 15):
+            self.assertEqual(frames.read_frames(clip, 0, 30)[0]["count"], 10)
+
+    def test_a_file_without_a_frame_count_in_its_header_is_counted(self) -> None:
+        dest = self.path("ramp.mkv")
+        subprocess.run(
+            ["ffmpeg", "-v", "error", "-y", "-f", "lavfi", "-i", "color=c=black:s=64x48:r=30", "-frames:v", "20",
+             "-c:v", "libx264", "-pix_fmt", "yuv420p", dest],
+            check=True,
+        )
+        self.assertEqual(frames.clip_info(dest), (64, 48, 20))
+
+    def test_a_file_ffmpeg_cannot_read_is_a_clear_error(self) -> None:
+        bad = self.path("bad.mp4")
+        with open(bad, "wb") as f:
+            f.write(b"not a video")
+        with self.assertRaisesRegex(RuntimeError, r"^ffprobe could not read bad\.mp4: .+"):
+            frames.clip_info(bad)
+        clip = self.ramp("ok.mp4", 8)
+        with mock.patch.object(frames, "ffmpeg_path", return_value="false"):
+            with self.assertRaisesRegex(RuntimeError, r"ffmpeg could not decode frames 2-7: no frames came out"):
+                frames.read_frames(clip, 2, 30)
 
 
 if __name__ == "__main__":

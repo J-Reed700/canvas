@@ -139,7 +139,7 @@ export async function exportLoop({ engine, frames, clips, ctx, width, height, fp
   try {
   // Every clip must decode before the first frame is committed: one check per clip, not per cut.
   const firstUse = new Map(ctx.tl.segs.map((s) => [s.clipId, s] as const));
-  await Promise.all([...firstUse.values()].map((s) => frames.get(s.clipId, s.in, `${s.clipId}#${s.id}`)));
+  await Promise.all([...firstUse.values()].map((s) => frames.check(s.clipId, s.in)));
   const at = (j: number) => (((j / fps) % ctx.L) + ctx.L) % ctx.L;
   let fr = compose(ctx, at(-warm));
   for (let j = -warm; j < N; j++) {
@@ -153,7 +153,6 @@ export async function exportLoop({ engine, frames, clips, ctx, width, height, fp
     fr = compose(ctx, at(j + 1));
     for (const n of fr.needs) frames.get(n.clipId, n.time, n.vkey).catch(() => {});
     if (j < 0) continue;
-    needs.forEach((n, i) => footage.push({ frame: j, vkey: n.vkey, clipId: n.clipId, idx: got[i].idx, sig: got[i].sig, gpu: engine.sourcePrint(n.vkey) }));
     if (made) {
       const vf = new (window as any).VideoFrame(engine.canvas, { timestamp: Math.round((j * 1e6) / fps), duration: Math.round(1e6 / fps) });
       made.enc.encode(vf, { keyFrame: j % fps === 0 });
@@ -161,6 +160,8 @@ export async function exportLoop({ engine, frames, clips, ctx, width, height, fp
     } else {
       await send(engine.readFull());
     }
+    const prints = engine.sourcePrints(needs.map((n) => n.vkey));
+    needs.forEach((n, i) => footage.push({ frame: j, vkey: n.vkey, clipId: n.clipId, idx: got[i].idx, sig: got[i].sig, gpu: prints[i] }));
     stats.add(engine.readStats(out));
     if (made && made.enc.encodeQueueSize > 4) {
       await new Promise<void>((r) => { made.enc.addEventListener?.('dequeue', r, { once: true }); setTimeout(r, 50); });
@@ -175,11 +176,13 @@ export async function exportLoop({ engine, frames, clips, ctx, width, height, fp
     await upload();
   }
   } catch (err) {
+    engine.dropFrames?.();
     globalThis.removeEventListener?.('pagehide', leave);
     if (made && made.enc.state !== 'closed') made.enc.close();
     fetch(`/api/export/raw/abort?sid=${encodeURIComponent(sid)}`, { method: 'POST' }).catch(() => {});
     throw err;
   }
+  engine.dropFrames?.();
   const report = checkFootage(footage, (id) => ({ name: id, ...clips?.(id), last: frames.last(id) }), fps);
   const st = { ...stats.result(fps), footage: { level: report.level, detail: report.detail } };
   const res = await fetch(`/api/export/raw/end?sid=${encodeURIComponent(sid)}`, { method: 'POST', body: JSON.stringify({ stats: st }) });
