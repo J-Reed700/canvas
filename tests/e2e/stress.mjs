@@ -5,28 +5,35 @@
 // with its own profile, so the session in your browser is left alone.
 //
 //   node tests/e2e/stress.mjs [--url http://127.0.0.1:8765/studio/] [--minutes 10] [--seed 7]
-//                             [--clips id,id] [--headless] [--keep-going] [--new-clips]
+//                             [--clips id,id] [--headless] [--keep-going] [--new-clips] [--upload dir]
 //
 // It starts from the two biggest clips that have playback copies, or the ones given by --clips: big
 // footage takes longest to seek and decode, which is where the preview has fallen behind before.
 //
-// A frame of the preview counts as frozen when the cut on screen has shown the same picture for over a
-// quarter of a second while the song plays, the cut runs at a speed of 0.1 or more, and the video itself
-// has moved on (drawn straight from the <video>, its picture changed). Footage that is itself still doesn't
-// count. A check that finds a fifth of the frames frozen, or the preview not drawing at all, is waited out
-// for 15 s with no edits.
+// A frame of the preview counts as frozen when the song plays, the cut on screen runs at a speed of 0.1 or
+// more, and one of these holds:
+//   - the cut has shown the same picture for over a quarter of a second while the video itself moved on
+//     (drawn straight from the <video>, its picture changed)
+//   - the cut has shown the same picture for over a quarter of a second while the video's clock stood
+//     still for over 0.6 s: a download that stalled, a seek that never landed, a video that broke
+//   - the screen has shown the same picture for over 0.4 s while the cut had a newer one
+// Footage that is itself still doesn't count, and neither does a clip whose playback copy is still being
+// made ("Preparing clip…"). A check that finds a fifth of the frames frozen, or the preview not drawing at
+// all, is waited out for 15 s with no edits.
 // If it's still frozen then, the state of every video is printed and the run ends with exit code 1 (with
 // --keep-going it carries on and fails at the end).
 //
 // The edits add clips from your library, and the server makes playback copies of clips put in an edit, so
-// only clips that already have one are added unless you pass --new-clips. A visible Chrome draws nothing
+// only clips that already have one are added unless you pass --new-clips. With --upload, it also uploads
+// the videos in that folder the way dropping them on the studio does, so each one becomes a new clip in
+// the studio's library, with a playback copy made while the preview plays. A visible Chrome draws nothing
 // once it thinks it's hidden, which includes the screen going to sleep, so the run stops there. On a Mac
 // the window opens behind the app you're using. Headless Chrome decodes video differently and has not
 // shown every problem the visible one does.
 import { execFileSync, spawn, spawnSync } from 'node:child_process';
-import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 
 const argv = process.argv.slice(2);
 const opt = (name, def) => { const i = argv.indexOf(`--${name}`); return i < 0 ? def : argv[i + 1]; };
@@ -38,6 +45,9 @@ const HEADLESS = flag('headless');
 const KEEP_GOING = flag('keep-going');
 const NEW_CLIPS = flag('new-clips');
 const CLIPS = opt('clips', '');
+const UPLOAD = opt('upload', '');
+const uploads = UPLOAD ? readdirSync(UPLOAD).filter((f) => /\.(mp4|mov|m4v|webm|mkv)$/i.test(f)).map((f) => resolve(UPLOAD, f)) : [];
+if (UPLOAD && !uploads.length) { console.error(`No videos in ${UPLOAD}`); process.exit(2); }
 
 let seed = SEED;
 const rnd = () => (seed = (seed * 1664525 + 1013904223) % 4294967296) / 4294967296;
@@ -143,13 +153,13 @@ log(`seed ${SEED}:`, await run(`
 // -- the probe ---------------------------------------------------------------------------------------
 await run(`
   const S = window.__studio, E = S.engine, B = S.bank;
-  const M = window.__probe = { needs: [], playing: false, track: {}, samples: [], lastRender: performance.now() };
+  const M = window.__probe = { needs: [], playing: false, track: {}, samples: [], lastRender: performance.now(), out: NaN, outAt: performance.now() };
   const c2 = Object.assign(document.createElement('canvas'), { width: 16, height: 16 }).getContext('2d', { willReadFrequently: true });
   const hash = (d) => { let h = 2166136261; for (let j = 0; j < d.length; j += 4) h = Math.imul(h ^ (d[j] + d[j + 1] * 3 + d[j + 2] * 7), 16777619); return h; };
   const trackOf = (k, now) => {
-    const tr = M.track[k] ||= { print: NaN, pAt: now, h2: NaN, h2At: now, seen: now };
+    const tr = M.track[k] ||= { print: NaN, pAt: now, h2: NaN, h2At: now, ct: NaN, ctAt: now, seen: now };
     // a cut back on screen after a while starts counting again
-    if (now - tr.seen > 250) tr.pAt = tr.h2At = now;
+    if (now - tr.seen > 250) tr.pAt = tr.h2At = tr.ctAt = now;
     tr.seen = now;
     return tr;
   };
@@ -162,8 +172,10 @@ await run(`
       const now = performance.now();
       for (const need of needs) {
         const el = B.els.get(need.vkey);
-        if (!el || el.readyState < 2) continue;
         const tr = trackOf(need.vkey, now);
+        // whether the video's own clock moves: still footage moves it, a stalled or broken video doesn't
+        if (el && el.currentTime !== tr.ct) { tr.ct = el.currentTime; tr.ctAt = now; }
+        if (!el || el.readyState < 2) continue;
         try { c2.drawImage(el, 0, 0, 16, 16); const h = hash(c2.getImageData(0, 0, 16, 16).data); if (h !== tr.h2) { tr.h2 = h; tr.h2At = now; } } catch {}
       }
     }
@@ -171,16 +183,20 @@ await run(`
   };
   // What the preview drew: a 16×16 print of each cut's texture, every frame drawn.
   const render = E.renderMain.bind(E);
+  let r = 0;
   E.renderMain = (fr) => {
     const out = render(fr);
     const now = M.lastRender = performance.now();
+    // what reached the screen, after the effects and the flash guard
+    if (r++ % 3 === 0) try { c2.drawImage(E.canvas, 0, 0, 16, 16); const h = hash(c2.getImageData(0, 0, 16, 16).data); if (h !== M.out) { M.out = h; M.outAt = now; } } catch {}
     let prints;
     try { prints = E.sourcePrints(fr.needs.map((x) => x.vkey)); } catch { prints = []; }
     fr.needs.forEach((need, i) => {
       const tr = trackOf(need.vkey, now);
       const changed = prints[i] !== tr.print;
       if (changed) { tr.print = prints[i]; tr.pAt = now; }
-      if (i === 0) M.samples.push({ now, k: need.vkey, changed, pic: now - tr.pAt, vid: now - tr.h2At, on: M.playing, rate: need.rate, rev: need.rev });
+      const el = B.els.get(need.vkey);
+      if (i === 0) M.samples.push({ now, k: need.vkey, changed, pic: now - tr.pAt, vid: now - tr.h2At, ct: now - tr.ctAt, src: !!el?._url, out: now - M.outAt, on: M.playing, rate: need.rate, rev: need.rev });
     });
     if (M.samples.length > 8000) M.samples.splice(0, 4000);
     return out;
@@ -189,19 +205,21 @@ await run(`
     const now = performance.now();
     const win = M.samples.filter((s) => now - s.now < secs * 1000);
     const moving = win.filter((s) => s.on && s.rate >= 0.1);
-    // held for over a quarter second while the video itself had a newer picture
-    const frozen = moving.filter((s) => s.pic > 250 && s.vid < s.pic - 150);
+    // see the top of this file
+    const frozen = moving.filter((s) => (s.pic > 250 && (s.vid < s.pic - 150 || (s.src && s.ct > 600))) || (s.out > 400 && s.pic < s.out - 150));
+    const unseen = frozen.filter((s) => s.out > 400 && s.pic < s.out - 150);
+    const stalled = frozen.filter((s) => !(s.vid < s.pic - 150));
     let dur = 0;
     for (let i = 1; i < win.length; i++) if (win[i].on && win[i].rate >= 0.1) dur += Math.min(0.1, (win[i].now - win[i - 1].now) / 1000);
     const per = {};
     for (const s of win) {
-      const q = per[s.k] ||= { n: 0, frozen: 0, rev: 0, pic: 0, changes: 0 };
-      q.n++; if (frozen.includes(s)) q.frozen++; if (s.rev) q.rev++; if (s.changed) q.changes++; q.pic = Math.max(q.pic, Math.round(s.pic));
+      const q = per[s.k] ||= { n: 0, frozen: 0, stalled: 0, rev: 0, pic: 0, changes: 0 };
+      q.n++; if (frozen.includes(s)) q.frozen++; if (stalled.includes(s)) q.stalled++; if (s.rev) q.rev++; if (s.changed) q.changes++; q.pic = Math.max(q.pic, Math.round(s.pic));
     }
-    return { hidden: document.visibilityState !== 'visible', n: win.length, moving: moving.length, frozen: frozen.length,
+    return { hidden: document.visibilityState !== 'visible', n: win.length, moving: moving.length, frozen: frozen.length, stalled: stalled.length, unseen: unseen.length, videos: B.els.size,
       perSec: dur ? moving.filter((s) => s.changed).length / dur : 0,
       sinceDraw: Math.round(now - M.lastRender), playing: S.transport.playing, t: S.transport.loopTime(),
-      cuts: Object.entries(per).map(([k, q]) => k + ': ' + q.n + ' frames, ' + q.changes + ' new pictures, ' + q.frozen + ' frozen, ' + q.rev + ' shown by seeking, picture held up to ' + q.pic + ' ms') };
+      cuts: Object.entries(per).map(([k, q]) => k + ': ' + q.n + ' frames, ' + q.changes + ' new pictures, ' + q.frozen + ' frozen (' + q.stalled + ' with the video stalled), ' + q.rev + ' shown by seeking, picture held up to ' + q.pic + ' ms') };
   };
   M.dump = () => {
     const now = performance.now();
@@ -281,6 +299,53 @@ const press = async (key, code, keyCode) => {
   await send('Input.dispatchKeyEvent', { type: 'keyDown', key, code, windowsVirtualKeyCode: keyCode });
   await send('Input.dispatchKeyEvent', { type: 'keyUp', key, code, windowsVirtualKeyCode: keyCode });
 };
+// The preview itself: drag to move the framing, scroll to zoom, double-click to reset.
+async function stage(what) {
+  const v = await run(`const r = document.getElementById('view')?.getBoundingClientRect(); return r ? [r.left, r.top, r.width, r.height] : null;`);
+  if (!v) return 'no preview';
+  let x = v[0] + v[2] * (0.3 + 0.4 * rnd()), y = v[1] + v[3] * (0.3 + 0.4 * rnd());
+  if (what === 'drag') {
+    await mouse('mousePressed', x, y);
+    for (let i = 0; i < 10 + rnd() * 30; i++) {
+      x += (rnd() - 0.5) * 40; y += (rnd() - 0.5) * 40;
+      await send('Input.dispatchMouseEvent', { type: 'mouseMoved', x, y, button: 'left', buttons: 1 });
+      await sleep(16);
+    }
+    await mouse('mouseReleased', x, y);
+  } else if (what === 'scroll') {
+    for (let i = 0; i < 3 + rnd() * 15; i++) {
+      await send('Input.dispatchMouseEvent', { type: 'mouseWheel', x, y, deltaX: 0, deltaY: (rnd() < 0.5 ? -1 : 1) * 40 });
+      await sleep(16);
+    }
+  } else {
+    await mouse('mousePressed', x, y); await mouse('mouseReleased', x, y);
+    await mouse('mousePressed', x, y, 2); await mouse('mouseReleased', x, y, 2);
+  }
+  return '';
+}
+
+// A file dropped on the studio, through a file input of the test's own that calls the same upload.
+// Each upload goes under a name of its own, so it's a new clip and not a file put over one in use.
+let uploaded = 0;
+async function upload() {
+  const src = pick(uploads);
+  const dir = join(userDir, 'uploads');
+  mkdirSync(dir, { recursive: true });
+  const file = join(dir, `stress-${SEED}-${++uploaded}-${src.split('/').pop()}`);
+  symlinkSync(src, file);
+  await run(`
+    let i = document.getElementById('stressUpload');
+    if (!i) {
+      i = Object.assign(document.createElement('input'), { type: 'file', id: 'stressUpload', hidden: true });
+      i.onchange = () => { const f = [...i.files]; i.value = ''; window.__studio.store.getState().uploadFiles(f); };
+      document.body.append(i);
+    }`);
+  const { root } = (await send('DOM.getDocument')).result;
+  const { nodeId } = (await send('DOM.querySelector', { nodeId: root.nodeId, selector: '#stressUpload' })).result;
+  await send('DOM.setFileInputFiles', { nodeId, files: [file] });
+  return file.split('/').pop();
+}
+
 async function segmentMenu() {
   const lane = await run(`const r = document.getElementById('lane')?.getBoundingClientRect(); return r ? [r.left, r.top, r.width, r.height] : null;`);
   if (!lane) return 'no lane';
@@ -323,8 +388,11 @@ async function segmentMenu() {
 const WEIGHTS = {
   addClip: 6, removeClip: 3, shuffle: 2, roll: 8, rollClips: 3, surprise: 2, stepLook: 3, transition: 8, transLength: 4,
   startPoint: 8, framing: 8, clearFraming: 2, direction: 3, speedCurve: 3, swapClip: 4, split: 3, remove: 2, repeat: 2,
-  insert: 3, bars: 3, rhythm: 3, undo: 4, redo: 2, seek: 3, pausePlay: 2, segmentMenu: 10,
+  insert: 3, bars: 3, rhythm: 3, undo: 4, redo: 2, seek: 3, pausePlay: 2, segmentMenu: 10, stageDrag: 6, stageScroll: 4,
+  stageReset: 2,
 };
+if (uploads.length) WEIGHTS.upload = 2;
+const STAGE = { stageDrag: 'drag', stageScroll: 'scroll', stageReset: 'reset' };
 const bag = Object.entries(WEIGHTS).flatMap(([k, w]) => Array(w).fill(k));
 
 async function check(label, secs) {
@@ -333,7 +401,8 @@ async function check(label, secs) {
   const r = await run(`return window.__probe.check(${secs - 1})`);
   const pct = r.moving ? Math.round((100 * r.frozen) / r.moving) : 0;
   const bad = !r.hidden && (pct >= 20 || r.sinceDraw > 2000 || !r.playing);
-  log(`${label}: ${r.perSec.toFixed(1)} new pictures a second, ${pct}% of frames frozen (${r.frozen} of ${r.moving} that should move)${r.sinceDraw > 2000 ? `, nothing drawn for ${r.sinceDraw} ms` : ''}${r.playing ? '' : ', NOT PLAYING'}`);
+  const slow = [...reqs.values()].filter((q) => Date.now() - q.t > 10_000).length;
+  log(`${label}: ${r.perSec.toFixed(1)} new pictures a second, ${pct}% of frames frozen (${r.frozen} of ${r.moving} that should move, ${r.stalled} with the video stalled, ${r.unseen} drawn but not shown)${r.sinceDraw > 2000 ? `, nothing drawn for ${r.sinceDraw} ms` : ''}${r.playing ? '' : ', NOT PLAYING'}, ${r.videos} videos${slow ? `, ${slow} requests open over 10 s` : ''}`);
   if (bad || pct) for (const c of r.cuts) log('   ', c);
   return { ...r, pct, bad };
 }
@@ -346,7 +415,7 @@ while (Date.now() < end) {
   for (let i = 4 + Math.floor(rnd() * 12); i > 0; i--) {
     const e = pick(bag);
     let res;
-    try { res = e === 'segmentMenu' ? await segmentMenu() : await run(`return String(await window.__edits.${e}())`); } catch (err) { res = 'threw ' + String(err.message).split('\n')[0]; }
+    try { res = e === 'segmentMenu' ? await segmentMenu() : e === 'upload' ? await upload() : STAGE[e] ? await stage(STAGE[e]) : await run(`return String(await window.__edits.${e}())`); } catch (err) { res = 'threw ' + String(err.message).split('\n')[0]; }
     log(`#${++edits} ${e} ${res}`);
     await sleep(rnd() < 0.3 ? 50 + rnd() * 200 : 300 + rnd() * 2200);
   }
