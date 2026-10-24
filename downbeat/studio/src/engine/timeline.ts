@@ -1,6 +1,6 @@
 // Edit planning and sampling. Segments are aligned to the beat grid; each cut,
 // including the loop seam at t = 0, is a transition centered on its beat.
-import type { CameraTransform, RhythmDef, Segment, SegmentFrame, TimelinePlan, TimelinePlanOptions, TimelineSample, VelocityDef } from './types.ts';
+import type { Block, CameraTransform, FramePoint, RhythmDef, Segment, SegmentFrame, TimelinePlan, TimelinePlanOptions, TimelineSample, VelocityDef } from './types.ts';
 
 export const RHYTHMS: Record<string, RhythmDef> = {
   hits: { name: 'On hits', short: 'Hits', beats: null },
@@ -55,8 +55,14 @@ export function moveAt(seg: Segment, local: number): number {
   return u * u * (3 - 2 * u);
 }
 
+/** The framing m of the way through a move: x and y straight across, the zoom at an even pace. */
+export function frameAt(f: SegmentFrame, m: number): FramePoint {
+  const { a, b = a } = f;
+  return [a[0] + (b[0] - a[0]) * m, a[1] + (b[1] - a[1]) * m, a[2] * (b[2] / a[2]) ** m];
+}
+
 // Footage time (in seconds at speed 1) consumed between the segment start and `local`.
-function warp(seg: Segment, local: number): number {
+export function footageUsed(seg: Segment, local: number): number {
   const V = VELOCITY[seg.vel];
   if (!V || seg.vel === 'none' || !seg.bd) return local;
   const span = V.per * seg.bd;
@@ -146,102 +152,157 @@ function cutTimes(opts: TimelinePlanOptions): number[] {
 }
 
 const SMOOTH_TRANS = ['dissolve', 'morph', 'luma', 'prism', 'swirl', 'kaleido', 'iris', 'ripple'];
+const DIRS3 = ['forward', 'reverse', 'pingpong'] as const;
 
-// Build the edit: segments with clip, in-point, transition. clips = [{id, duration}]
-export function planTimeline(opts: TimelinePlanOptions): TimelinePlan {
-  const { L, beatDur, clips, transitions, transBeats, seed, speed = 1, direction = 'forward', order = 'cycle', velocity = 'none' } = opts;
+/** How long a transition can last at a cut: what was asked for, held to 90% of the shorter segment either
+ * side, so the windows at neighbouring cuts never overlap and at most two segments are ever on screen. */
+export function fitTrans(want: number, dur: number, prevDur: number): number {
+  return Math.max(0, Math.min(want, 0.9 * Math.min(dur, prevDur)));
+}
+
+/** Cut times in beats are kept to a millionth of a beat, so grid cuts stay exact whole and half beats. */
+const toBeats = (t: number, beatDur: number): number => Math.round((t / beatDur) * 1e6) / 1e6;
+
+// The rolled edit: cut times from the rhythm, clips in turn, in-points walked through each clip so a clip
+// that comes round again shows new footage, and a seed per block. clips = [{id, duration}]
+export function generateBlocks(opts: TimelinePlanOptions): Block[] {
+  const { L, beatDur, clips, transBeats, seed, speed = 1, order = 'cycle', velocity = 'none' } = opts;
   const r = rng(seed * 2654435761);
   const cuts = cutTimes({ ...opts, nClips: clips.length });
-  const segs: Segment[] = cuts.map((t0, i) => ({
-    i,
-    t0,
-    t1: i + 1 < cuts.length ? cuts[i + 1] : L,
-    clipId: '',
-    dur: 0,
-    speed: 1,
-    vel: 'none',
-    bd: beatDur,
-    rev: false,
-    pp: false,
-    in: 0,
-    trans: 'cut',
-    seed: 0,
-  }));
-  const minDur = Math.min(...segs.map((s) => s.t1 - s.t0));
-  const transDur = Math.min(transBeats * beatDur, minDur * 0.9);
+  const n = cuts.length;
+  const durs = cuts.map((t0, i) => (i + 1 < n ? cuts[i + 1] : L) - t0);
+  const room = durs.map((d, i) => fitTrans(transBeats * beatDur, d, durs[(i - 1 + n) % n]));
+  const cursor = new Map<string, number>();
+  // a ramp can run ahead of constant speed inside a beat, so leave it a little more footage
+  const vk = velocity === 'none' ? 1 : 2;
+  return cuts.map((t0, i) => {
+    const clip = clips[i % clips.length];
+    const need = (durs[i] + ((room[i] + room[(i + 1) % n]) / 2) * vk + (velocity === 'none' ? 0 : beatDur)) * speed + 0.2;
+    const span = Math.max(0, clip.duration - need - 0.1);
+    let start = cursor.has(clip.id) ? (cursor.get(clip.id) as number) : r() * span * 0.6;
+    if (start > span) start = r() * span * 0.3;
+    // in-point leaves room for the transition that starts half a window before the cut
+    const inPt = Math.min(Math.max(start, (room[i] / 2) * speed * vk), Math.max(0, clip.duration - 0.05));
+    cursor.set(clip.id, start + durs[i] * speed + 0.5);
+    // Transitions are dealt when the edit is resolved. A shuffled order drew one here, so the draw is
+    // kept and every seed goes on giving the in-points and drift it always has.
+    if (order === 'random') r();
+    return { id: `g${i}`, at: toBeats(t0, beatDur), clipId: clip.id, in: inPt, seed: Math.floor(r() * 1e6), slot: i };
+  });
+}
+
+// Blocks into segments: times in seconds, and everything a block leaves unset taken from the look's cut
+// settings, the edit's direction and speed, and the transition pool.
+export function resolve(blocks: Block[], opts: TimelinePlanOptions): TimelinePlan {
+  const { L, beatDur, clips, transitions, transBeats, seed, speed = 1, direction = 'forward', order = 'cycle', velocity = 'none' } = opts;
+  const end = L / beatDur;
+  // in beat order and inside the loop
+  const list: Block[] = [];
+  for (const b of [...blocks].sort((x, y) => x.at - y.at)) {
+    if (!list.length || (b.at > list[list.length - 1].at + 1e-6 && b.at < end - 1e-6)) list.push(b);
+  }
+  const n = list.length;
+  const t0s = list.map((b, k) => (k ? b.at * beatDur : 0));
+  const durs = t0s.map((t0, k) => (k + 1 < n ? t0s[k + 1] : L) - t0);
+  const byId = new Map(clips.map((c) => [c.id, c]));
+
   const pool = transitions.length ? transitions : ['cut'];
   const nonCut = pool.filter((p) => p !== 'cut');
   const seamPool = nonCut.length ? nonCut : pool;
   const smoothSeam = seamPool.filter((p) => SMOOTH_TRANS.includes(p));
   const preferredSeam = smoothSeam.length ? smoothSeam : seamPool;
-  const cursor = new Map<string, number>();
-  const dr = rng(seed * 40503 + 17);
+  const deal = (b: Block, k: number, prev: string | null): string => {
+    if (order === 'random') {
+      const from = k === 0 ? preferredSeam : pool;
+      const j = Math.floor(rng(b.seed + 1)() * from.length);
+      // never the same transition on back-to-back cuts
+      return from[j] === prev && from.length > 1 ? from[(j + 1) % from.length] : from[j];
+    }
+    if (k === 0) return preferredSeam.includes(pool[0]) ? pool[0] : preferredSeam[0];
+    return pool[(b.slot ?? k) % pool.length];
+  };
+  // random directions are drawn in slot order, as the rolled edit always drew them
+  let draws: number[] = [];
+  if (direction === 'random') {
+    const dr = rng(seed * 40503 + 17);
+    draws = Array.from({ length: Math.max(0, ...list.map((b) => (b.slot ?? -1) + 1)) }, () => dr());
+  }
+
   let prevTrans: string | null = null;
-  segs.forEach((s, i) => {
-    const clip = clips[i % clips.length];
-    s.clipId = clip.id;
-    s.dur = s.t1 - s.t0;
-    s.speed = speed;
-    s.vel = velocity;
-    s.bd = beatDur;
-    s.focus = clip.focus || null;
-    const d = direction === 'random' ? ['forward', 'reverse', 'pingpong'][Math.floor(dr() * 3)] : direction;
-    s.rev = d === 'reverse' || (d === 'alternate' && i % 2 === 1);
-    s.pp = d === 'pingpong';
-    // a ramp can run ahead of constant speed inside a beat, so leave it a little more footage
-    const vk = velocity === 'none' ? 1 : 2;
-    const need = (s.dur + transDur * vk + (velocity === 'none' ? 0 : beatDur)) * speed + 0.2;
-    const span = Math.max(0, clip.duration - need - 0.1);
-    let start = cursor.has(clip.id) ? (cursor.get(clip.id) as number) : r() * span * 0.6;
-    if (start > span) start = r() * span * 0.3;
-    // in-point leaves room for the transition that starts half a window before the cut
-    s.in = Math.min(Math.max(start, (transDur / 2) * speed * vk), Math.max(0, clip.duration - 0.05));
-    cursor.set(clip.id, start + s.dur * speed + 0.5);
-    let tr: string;
-    if (i === 0) {
-      if (order === 'random') {
-        tr = preferredSeam[Math.floor(r() * preferredSeam.length)];
-      } else {
-        tr = preferredSeam.includes(pool[0]) ? pool[0] : preferredSeam[0];
-      }
-    } else if (order === 'random') {
-      const cands = pool.filter((p) => p !== prevTrans);
-      tr = (cands.length ? cands : pool)[Math.floor(r() * (cands.length || pool.length))];
-    } else tr = pool[i % pool.length];
-    s.trans = tr;
-    prevTrans = tr;
-    s.seed = Math.floor(r() * 1e6);
+  const segs: Segment[] = list.map((b, k) => {
+    const clip = byId.get(b.clipId) || clips[k % clips.length];
+    const dur = durs[k];
+    const vel = b.vel ?? velocity;
+    const d =
+      b.dir ??
+      (direction === 'random'
+        ? DIRS3[Math.floor((b.slot != null ? draws[b.slot] : rng(b.seed * 7 + 3)()) * 3)]
+        : direction === 'alternate'
+          ? (b.slot ?? k) % 2 ? 'reverse' : 'forward'
+          : direction);
+    const trans = b.trans ?? deal(b, k, prevTrans);
+    prevTrans = trans;
+    // A block that grew past its footage starts earlier in its clip, so it doesn't stop on a frozen frame.
+    const fit = Math.max(0, clip.duration - dur * speed - 0.1);
+    const seg: Segment = {
+      i: k,
+      id: b.id,
+      t0: t0s[k],
+      t1: t0s[k] + dur,
+      clipId: clip.id,
+      dur,
+      speed,
+      vel,
+      bd: beatDur,
+      focus: clip.focus || null,
+      rev: d === 'reverse',
+      pp: d === 'pingpong',
+      in: Math.min(Math.max(0, Math.min(b.in, fit)), Math.max(0, clip.duration - 0.05)),
+      trans,
+      transDur: trans === 'cut' ? 0 : fitTrans((b.transBeats ?? transBeats) * beatDur, dur, durs[(k - 1 + n) % n]),
+      seed: b.seed,
+      span: b.span || [0, 1],
+    };
+    if (b.frame) seg.frame = b.frame;
+    if (k + 1 === n) seg.t1 = L;
+    return seg;
   });
-  return { L, beatDur, segs, transDur };
+  const want = cutTimes({ ...opts, nClips: clips.length });
+  const handCut = want.length !== n || want.some((t, k) => Math.abs(t - t0s[k]) > 1e-6);
+  return { L, beatDur, segs, blocks: list, handCut };
 }
 
-// Which segment(s) are visible at loop time t, with local times and transition progress.
+// Build the edit the rhythm and the seed give.
+export function planTimeline(opts: TimelinePlanOptions): TimelinePlan {
+  return resolve(generateBlocks(opts), opts);
+}
+
+// Which segment(s) are visible at loop time t, with local times and transition progress. Part keys are
+// block ids, so a player stays with its footage when blocks around it are split or deleted.
 export function sampleTimeline(tl: TimelinePlan, t: number): TimelineSample {
-  const { L, segs, transDur } = tl;
+  const { L, segs } = tl;
   t = wrap(t, L);
   const n = segs.length;
-  if (transDur > 1 / 60) {
-    for (let k = 0; k < n; k++) {
-      const b = segs[k];
-      if (b.trans === 'cut') continue;
-      let d = t - b.t0;
-      if (d > L / 2) d -= L;
-      if (d < -L / 2) d += L;
-      if (Math.abs(d) < transDur / 2) {
-        const ai = (k - 1 + n) % n;
-        const a = segs[ai];
-        return {
-          a: { seg: a, local: a.dur + d, key: ai === k ? `${ai}:tail` : `${ai}` },
-          b: { seg: b, local: d, key: `${k}` },
-          p: (d + transDur / 2) / transDur,
-          trans: b.trans,
-        };
-      }
+  for (let k = 0; k < n; k++) {
+    const b = segs[k];
+    if (b.transDur <= 1 / 60) continue;
+    let d = t - b.t0;
+    if (d > L / 2) d -= L;
+    if (d < -L / 2) d += L;
+    if (Math.abs(d) < b.transDur / 2) {
+      const ai = (k - 1 + n) % n;
+      const a = segs[ai];
+      return {
+        a: { seg: a, local: a.dur + d, key: ai === k ? `${a.id}:tail` : a.id },
+        b: { seg: b, local: d, key: b.id },
+        p: (d + b.transDur / 2) / b.transDur,
+        trans: b.trans,
+      };
     }
   }
   if (n === 1) {
     const b = segs[0];
-    if (b.trans === 'cut' || transDur <= 1 / 60) {
+    if (b.transDur <= 1 / 60) {
       const dur = Math.min(0.5 * (tl.beatDur || 0.5), b.dur * 0.25);
       if (dur > 1 / 60) {
         let d = t - b.t0;
@@ -249,8 +310,8 @@ export function sampleTimeline(tl: TimelinePlan, t: number): TimelineSample {
         if (d < -L / 2) d += L;
         if (Math.abs(d) < dur / 2) {
           return {
-            a: { seg: b, local: b.dur + d, key: '0:tail' },
-            b: { seg: b, local: d, key: '0' },
+            a: { seg: b, local: b.dur + d, key: `${b.id}:tail` },
+            b: { seg: b, local: d, key: b.id },
             p: (d + dur / 2) / dur,
             trans: 'dissolve',
           };
@@ -259,14 +320,14 @@ export function sampleTimeline(tl: TimelinePlan, t: number): TimelineSample {
     }
   }
   for (let k = n - 1; k >= 0; k--) {
-    if (t >= segs[k].t0 - 1e-9) return { a: { seg: segs[k], local: t - segs[k].t0, key: `${k}` }, b: null, p: 0, trans: null };
+    if (t >= segs[k].t0 - 1e-9) return { a: { seg: segs[k], local: t - segs[k].t0, key: segs[k].id }, b: null, p: 0, trans: null };
   }
-  return { a: { seg: segs[0], local: t, key: '0' }, b: null, p: 0, trans: null };
+  return { a: { seg: segs[0], local: t, key: segs[0].id }, b: null, p: 0, trans: null };
 }
 
 export function clipTime(seg: Segment, local: number, clipDur: number): number {
   // ping-pong plays forward to the middle of the segment, then back to its in-point
-  const w = warp(seg, local), wd = warp(seg, seg.dur);
+  const w = footageUsed(seg, local), wd = footageUsed(seg, seg.dur);
   const u = seg.pp ? Math.min(w, wd - w) : seg.rev ? wd - w : w;
   const span = seg.in + u * seg.speed;
   return Math.min(Math.max(0, span), Math.max(0, clipDur - 1 / 30));
@@ -288,15 +349,16 @@ export function cameraFor(
   const [fx, fy, fz] = seg.focus || [0.5, 0.5, 1];
   const c0 = [fx + (r() - 0.5) * drift, fy + (r() - 0.5) * drift * 0.6];
   const c1 = [fx + (r() - 0.5) * drift, fy + (r() - 0.5) * drift * 0.6];
-  const u = Math.max(-0.5, Math.min(1.5, local / Math.max(seg.dur, 1e-3)));
+  // the halves of a split block each cover their stretch of one drift path
+  const [u0, u1] = seg.span || [0, 1];
+  const u = u0 + (u1 - u0) * Math.max(-0.5, Math.min(1.5, local / Math.max(seg.dur, 1e-3)));
   let center: [number, number] = [c0[0] + (c1[0] - c0[0]) * u, c0[1] + (c1[1] - c0[1]) * u];
   let zoom = Math.max(1, cam.zoom * (fz || 1) * (1 + drift * 0.07 * u));
   if (seg.frame) {
     // the segment's own framing replaces the drift: a still crop, or a move from a to b
-    const { a, b = a } = seg.frame;
-    const m = moveAt(seg, local);
-    center = [a[0] + (b[0] - a[0]) * m, a[1] + (b[1] - a[1]) * m];
-    zoom = Math.max(1, cam.zoom * a[2] * (b[2] / a[2]) ** m); // geometric, so the zoom looks even-paced
+    const [x, y, z] = frameAt(seg.frame, moveAt(seg, local));
+    center = [x, y];
+    zoom = Math.max(1, cam.zoom * z);
   }
   const ph = (t / L) * Math.PI * 2;
   // Shake is a slow handheld wobble plus a 6-11 Hz rattle, as a fraction of the visible frame. The

@@ -3,7 +3,7 @@ import { useStudioStore } from '../state/store.ts';
 import { fmt, openPop, closePop, h, POOLS, clipAspect, cropRect, room } from '../lib/utils.ts';
 import { clamp } from '../engine/looks.ts';
 import { setMenuSeg } from '../canvas/timelineCanvas.ts';
-import { MOVES, RHYTHMS, VELOCITY, moveAt } from '../engine/timeline.ts';
+import { MOVES, RHYTHMS, VELOCITY, frameAt, moveAt } from '../engine/timeline.ts';
 import { TRANSITIONS } from '../engine/shaders.ts';
 import { screenOf } from '../lib/screens.ts';
 import type { FramePoint, Segment, SegmentFrame, SegmentOverride } from '../engine/types.ts';
@@ -51,7 +51,8 @@ function framingSection(si: number, seg: Segment, own: SegmentFrame | undefined,
 
   // the preview shows the end being edited, just clear of the transitions either side
   const show = (k: 'a' | 'b') => {
-    const pad = Math.min(s.ctx!.tl.transDur / 2 + 0.02, seg.dur * 0.3);
+    const segs = s.ctx!.tl.segs;
+    const pad = Math.min((k === 'b' ? segs[(seg.i + 1) % segs.length].transDur : seg.transDur) / 2 + 0.02, seg.dur * 0.3);
     s.transport.seek((((k === 'b' ? seg.t1 - pad : seg.t0 + pad) % L) + L) % L);
   };
   const apply = (f: SegmentFrame, again = false) => {
@@ -119,9 +120,8 @@ function framingSection(si: number, seg: Segment, own: SegmentFrame | undefined,
     const local = sg ? ((((st.transport.loopTime() - sg.t0) % L) + L) % L) : Infinity;
     live.hidden = !sg?.frame?.b || local > sg.dur;
     if (!live.hidden) {
-      const { a, b } = sg!.frame as Required<SegmentFrame>;
-      const m = moveAt(sg!, local);
-      const [l, t, w, hh] = cropRect(clip, Math.max(1, cz * a[2] * (b[2] / a[2]) ** m), a[0] + (b[0] - a[0]) * m, a[1] + (b[1] - a[1]) * m, ca);
+      const [x, y, z] = frameAt(sg!.frame!, moveAt(sg!, local));
+      const [l, t, w, hh] = cropRect(clip, Math.max(1, cz * z), x, y, ca);
       live.style.cssText = `left:${l * 100}%;top:${t * 100}%;width:${w * 100}%;height:${hh * 100}%`;
     }
     requestAnimationFrame(follow);
@@ -328,7 +328,7 @@ function segmentMenu(box: HTMLElement, start: number) {
     const beat = Math.floor(b % 4) + 1;
     const where = `Bar ${Math.floor(b / 4) + 1}${beat > 1 ? `, beat ${beat}` : ''} · ${seg.dur.toFixed(2)} s long`;
     // a beat of the segment before, then the transition
-    const lead = s.ctx.tl.transDur / 2 + beatDur;
+    const lead = seg.transDur / 2 + beatDur;
     const playCut = () => {
       s.transport.seek((((seg.t0 - lead) % L) + L) % L);
       if (!s.transport.playing) s.transport.play();

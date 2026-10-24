@@ -200,16 +200,41 @@ export interface RollOptions {
   loop?: boolean;
 }
 
-export interface SegmentOverride {
-  clipId?: string;
+/** One block on the video lane: a cut, the footage it shows until the next one, and anything set by hand.
+ * Fields left unset follow the look's cut settings, so a change to those still reaches every block that
+ * nobody set. */
+export interface Block {
+  id: string;
+  /** Where the block starts, in beats from the loop start. The first block starts at 0. */
+  at: number;
+  clipId: string;
+  /** Footage time the block starts on, in seconds. */
+  in: number;
+  /** Picks the look's drift path for the block. */
+  seed: number;
+  /** The place in the rolled edit this block's transition and alternating direction are dealt from. A
+   * split keeps it on both halves, so the cuts after an edit keep the transitions they had. */
+  slot?: number;
+  /** The stretch of its drift path the block covers, as [from, to] in 0..1. Both halves of a split
+   * share one path, so the camera doesn't jump at the new cut. */
+  span?: [number, number];
+  /** The transition into this block. */
   trans?: string;
+  /** How long that transition lasts, in beats. */
+  transBeats?: number;
   vel?: string;
-  in?: number;
-  /** Plays this segment forward, reversed or ping-pong, whatever the edit's direction. */
+  /** Plays this block forward, reversed or ping-pong, whatever the edit's direction. */
   dir?: 'forward' | 'reverse' | 'pingpong';
-  /** Frames this segment its own way, in place of its clip's framing and the look's drift. */
+  /** Frames this block its own way, in place of its clip's framing and the look's drift. */
   frame?: SegmentFrame;
 }
+
+/** What the segment menu and the lane change on one block. */
+export type BlockPatch = Partial<Pick<Block, 'clipId' | 'in' | 'trans' | 'transBeats' | 'vel' | 'dir' | 'frame'>>;
+
+/** Per-segment settings as sessions saved them before blocks, keyed by segment number. Read once, when
+ * such a session opens. */
+export type SegmentOverride = Omit<BlockPatch, 'transBeats'>;
 
 /** Where a segment's crop sits, as [x, y, zoom]: x and y are the crop centre from 0 to 1 across the clip
  * (y up), zoom runs 1 to 3 on top of the look's camera zoom. */
@@ -225,7 +250,10 @@ export interface SegmentFrame {
 }
 
 export interface Segment {
+  /** Position in the edit. */
   i: number;
+  /** The id of the block it plays. */
+  id: string;
   t0: number;
   t1: number;
   clipId: string;
@@ -239,14 +267,21 @@ export interface Segment {
   pp: boolean;
   in: number;
   trans: string;
+  /** How long the transition into this segment lasts, centred on t0, in seconds: 0 for a hard cut. It is
+   * already shortened to fit the segments either side. */
+  transDur: number;
   seed: number;
+  span: [number, number];
 }
 
 export interface TimelinePlan {
   L: number;
   beatDur: number;
   segs: Segment[];
-  transDur: number;
+  /** The blocks the plan was resolved from: the rolled ones while the edit follows the rhythm. */
+  blocks: Block[];
+  /** The cuts are not where the rhythm puts them. */
+  handCut: boolean;
 }
 
 export interface TimelineSamplePart {

@@ -215,11 +215,11 @@ describe('lane', () => {
     fireEvent.doubleClick(lane(), { clientX: 125, clientY: 30 });
     fireEvent.click(popButton('▶ Play the cut'));
     expect(st().transport.playing).toBe(true);
-    expect(st().transport.loopTime()).toBeCloseTo(2 - st().ctx!.tl.transDur / 2 - 0.5, 1);
+    expect(st().transport.loopTime()).toBeCloseTo(2 - st().ctx!.tl.segs[1].transDur / 2 - 0.5, 1);
     st().transport.pause();
     fireEvent.doubleClick(lane(), { clientX: 10, clientY: 30 });
     fireEvent.click(popButton('▶ Play the cut'));
-    expect(st().transport.loopTime(), 'the seam starts from the end of the loop').toBeCloseTo(8 - st().ctx!.tl.transDur / 2 - 0.5, 1);
+    expect(st().transport.loopTime(), 'the seam starts from the end of the loop').toBeCloseTo(8 - st().ctx!.tl.segs[0].transDur / 2 - 0.5, 1);
     st().transport.pause();
   });
 });
@@ -291,7 +291,7 @@ describe('segment framing', () => {
     expect(frame()).toEqual({ a: [0.5, 0.5, 1], b: [0.5, 0.5, 1.25], ease: 'linear' });
     expect(pop().querySelectorAll('.seg-win:not(.live)')).toHaveLength(2);
     expect(popButton('End').className, 'the end is ready to adjust').toBe('on');
-    const pad = Math.min(st().ctx!.tl.transDur / 2 + 0.02, seg().dur * 0.3);
+    const pad = Math.min(st().ctx!.tl.segs[seg().i + 1].transDur / 2 + 0.02, seg().dur * 0.3); // the transition out of it
     expect(st().transport.loopTime(), 'the preview shows the end').toBeCloseTo(seg().t1 - pad, 9);
 
     fireEvent.input(slider('X'), { target: { value: '-1' } });

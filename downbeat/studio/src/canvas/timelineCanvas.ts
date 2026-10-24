@@ -174,8 +174,8 @@ export function drawLane(s: StudioState, onRedraw?: () => void) {
   const gap = w / tl.segs.length;
   tl.segs.forEach((seg) => {
     const cx = X(seg.t0);
-    const half = (tl.transDur / 2 / L) * w;
-    if (seg.trans !== 'cut' && tl.transDur > 0) {
+    const half = (seg.transDur / 2 / L) * w;
+    if (seg.transDur > 0) {
       x.fillStyle = 'rgba(255,79,163,0.28)';
       x.fillRect(cx - half, top, half * 2, bot - top);
       if (seg.t0 === 0) x.fillRect(w - half, top, half, bot - top);
