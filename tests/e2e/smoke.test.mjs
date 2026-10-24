@@ -88,8 +88,23 @@ test('the studio works end to end in a real browser', { skip: missing.length ? `
         await browser.run(PAGE + body);
       } catch (e) {
         broken = name;
+        const diagnostics = await browser.run(`
+          const canvas = document.querySelector('.video-scope');
+          const state = window.__studio?.store.getState();
+          const ancestors = [];
+          for (let el = canvas; el; el = el.parentElement) {
+            const r = el.getBoundingClientRect(), css = getComputedStyle(el);
+            ancestors.push({ tag: el.tagName, id: el.id, className: el.className,
+              rect: [r.x, r.y, r.width, r.height], display: css.display, visibility: css.visibility,
+              scrollTop: el.scrollTop, clientHeight: el.clientHeight, scrollHeight: el.scrollHeight });
+          }
+          return { hidden: document.hidden, viewport: [innerWidth, innerHeight],
+            tab: state?.tab, exporting: state?.exporting, lastOut: !!state?.engine?.lastOut,
+            contextLost: state?.engine?.gl.isContextLost(), scopeMode: document.querySelector('.scope-toolbar button.on')?.textContent,
+            ancestors };
+        `).catch((error) => ({ error: error.message }));
         const files = readdirSync(out).filter((f) => !f.startsWith('.')).map((f) => `${f} (${statSync(join(out, f)).size} B)`);
-        throw new Error(`${e.message}\nout/: ${files.join(', ') || 'empty'}\nserver: ${serverErr.slice(-800)}`);
+        throw new Error(`${e.message}\nout/: ${files.join(', ') || 'empty'}\nserver: ${serverErr.slice(-800)}\ndiagnostics: ${JSON.stringify(diagnostics)}`);
       } finally {
         if (viewport) await browser.send('Emulation.clearDeviceMetricsOverride');
       }
