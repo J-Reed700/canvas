@@ -232,6 +232,25 @@ describe('cuts and transitions', () => {
 });
 
 describe('tempo and look switching', () => {
+  test('clip speed presets and slider retime footage while keeping the beat grid and segment overrides', () => {
+    resetStudio();
+    update(() => st().setBlock('g1', { overrides: { camera: { speed: 1.75 } } }));
+    renderStudio(<EditPane />);
+    const cuts = st().ctx!.tl.segs.map((s) => [s.t0, s.t1]);
+    const slider = screen.getByLabelText('Default clip speed');
+    fireEvent.click(within(field('Clip speed')).getByText('1.5×'));
+    expect(st().look!.camera.p.speed).toBe(1.5);
+    expect(st().ctx!.tl.segs[0].speed).toBe(1.5);
+    expect(st().ctx!.tl.segs[1].speed).toBe(1.75);
+    expect(field('Clip speed').querySelector('output')!.textContent).toBe('1.50×');
+    fireEvent.change(slider, { target: { value: '0.6' } });
+    expect(st().ctx!.tl.segs[0].speed).toBe(0.6);
+    expect(st().ctx!.tl.segs.map((s) => [s.t0, s.t1])).toEqual(cuts);
+    expect(st().bpm()).toBe(120);
+    fireEvent.doubleClick(slider);
+    expect(st().look!.camera.p.speed).toBe(1);
+  });
+
   test('without a song the tempo slider sets the beat clock', () => {
     resetStudio();
     renderStudio(<EditPane />);

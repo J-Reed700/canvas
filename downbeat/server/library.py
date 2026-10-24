@@ -11,13 +11,14 @@ Nothing is listed until the user picks a folder or adds a file.
 from __future__ import annotations
 
 import dataclasses
-import json
 import os
 import subprocess
 import tempfile
+import threading
 
 from ..media import file_id
 from ..media.encoder import ffmpeg_path
+from .storage import read_json, write_json
 
 AUDIO_EXTS = (".wav", ".mp3", ".m4a", ".aac", ".flac", ".aif", ".aiff", ".ogg", ".opus")
 VIDEO_EXTS = (".mp4", ".mov", ".m4v", ".webm", ".mkv")
@@ -28,6 +29,7 @@ MAX_PER_FOLDER = 5000
 # Each video is probed and gets a playback proxy, so a big folder lists only its newest ones.
 MAX_VIDEOS_PER_FOLDER = 50
 _SKIP_DIR_SUFFIXES = (".app", ".photoslibrary", ".musiclibrary", ".tvlibrary", ".logicx", ".band")
+_FOLDER_LOCK = threading.Lock()
 
 
 @dataclasses.dataclass
@@ -68,7 +70,10 @@ def source_of(path: str, uploads: str, folders: list[str]) -> tuple[str, str]:
     """Where a video is listed from, the way a Track says it: "added" or the picked folder that holds it, and
     the subfolder inside that. ("", "") for a path in none of them."""
     for root, source in [(uploads, "added"), *((f, f) for f in folders)]:
-        rel = os.path.relpath(os.path.dirname(path), root)
+        try:
+            rel = os.path.relpath(os.path.dirname(path), root)
+        except ValueError:  # Windows folders on different drives have no relative path.
+            continue
         if rel == ".":
             return source, ""
         if rel != os.pardir and not rel.startswith(os.pardir + os.sep):
@@ -120,29 +125,26 @@ class Library:
         self.config_path = os.path.join(out_dir, ".library.json")
 
     def folders(self) -> list[str]:
-        try:
-            with open(self.config_path) as f:
-                return [p for p in json.load(f).get("folders", []) if isinstance(p, str)]
-        except (OSError, ValueError):
-            return []
+        folders = (read_json(self.config_path) or {}).get("folders")
+        return [p for p in folders if isinstance(p, str)] if isinstance(folders, list) else []
 
     def _save(self, folders: list[str]) -> None:
-        os.makedirs(os.path.dirname(self.config_path), exist_ok=True)
-        with open(self.config_path, "w") as f:
-            json.dump({"folders": folders}, f, indent=1)
+        write_json(self.config_path, {"folders": folders})
 
     def add_folder(self, path: str) -> str:
         folder = os.path.abspath(os.path.expanduser(path.strip()))
         if not os.path.isdir(folder):
             raise FileNotFoundError(f"No folder at {folder}")
-        folders = self.folders()
-        if folder not in folders:
-            self._save(folders + [folder])
+        with _FOLDER_LOCK:
+            folders = self.folders()
+            if folder not in folders:
+                self._save(folders + [folder])
         return folder
 
     def remove_folder(self, path: str) -> None:
         folder = os.path.abspath(os.path.expanduser(path))
-        self._save([p for p in self.folders() if p != folder])
+        with _FOLDER_LOCK:
+            self._save([p for p in self.folders() if p != folder])
 
     def suggestions(self) -> list[str]:
         """Common Mac music folders that exist and aren't being scanned yet."""

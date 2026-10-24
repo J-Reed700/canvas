@@ -483,6 +483,39 @@ test('picking a song loads its analysis and suggested loop, and ignores a slower
   assert.equal(st().transport.buffer, null);
 });
 
+test('a slower failed song selection cannot erase a newer successful selection', async () => {
+  fresh();
+  let fail;
+  const old = new Promise((_, reject) => { fail = reject; });
+  stubFetch({
+    'GET /api/features/t1': () => old,
+    'GET /api/features/t2': () => ({ ...SONG, id: 't2', bpm: 90 }),
+  });
+  st().transport.decode = async () => FAKE_BUFFER;
+  const first = st().selectTrack('t1');
+  await st().selectTrack('t2');
+  const current = st().features;
+  const version = st().version;
+  fail(new Error('the earlier analysis failed'));
+  await first;
+  assert.equal(st().features, current);
+  assert.equal(st().trackStateText, '');
+  assert.equal(st().version, version, 'a stale failure cannot rebuild the new edit');
+});
+
+test('opening a saved song edit at zero keeps its loop length and hand cuts', async () => {
+  fresh({ trackId: 't1', loopStart: 0, bars: 2 });
+  stubFetch({ 'GET /api/features/t1': () => ({ ...SONG, loops: [{ start: 33.5 }], loop_bars: 4 }) });
+  st().transport.decode = async () => FAKE_BUFFER;
+  st().setBlock(st().ctx.tl.segs[0].id, { in: 0.25 });
+  const blocks = st().blocks;
+  assert.ok(blocks);
+  await st().selectTrack('t1', { initial: true });
+  assert.equal(st().loopStart, 0);
+  assert.equal(st().bars, 2);
+  assert.equal(st().blocks, blocks);
+});
+
 test('tap tempo needs four taps, sets the tempo without a song and starts over after a pause', (t) => {
   fresh();
   let now = 1000;
@@ -969,6 +1002,35 @@ test('auto-frame moves wide clips onto their subject and recenters the rest', as
   fresh({ selected: [] });
   await media.autoFrame();
   assert.equal(lastToast(), 'Pick a few clips first');
+});
+
+test('auto-frame preserves manual changes and removed clips while analysis is pending', async () => {
+  fresh({ clipFrame: { b: [0.5, 0.5, 1.4] } });
+  let release;
+  const gate = new Promise((resolve) => { release = resolve; });
+  stubFetch({ 'GET /api/autoframe/*': async () => { await gate; return { ok: true, method: 'subject', focus: [0.7, 0.4] }; } });
+  const pending = media.autoFrame();
+  const manual = [0.2, 0.3, 1.6];
+  st().clipFrame.b = manual;
+  st().clipFrame.c = [0.4, 0.4, 1.2];
+  S.setState({ clips: st().clips.filter((clip) => clip.id !== 'a'), selected: ['b', 'c'] });
+  release();
+  await pending;
+  assert.deepEqual(st().clipFrame, { b: manual, c: [0.4, 0.4, 1.2] });
+  assert.equal(lastToast(), 'Auto-frame finished. Newer framing changes were kept.');
+});
+
+test('a superseded auto-frame request cannot overwrite the latest result', async () => {
+  fresh({ selected: ['a'] });
+  let release;
+  const gate = new Promise((resolve) => { release = resolve; });
+  stubFetch({ '/api/autoframe/a': async () => { await gate; return { ok: true, method: 'subject', focus: [0.1, 0.1] }; } });
+  const first = media.autoFrame();
+  stubFetch({ '/api/autoframe/a': () => ({ ok: true, method: 'subject', focus: [0.8, 0.3] }) });
+  await media.autoFrame();
+  release();
+  await first;
+  assert.deepEqual(st().clipFrame.a, [0.8, 0.7, 1]);
 });
 
 test('uploads add videos to the edit, switch images to an album-art look and pick up songs', async () => {

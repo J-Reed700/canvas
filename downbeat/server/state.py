@@ -16,6 +16,7 @@ from .._cache import FileResultCache, file_version
 from .library import Library, Track, is_audio_name, track_id
 from .payloads import clip_payload, clip_payloads
 from .projects import ProjectStore
+from .storage import write_json
 from ..media.proxy import ProxyManager
 from ..media.source import IMAGE_EXTS, Source, probe
 
@@ -26,6 +27,7 @@ STUDIO_DIR = os.path.join(PACKAGE_DIR, "studio")
 STUDIO_DIST_DIR = os.path.join(STUDIO_DIR, "dist")
 RAW_SESSION_IDLE_SECONDS = 15 * 60
 MAX_RAW_SESSIONS = 4
+_HIDDEN_LOCK = threading.Lock()
 
 
 class StudioState:
@@ -307,10 +309,10 @@ class StudioState:
                 if os.path.isfile(p):
                     os.remove(p)
             return True
-        hidden = _hidden_clips()
-        hidden.add(path)
-        with open(os.path.join(OUT_DIR, ".hidden-clips.json"), "w") as f:
-            json.dump(sorted(hidden), f, indent=1)
+        with _HIDDEN_LOCK:
+            hidden = _hidden_clips()
+            hidden.add(path)
+            write_json(os.path.join(OUT_DIR, ".hidden-clips.json"), sorted(hidden))
         return False
 
     def add_clip_path(self, path: str) -> Source:
@@ -426,7 +428,8 @@ def _hidden_clips() -> set[str]:
     """Paths of clips removed from the library that live outside out/ (see remove_clip)."""
     try:
         with open(os.path.join(OUT_DIR, ".hidden-clips.json")) as f:
-            return set(json.load(f))
+            paths = json.load(f)
+        return {path for path in paths if isinstance(path, str)} if isinstance(paths, list) else set()
     except (OSError, ValueError):
         return set()
 

@@ -150,6 +150,11 @@ class TestStateHelpers(unittest.TestCase):
 
     def test_hidden_clip_list_tolerates_a_damaged_file(self) -> None:
         self.assertEqual(state_mod._hidden_clips(), set())
+        for payload in (None, 3, "a.mp4", {"clip": True}, [None, {}, ["bad"]]):
+            with self.subTest(payload=payload):
+                with open(os.path.join(self.out, ".hidden-clips.json"), "w") as f:
+                    json.dump(payload, f)
+                self.assertEqual(state_mod._hidden_clips(), set())
         with open(os.path.join(self.out, ".hidden-clips.json"), "w") as f:
             f.write("{not json")
         self.assertEqual(state_mod._hidden_clips(), set())

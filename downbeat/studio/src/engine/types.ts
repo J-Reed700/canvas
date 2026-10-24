@@ -1,6 +1,7 @@
 // Downbeat Studio type definitions.
 import type { FrameSource } from './clipFrames.ts';
 import type { CubeLut } from './lut.ts';
+import type { Engine } from './engine.ts';
 
 export type CategoryId = 'space' | 'warp' | 'time' | 'light' | 'stylize' | 'color';
 
@@ -396,7 +397,7 @@ export interface ComposedFrame {
   camera: Record<string, number>;
   mv: ModValues;
   globals: Record<string, number>;
-  sources?: any[];
+  sources?: ComposedSource[];
   lut?: CubeLut;
 }
 
@@ -461,6 +462,20 @@ export interface RenderTarget {
   mips: boolean;
 }
 
+export interface TextureSource {
+  tex: WebGLTexture;
+  target?: number;
+}
+
+export interface ComposedSource extends TextureSource {
+  vw: number;
+  vh: number;
+  cam: CameraTransform;
+}
+
+export type Uniforms = Record<string, number | readonly number[] | Float32Array>;
+export type Samplers = Record<string, TextureSource | WebGLTexture | null | undefined>;
+
 export interface ProgramInfo {
   prog: WebGLProgram;
   loc: (name: string) => WebGLUniformLocation | null;
@@ -481,7 +496,8 @@ export interface ExportProgress {
 }
 
 export interface ExportLoopOptions {
-  engine: any;
+  engine: Pick<Engine, 'canvas' | 'main' | 'resize' | 'frame' | 'renderMain' | 'readFull' | 'readStats' | 'sourcePrints'> &
+    Partial<Pick<Engine, 'dropFrames' | 'pruneFrames'>>;
   /** Where clip frames come from: the server's decoder (ClipFrames) or a test double. */
   frames: FrameSource;
   /** Names and kinds of the clips, for the footage check's messages. */

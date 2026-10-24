@@ -349,7 +349,7 @@ export const useStudioStore = create<StudioState>((set, get) => ({
 
       if (token !== trackTokenVal) return;
 
-      const savedOk = (initial || keepLoop) && s.loopStart > 0 && s.loopStart < (feats.duration || 60) - 3;
+      const savedOk = (initial || keepLoop) && s.loopStart >= 0 && s.loopStart < (feats.duration || 60) - 3;
       let nextLoopStart = s.loopStart;
       let nextBars = s.bars;
 
@@ -372,6 +372,7 @@ export const useStudioStore = create<StudioState>((set, get) => ({
 
       set({ features: feats, loopStart: nextLoopStart, bars: nextBars, trackStateText: '' });
     } catch (e) {
+      if (token !== trackTokenVal) return;
       console.error(e);
       set({ trackStateText: 'Analysis failed', features: null });
     }
@@ -512,9 +513,9 @@ export const useStudioStore = create<StudioState>((set, get) => ({
     let engineObj: Engine;
     try {
       engineObj = new Engine(viewCanvas);
-    } catch (e: any) {
+    } catch (e) {
       console.error(e);
-      set({ glError: String(e?.message || e) });
+      set({ glError: e instanceof Error ? e.message : String(e) });
       return;
     }
     engineObj.warmup();
@@ -555,7 +556,7 @@ export const useStudioStore = create<StudioState>((set, get) => ({
     if (saved.mode) transportInstance.mode = saved.mode;
     transportInstance.setMuted(!!saved.muted);
 
-    await get().selectTrack(get().trackId, { initial: true });
+    await get().selectTrack(get().trackId, { initial: typeof saved.loopStart === 'number' });
     // Undo goes back as far as the session the studio opened with.
     resetHistory();
     // an edit made after the last write reached the project's file goes there now

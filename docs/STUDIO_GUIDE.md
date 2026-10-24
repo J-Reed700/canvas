@@ -413,9 +413,10 @@ On each layer card:
 
 ### Camera
 
-Zoom (1 to 1.8×), Drift, Shake, Sway and Clip speed (0.25 to 2×). Changing clip speed changes how much footage
-each cut uses, so the edit is rebuilt. Camera is shared by all clips and only shows when you're editing the
-main look.
+Zoom (1 to 1.8×), Drift, Shake, Sway and Clip speed (0.25 to 2×). Clip speed is also in Edit, with a slider
+and presets. Changing it changes how much footage each cut uses while preserving the cuts and song tempo.
+Camera is shared by all clips and only shows when you're editing the main look; a segment can override its
+own speed in the segment menu.
 
 ### Finish
 
@@ -515,6 +516,7 @@ the layer tools says so. Reset clip N or Same look on all brings the main look b
 | Transition length | Cut (instant), ¼, ½, 1 or 2 beats, for every cut that hasn't been given its own. A single cut's length is set in the segment menu or by dragging the edge of its pink shading on the timeline |
 | Transition order | Cycle through the list in order, or Shuffle (never the same one twice in a row) |
 | Clip direction | Forward, Reverse, Alternate (every other cut reversed), Ping-pong, Random |
+| Clip speed | Playback from 0.25 to 2×, with a slider and quick presets. 1× is normal speed. Cuts stay on the beat and the song keeps its tempo. Double-click a segment to set only its speed, or enter its original BPM and click Match to calculate the speed for the song |
 | Speed ramp | Speed curves locked to the beat. Each one averages out to normal speed, so cut timing doesn't change. Double-click a block on the timeline to ramp only that cut |
 | Edit seed | The random seed behind in-points, cut variety and transition picks. ⚄ Re-roll in-points & order picks a new one. Changing it starts hand cuts over. See [Where each clip starts](#where-each-clip-starts) |
 | Tempo (no track) | The BPM of the synthetic beat when no song is loaded |
@@ -730,7 +732,7 @@ it stopped if it did, and a download link for each file.
 | Drag | cut line | Move the cut; hold Shift to leave the snap grid |
 | Drag | edge of a transition's violet shading | That transition's length |
 | Option-drag | timeline block | Slip the footage |
-| Double-click, right-click, Enter, or long-press on a touch screen | timeline block | Segment menu: split, repeat, put a clip in, delete, timing, clip, in-point, direction, speed ramp, transition and its length, framing |
+| Double-click, right-click, Enter, or long-press on a touch screen | timeline block | Segment menu: split, repeat, put a clip in, delete, timing, clip, in-point, direction, clip speed and BPM match, speed ramp, transition and its length, framing |
 | Drag | clip | Reorder |
 
 ## 17. Effects
@@ -845,11 +847,26 @@ Hard Cut, Light Dissolve, Luma Burn, Zoom Punch, Whip Pan, Whip Sideways, Block 
 Ripple, Iris Bloom, Pixel Melt, Vortex, Prism Split, Light Leak, Shutter Slices, Kaleido Fold and Flow Morph.
 The loop seam favors the softer ones so the restart is harder to spot.
 
+### Matching a clip's movement to the BPM
+
+Double-click a video segment and use **Clip speed** to slow it down or speed it up. **Auto** follows the
+edit's default speed again and keeps the segment's other camera and effect settings.
+
+If you know the tempo of the original movement, enter **Original clip BPM** and click **Match**. An 80 BPM
+dance matched to a 120 BPM song plays at 1.5×. The match uses `song BPM / original clip BPM`, sets that
+segment to constant speed, and leaves every other segment alone. Without a song it uses the BPM clock.
+This applies the speed once; after changing the song's tempo, click Match again. The original tempo is an
+input you supply, rather than a tempo detected from the video. Adjust **In-point** to put the first move on
+a beat. Preview and export use the same speed, and the speed is included in undo and saved projects.
+
+Matches outside 0.25 to 2× are disabled. Still images have no playback speed. If a video is too short to fill
+its segment at the chosen speed, lower the speed or shorten the segment.
+
 ### Speed ramps
 
 | Ramp | Feel |
 |---|---|
-| Constant | Normal speed |
+| Constant | Holds the chosen clip speed |
 | Surge | A burst on every beat, slow motion in between |
 | Swell | Slow on the beat, rushing into the next one |
 | Hold & jump | Holds for half a beat, then plays at double speed |

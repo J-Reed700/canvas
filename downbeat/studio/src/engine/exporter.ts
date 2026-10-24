@@ -6,7 +6,7 @@ import { MODULES } from './modules.ts';
 import { compose } from './composer.ts';
 import { checkFootage } from './footage.ts';
 import type { FootageSample } from './footage.ts';
-import type { ExportLoopOptions } from './types.ts';
+import type { ExportLoopOptions, RenderRecord } from './types.ts';
 
 const CODECS: string[] = ['avc1.640034', 'avc1.640033', 'avc1.64002A', 'avc1.640028', 'avc1.4D0034', 'avc1.42E034'];
 
@@ -14,24 +14,24 @@ async function makeEncoder(
   w: number,
   h: number,
   fps: number,
-  chunks: Uint8Array[],
-  fail: (err: any) => void,
+  chunks: Uint8Array<ArrayBuffer>[],
+  fail: (err: DOMException) => void,
   wantBitrate?: number,
-): Promise<{ enc: any; codec: string } | null> {
+): Promise<{ enc: VideoEncoder; codec: string } | null> {
   if (typeof window === 'undefined' || !('VideoEncoder' in window)) return null;
   const bitrate = wantBitrate || (w * h >= 1000 * 1800 ? 16_000_000 : 9_000_000);
   for (const codec of CODECS) {
-    for (const hardwareAcceleration of ['prefer-hardware', 'no-preference']) {
-      const cfg: any = { codec, width: w, height: h, bitrate, framerate: fps, avc: { format: 'annexb' }, latencyMode: 'quality', bitrateMode: 'variable', hardwareAcceleration };
-      let enc: any = null;
+    for (const hardwareAcceleration of ['prefer-hardware', 'no-preference'] as const) {
+      const cfg: VideoEncoderConfig = { codec, width: w, height: h, bitrate, framerate: fps, avc: { format: 'annexb' }, latencyMode: 'quality', bitrateMode: 'variable', hardwareAcceleration };
+      let enc: VideoEncoder | null = null;
       try {
-        const { supported, config } = await (window as any).VideoEncoder.isConfigSupported(cfg);
+        const { supported, config } = await window.VideoEncoder.isConfigSupported(cfg);
         if (!supported) continue;
-        enc = new (window as any).VideoEncoder({
-          output: (chunk: any) => { const b = new Uint8Array(chunk.byteLength); chunk.copyTo(b); chunks.push(b); },
+        enc = new window.VideoEncoder({
+          output: (chunk) => { const b = new Uint8Array(chunk.byteLength); chunk.copyTo(b); chunks.push(b); },
           error: fail,
         });
-        enc.configure(config);
+        enc.configure(config ?? cfg);
         return { enc, codec };
       } catch {
         try { if (enc?.state !== 'closed') enc?.close(); } catch { /* failed candidates are discarded */ }
@@ -151,30 +151,56 @@ export function flashesPerSecond(series: number[], fps: number): number {
   return Math.floor(best / 2);
 }
 
-async function boundedFetch(url: string, init: RequestInit, timeoutMs: number, signal?: AbortSignal): Promise<Response> {
+interface ExportReply {
+  ok?: boolean;
+  error?: string;
+  sid?: string;
+  render?: RenderRecord;
+}
+
+async function boundedJSON(url: string, init: RequestInit, timeoutMs: number, signal?: AbortSignal): Promise<{ response: Response; body: ExportReply }> {
   const controller = new AbortController();
   const cancel = () => controller.abort(signal?.reason || new DOMException('Export cancelled', 'AbortError'));
   if (signal?.aborted) cancel();
   else signal?.addEventListener('abort', cancel, { once: true });
   const timer = setTimeout(() => controller.abort(new DOMException('The export server timed out', 'TimeoutError')), timeoutMs);
   try {
-    return await fetch(url, { ...init, signal: controller.signal });
+    const response = await fetch(url, { ...init, signal: controller.signal });
+    const value: unknown = await response.json().catch((error: unknown) => {
+      if (controller.signal.aborted) throw controller.signal.reason || error;
+      return null;
+    });
+    const body = value && typeof value === 'object' && !Array.isArray(value) ? value as ExportReply : {};
+    return { response, body };
   } finally {
     clearTimeout(timer);
     signal?.removeEventListener('abort', cancel);
   }
 }
 
-export async function exportLoop({ engine, frames, clips, ctx, width, height, fps = 30, bitrate, meta, onProgress, signal }: ExportLoopOptions): Promise<any> {
+/** The timeout is a fallback for encoders that stop dispatching dequeue; either outcome releases both. */
+function waitForEncoder(encoder: VideoEncoder): Promise<void> {
+  return new Promise((resolve) => {
+    const done = () => {
+      clearTimeout(timer);
+      encoder.removeEventListener?.('dequeue', done);
+      resolve();
+    };
+    const timer = setTimeout(done, 50);
+    encoder.addEventListener?.('dequeue', done, { once: true });
+  });
+}
+
+export async function exportLoop({ engine, frames, clips, ctx, width, height, fps = 30, bitrate, meta, onProgress, signal }: ExportLoopOptions): Promise<RenderRecord & { footage: ReturnType<typeof checkFootage> }> {
   const N = Math.round(ctx.L * fps);
   const stacks = [ctx.look, ...(ctx.clipLook ? ctx.tl.segs.map((s) => ctx.clipLook?.(s.clipId, s)).filter(Boolean) : [])];
-  const hasFeedback = stacks.some((look: any) => look.layers.some((l: any) => l.on !== false && MODULES[l.m]?.feedback));
+  const hasFeedback = stacks.some((look) => look?.layers.some((l) => l.on !== false && MODULES[l.m]?.feedback));
   // Pre-roll the end of the loop so frame 0 inherits its feedback history. Feedback fades within a
   // few seconds, so long videos don't need a whole extra pass.
   const warm = hasFeedback ? Math.min(N, 10 * fps) : 12;
-  const chunks: Uint8Array[] = [];
-  let encErr: any = null;
-  let made: { enc: any; codec: string } | null = null;
+  const chunks: Uint8Array<ArrayBuffer>[] = [];
+  let encErr: DOMException | null = null;
+  let made: { enc: VideoEncoder; codec: string } | null = null;
   let sid: string | undefined;
   let leave: (() => void) | undefined;
   const { frame0Reference, ...serverMeta } = meta;
@@ -190,11 +216,10 @@ export async function exportLoop({ engine, frames, clips, ctx, width, height, fp
     const encoderCodec = made?.codec || 'raw-rgba';
     // Either way the video streams to the server as it renders: encoded H.264 chunks, or raw RGBA
     // frames for ffmpeg. Nothing the length of the whole video is held in memory.
-    const begunResponse = await boundedFetch('/api/export/raw/begin', {
+    const { response: begunResponse, body: begun } = await boundedJSON('/api/export/raw/begin', {
       method: 'POST',
       body: JSON.stringify({ ...serverMeta, width, height, fps, codec: outputCodec, stream_codec: encoderCodec, stream: made ? 'h264' : 'raw' }),
     }, 30_000, signal);
-    const begun = await begunResponse.json().catch(() => ({}));
     if (!begunResponse.ok || !begun.ok || typeof begun.sid !== 'string' || !begun.sid) {
       throw new Error(begun.error || 'the server could not start the export');
     }
@@ -205,11 +230,11 @@ export async function exportLoop({ engine, frames, clips, ctx, width, height, fp
     globalThis.addEventListener?.('pagehide', leave);
     if (signal?.aborted) throw signal.reason || new DOMException('Export cancelled', 'AbortError');
     const send = async (body: BodyInit): Promise<void> => {
-      const res = await boundedFetch(`/api/export/raw/frames?sid=${encodeURIComponent(sessionId)}`, { method: 'POST', body }, 120_000, signal);
-      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || 'the server stopped taking frames');
+      const { response, body: reply } = await boundedJSON(`/api/export/raw/frames?sid=${encodeURIComponent(sessionId)}`, { method: 'POST', body }, 120_000, signal);
+      if (!response.ok) throw new Error(reply.error || 'the server stopped taking frames');
     };
     const upload = async (): Promise<void> => {
-      if (chunks.length) await send(new Blob(chunks.splice(0) as any));
+      if (chunks.length) await send(new Blob(chunks.splice(0)));
     };
 
     // GPU allocation can fail at native 4K. It belongs after begin so the same cleanup path aborts
@@ -225,6 +250,7 @@ export async function exportLoop({ engine, frames, clips, ctx, width, height, fp
       if (signal?.aborted) throw signal.reason || new DOMException('Export cancelled', 'AbortError');
       if (encErr) throw encErr;
       const got = await Promise.all(fr.needs.map((n) => frames.get(n.clipId, n.time, n.vkey)));
+      engine.pruneFrames?.(fr.needs.map((n) => n.vkey));
       const sources = fr.needs.map((n, i) => ({ ...engine.frame(n.vkey, got[i]), cam: n.cam }));
       const out = engine.renderMain({ ...fr, sources });
       const needs = fr.needs;
@@ -233,7 +259,7 @@ export async function exportLoop({ engine, frames, clips, ctx, width, height, fp
       for (const n of fr.needs) frames.get(n.clipId, n.time, n.vkey).catch(() => {});
       if (j < 0) continue;
       if (made) {
-        const vf = new (window as any).VideoFrame(engine.canvas, { timestamp: Math.round((j * 1e6) / fps), duration: Math.round(1e6 / fps) });
+        const vf = new window.VideoFrame(engine.canvas, { timestamp: Math.round((j * 1e6) / fps), duration: Math.round(1e6 / fps) });
         try {
           made.enc.encode(vf, { keyFrame: j % fps === 0 });
         } finally {
@@ -246,7 +272,7 @@ export async function exportLoop({ engine, frames, clips, ctx, width, height, fp
       needs.forEach((n, i) => footage.push({ frame: j, vkey: n.vkey, clipId: n.clipId, idx: got[i].idx, sig: got[i].sig, gpu: prints[i] }));
       stats.add(engine.readStats(out));
       if (made && made.enc.encodeQueueSize > 4) {
-        await new Promise<void>((r) => { made!.enc.addEventListener?.('dequeue', r, { once: true }); setTimeout(r, 50); });
+        await waitForEncoder(made.enc);
       }
       if (made && j % fps === fps - 1) await upload(); // about a second of video per request
       onProgress?.({ frame: j + 1, total: N, speed: ((j + 1) / fps) / ((performance.now() - t0) / 1000) });
@@ -264,14 +290,13 @@ export async function exportLoop({ engine, frames, clips, ctx, width, height, fp
       frame0_reference: compareFrame0(stats.firstPixels, frame0Reference, width, height),
       footage: { level: report.level, detail: report.detail },
     };
-    const res = await boundedFetch(`/api/export/raw/end?sid=${encodeURIComponent(sessionId)}`, {
+    const { response: res, body: json } = await boundedJSON(`/api/export/raw/end?sid=${encodeURIComponent(sessionId)}`, {
       method: 'POST', body: JSON.stringify({ stats: st }),
     }, 600_000, signal);
-    const json = await res.json().catch(() => ({}));
-    if (!res.ok || !json.ok) throw new Error(json.error || 'export failed');
+    if (!res.ok || !json.ok || !json.render || typeof json.render.filename !== 'string') throw new Error(json.error || 'export failed');
     return { ...json.render, stats: st, footage: report, codec: encoderCodec, output_codec: outputCodec, seconds: (performance.now() - t0) / 1000 };
   } catch (err) {
-    if (sid) await boundedFetch(`/api/export/raw/abort?sid=${encodeURIComponent(sid)}`, { method: 'POST' }, 10_000).catch(() => {});
+    if (sid) await boundedJSON(`/api/export/raw/abort?sid=${encodeURIComponent(sid)}`, { method: 'POST' }, 10_000).catch(() => {});
     throw err;
   } finally {
     if (leave) globalThis.removeEventListener?.('pagehide', leave);

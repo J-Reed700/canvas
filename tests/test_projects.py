@@ -111,6 +111,20 @@ class TestProjectStore(unittest.TestCase):
         self.assertEqual([p["id"] for p in self.store.list()], [good["id"]])
         self.assertEqual(ProjectStore(os.path.join(self.tmp, "missing")).list(), [])
 
+    def test_damaged_project_records_are_skipped_and_cannot_be_opened(self) -> None:
+        good = self.store.create("Good", EDIT)
+        pid = "0123456789ab"
+        base = {"id": pid, "name": "Bad", "data": {}, "updated": 1}
+        for patch in ({"data": [1]}, {"name": []}, {"updated": "yesterday"}, {"updated": float("nan")}, {"id": "abcdefabcdef"}):
+            with self.subTest(patch=patch):
+                with open(os.path.join(self.root, pid + ".json"), "w") as f:
+                    json.dump({**base, **patch}, f)
+                self.assertEqual([p["id"] for p in self.store.list()], [good["id"]])
+                with self.assertRaises(KeyError):
+                    self.store.get(pid)
+        with self.assertRaises(KeyError):
+            self.store.get(good["id"] + "\n")
+
     def test_exports_keep_the_edit_they_were_made_from(self) -> None:
         name = "canvas-neon-tide-120bpm-8.0s-1080x1920-20261024-120000.mp4"
         self.assertFalse(self.store.has_export_edit(name))

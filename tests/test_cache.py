@@ -10,6 +10,20 @@ from downbeat._cache import BoundedCache, FileResultCache
 
 
 class TestBoundedCache(unittest.TestCase):
+    def test_assignment_during_a_producer_keeps_byte_accounting_accurate(self) -> None:
+        cache: BoundedCache[str, bytes] = BoundedCache(3, max_bytes=8, weigh=len)
+
+        def create() -> bytes:
+            cache["same"] = b"old"
+            return b"new!"
+
+        self.assertEqual(cache.get_or_create("same", create), b"new!")
+        cache["other"] = b"more"
+        self.assertEqual(dict(cache), {"same": b"new!", "other": b"more"})
+        del cache["same"]
+        cache["third"] = b"last"
+        self.assertEqual(dict(cache), {"other": b"more", "third": b"last"})
+
     def test_concurrent_misses_share_one_producer(self) -> None:
         cache: BoundedCache[str, object] = BoundedCache(2)
         entered = threading.Event()

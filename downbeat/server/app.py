@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import math
 import mimetypes
 import os
 import subprocess
@@ -524,6 +525,11 @@ class StudioHandler(BaseHTTPRequestHandler):
         except ConnectionError as exc:
             self._send_json({"ok": False, "error": str(exc)}, status=400)
             return
+        try:
+            _json_body(body)
+        except (ValueError, UnicodeError) as exc:
+            self._send_json({"ok": False, "error": f"Invalid JSON body: {exc}"}, status=400)
+            return
         self._dispatch_post(parsed.path, body, query)
 
     def _post_export(self, body: bytes) -> None:
@@ -561,14 +567,19 @@ class StudioHandler(BaseHTTPRequestHandler):
     def _post_export_companion(self, body: bytes) -> None:
         try:
             data = _json_body(body)
-        except Exception as exc:
+            fname = data.get("filename")
+            clip_id = data.get("clip_id")
+            if fname is not None and not isinstance(fname, str):
+                raise ValueError("filename must be a string")
+            if clip_id is not None and not isinstance(clip_id, str):
+                raise ValueError("clip_id must be a string")
+            kind = str(data.get("kind") or "")
+            at_sec = float(data.get("at_sec") or 0.0)
+            if not math.isfinite(at_sec) or at_sec < 0:
+                raise ValueError("at_sec must be a finite, non-negative number")
+        except (ValueError, TypeError, UnicodeError) as exc:
             self._send_json({"ok": False, "error": f"Invalid JSON body: {exc}"}, status=400)
             return
-
-        fname = data.get("filename")
-        clip_id = data.get("clip_id")
-        kind = str(data.get("kind") or "")
-        at_sec = float(data.get("at_sec") or 0.0)
 
         src_path = None
         if fname:
@@ -767,8 +778,12 @@ class StudioHandler(BaseHTTPRequestHandler):
         the folders stay as they are until they're added, so a big folder doesn't keep the machine busy."""
         clips = STATE.clips
         statuses = {}
-        for cid in _json_body(body).get("ids") or []:
-            src = clips.get(str(cid))
+        ids = _json_body(body).get("ids", [])
+        if not isinstance(ids, list) or not all(isinstance(cid, str) for cid in ids):
+            self._send_json({"ok": False, "error": "ids must be a list of clip ids"}, status=400)
+            return
+        for cid in ids:
+            src = clips.get(cid)
             if src:
                 STATE.proxies.request(src, priority=0)
                 statuses[src.id] = STATE.proxies.status(src)
@@ -877,7 +892,10 @@ class ReusableThreadingHTTPServer(ThreadingHTTPServer):
 
 
 def _json_body(body: bytes) -> dict:
-    return json.loads(body.decode("utf-8") or "{}")
+    data = json.loads(body.decode("utf-8") or "{}")
+    if not isinstance(data, dict):
+        raise ValueError("Expected a JSON object")
+    return data
 
 
 def _is_downbeat_running(host: str, port: int) -> bool:

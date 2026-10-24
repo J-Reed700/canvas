@@ -8,6 +8,7 @@ import { useWorkspaceStore } from '../state/workspaceStore.ts';
 import { stepFrame } from '../lib/playback.ts';
 import { Icon, ICONS } from './ui.tsx';
 import { SAFE_GUIDES, guideFor } from '../lib/safeGuides.ts';
+import type { ClipMeta, FramePoint } from '../engine/types.ts';
 
 const PlayIcon: React.FC<{ playing: boolean }> = ({ playing }) => (
   <svg viewBox="0 0 24 24">
@@ -59,7 +60,7 @@ export const StagePanel: React.FC = () => {
   const bars = Math.round(loopLen / barDur);
   const playing = useSyncExternalStore(transport.subscribe, () => transport.playing);
 
-  const rfRef = useRef<any>(null);
+  const rfRef = useRef<{ id: string; c: ClipMeta; x: number; y: number; f0: FramePoint; zoom: number; moved: boolean } | null>(null);
 
   const target = () => {
     const s = useStudioStore.getState();

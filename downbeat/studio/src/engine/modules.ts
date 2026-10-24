@@ -2,6 +2,7 @@
 // Params become `uniform float p_<id>`; animated terms are periodic over the loop so
 // exports loop cleanly. Pixel sizes scale with uScale (= height / 1920).
 import { PRELUDE } from './shaders.ts';
+import { CLIP_SPEED_MIN, CLIP_SPEED_MAX } from './clipSpeed.ts';
 import type { CategoryId, CategoryMeta, ModSourceMeta, ModuleDef, ParamDef } from './types.ts';
 
 const P = (id: string, name: string, min: number, max: number, def: number, extra: Partial<ParamDef> = {}): ParamDef => ({ id, name, min, max, def, step: extra.step ?? (max - min) / 200, ...extra });
@@ -1012,7 +1013,7 @@ export const MODULES: Record<string, ModuleDef> = {
 // Pseudo-modules that are always present: the per-clip camera and the final grade.
 export const CAMERA: { name: string; params: ParamDef[] } = {
   name: 'Camera', params: [P('zoom', 'Zoom', 1, 1.8, 1.06), P('drift', 'Drift', 0, 1, 0.35), P('shake', 'Shake', 0, 1, 0),
-    P('sway', 'Sway', 0, 1, 0), P('speed', 'Clip speed', 0.25, 2, 1, { retime: true })],
+    P('sway', 'Sway', 0, 1, 0), P('speed', 'Clip speed', CLIP_SPEED_MIN, CLIP_SPEED_MAX, 1, { retime: true })],
 };
 export const FINISH_DEF: { name: string; params: ParamDef[] } = {
   name: 'Finish', params: [P('exposure', 'Exposure', -2, 2, 0), P('contrast', 'Contrast', 0.6, 1.7, 1.1), P('saturation', 'Saturation', 0, 2, 1.05),

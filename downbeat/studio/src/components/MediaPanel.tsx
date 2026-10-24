@@ -145,7 +145,7 @@ export const MediaPanel: React.FC = () => {
             {METERS.map((m) => {
               const meta = MOD_SOURCES[m];
               return (
-                <div className="meter" style={{ ['--c' as any]: meta?.color || '#FFD36A' }} title={meta?.name || m} key={m}>
+                <div className="meter" style={{ '--c': meta?.color || '#FFD36A' } as React.CSSProperties} title={meta?.name || m} key={m}>
                   <div className="bar">
                     <i />
                   </div>

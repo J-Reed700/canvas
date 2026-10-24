@@ -132,7 +132,7 @@ export const LibraryViewer: React.FC<{
       <button className="lib-nav" disabled={index <= 0} onClick={() => onStep(-1)} title={`Previous ${what} (←)`}>
         <Icon d={ICONS.prev} />
       </button>
-      <div className="lib-player" style={{ ['--ar' as any]: ar }}>
+      <div className="lib-player" style={{ '--ar': ar } as React.CSSProperties}>
         {player}
       </div>
       <button className="lib-nav" disabled={index >= count - 1} onClick={() => onStep(1)} title={`Next ${what} (→)`}>

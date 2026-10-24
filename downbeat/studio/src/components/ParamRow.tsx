@@ -203,7 +203,7 @@ export const ParamRow: React.FC<ParamRowProps> = ({ p, holder, readLive }) => {
     <div
       className={`prm ${mod ? 'modded' : ''}`}
       key={p.id}
-      style={mod ? ({ ['--mc' as any]: MOD_SOURCES[mod.src]?.color } as any) : undefined}
+      style={mod ? ({ '--mc': MOD_SOURCES[mod.src]?.color } as React.CSSProperties) : undefined}
     >
       <label title={`${p.name}: double-click slider to reset`}>{p.name}</label>
       <Slider

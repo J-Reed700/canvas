@@ -16,6 +16,29 @@ from helpers import HAS_FFMPEG, TempDirCase, _ffprobe, _video
 
 
 class TestSource(TempDirCase):
+    def test_conversion_spawn_failures_remove_temporary_files(self) -> None:
+        directory = self.path("conversion-errors")
+        os.makedirs(directory, exist_ok=True)
+        for convert in (source.still_to_clip, source.video_to_mp4):
+            with self.subTest(convert=convert.__name__):
+                with mock.patch.object(encoder, "ffmpeg_path", return_value="ffmpeg"), \
+                     mock.patch.object(source.subprocess, "run", side_effect=OSError("cannot spawn")):
+                    with self.assertRaisesRegex(OSError, "cannot spawn"):
+                        convert(os.path.join(directory, "input.avi"))
+                self.assertEqual(os.listdir(directory), [])
+
+    def test_failed_video_opens_release_the_decoder_for_each_reader(self) -> None:
+        path = self.path("unreadable.mp4")
+        open(path, "wb").close()
+        src = source.Source(path, 2, 2, 30, 1, 1 / 30)
+        for read in (lambda: source.probe(path), lambda: source.extract_thumbnail_jpeg(path),
+                     lambda: source.ClipSegmentCache._decode_segment(src, 0, 1, 2, 2, 0)):
+            cap = mock.Mock()
+            cap.isOpened.return_value = False
+            with mock.patch.object(source.cv2, "VideoCapture", return_value=cap), self.assertRaises(RuntimeError):
+                read()
+            cap.release.assert_called_once()
+
     def test_source_names_and_ids_come_from_the_path(self) -> None:
         a = source.Source("/x/clip one.mp4", 10, 20, 30.0, 60, 2.0)
         self.assertEqual(a.name, "clip one.mp4")

@@ -111,19 +111,39 @@ export function compose(ctx: ComposeContext, t: number, look: Look = ctx.look): 
   const parts = s.b ? [s.a, s.b] : [s.a];
   const useBlockOverrides = look === ctx.look;
   const effective = (l: Look, part: TimelineSamplePart): Look => lookWithOverrides(l, useBlockOverrides ? part.seg.overrides : undefined);
-  const forLook = (l: Look): ModValues => withLook(base, l, t / L, beat, L / beatDur);
-  const modReader = (l: Look, values: ModValues) => (route: Modulation): number | undefined =>
-    values[route.src] === undefined ? undefined : modulationAt(route, sampler, l, t, L, beatDur, values);
+  const k = intensityOf(ctx);
+  // A frame often uses the same look for both clips, B-roll, camera and finish. Resolve its sources
+  // and parameters once in this frame; a fresh cache on the next frame sees in-place inspector edits.
+  const resolved = new Map<Look, {
+    values: ModValues;
+    readMod: (route: Modulation) => number | undefined;
+    camera?: Record<string, number>;
+    finish?: Record<string, number>;
+  }>();
+  const forLook = (l: Look) => {
+    let result = resolved.get(l);
+    if (!result) {
+      const values = withLook(base, l, t / L, beat, L / beatDur);
+      result = {
+        values,
+        readMod: (route: Modulation) => values[route.src] === undefined ? undefined : modulationAt(route, sampler, l, t, L, beatDur, values),
+      };
+      resolved.set(l, result);
+    }
+    return result;
+  };
+  const cameraParams = (l: Look) => {
+    const data = forLook(l);
+    return data.camera ??= resolveParams(CAMERA.params, l.camera.p, l.camera.mods, data.values, k.depth, data.readMod);
+  };
   // The incoming block owns the cut from its midpoint onward. Finish settings are blended through the
   // transition below; this dominant look supplies inspector values and post-cut global uniforms.
   const active = s.b && s.p >= 0.5 ? s.b : s.a;
   const activeLook = effective(look, active);
-  const mv = forLook(activeLook);
-  const k = intensityOf(ctx);
+  const mv = forLook(activeLook).values;
   const need = (x: TimelineSamplePart, back: boolean | undefined, aux?: string): VideoNeed => {
     const cameraLook = effective(look, x);
-    const cameraMv = forLook(cameraLook);
-    const cp = resolveParams(CAMERA.params, cameraLook.camera.p, cameraLook.camera.mods, cameraMv, k.depth, modReader(cameraLook, cameraMv));
+    const cp = cameraParams(cameraLook);
     const cam = { zoom: cp.p_zoom, drift: cp.p_drift, shake: cp.p_shake, sway: cp.p_sway };
     const rate = x.seg.speed * velocityAt(x.seg, x.local);
     const n: VideoNeed = {
@@ -141,9 +161,9 @@ export function compose(ctx: ComposeContext, t: number, look: Look = ctx.look): 
   const needs: VideoNeed[] = [need(s.a, s.back)];
   if (s.b) needs.push(need(s.b, s.back));
 
-  const uniqueClips = ctx.clips ? ctx.clips.map((c) => c.id) : [...new Set(tl.segs.map((seg) => seg.clipId))];
+  const multipleClips = ctx.clips ? ctx.clips.length > 1 : tl.segs.some((seg) => seg.clipId !== tl.segs[0].clipId);
   let broll: VideoNeed | undefined;
-  if (uniqueClips.length <= 1) {
+  if (!multipleClips) {
     const tBroll = (t + L * 0.5) % L;
     const sBroll = sampleTimeline(tl, tBroll);
     broll = need({ seg: sBroll.a.seg, local: sBroll.a.local, key: 'broll' }, sBroll.back, 'clipB');
@@ -155,7 +175,7 @@ export function compose(ctx: ComposeContext, t: number, look: Look = ctx.look): 
 
   const perClip = look === ctx.look && ctx.clipLook;
   const hasBroll = (look.layers || []).some((l) => l.on !== false && l.m === 'broll') ||
-    (perClip && (tl.segs || []).some((seg) => ctx.clipLook?.(seg.clipId, seg)?.layers?.some((l) => l.on !== false && l.m === 'broll')));
+    (perClip && parts.some(({ seg }) => ctx.clipLook?.(seg.clipId, seg)?.layers?.some((l) => l.on !== false && l.m === 'broll')));
 
   if (hasBroll && broll) needs.push(broll);
 
@@ -168,24 +188,24 @@ export function compose(ctx: ComposeContext, t: number, look: Look = ctx.look): 
         const part = parts[i] || s.a;
         const baseLook = (perClip && ctx.clipLook?.(n.clipId, part.seg)) || look;
         const blockLook = effective(baseLook, part);
-        const values = forLook(blockLook);
-        return layerStack(blockLook, values, k, `c:${n.clipId}${i && n.clipId === needs[0].clipId ? 'b' : ''}:`, modReader(blockLook, values));
+        const { values, readMod } = forLook(blockLook);
+        return layerStack(blockLook, values, k, `c:${n.clipId}${i && n.clipId === needs[0].clipId ? 'b' : ''}:`, readMod);
       })
     : null;
   const finishFor = (part: TimelineSamplePart): Record<string, number> => {
     const l = effective(look, part);
-    const values = forLook(l);
-    return resolveParams(FINISH_DEF.params, l.finish.p, l.finish.mods, values, k.depth, modReader(l, values));
+    const data = forLook(l);
+    return data.finish ??= resolveParams(FINISH_DEF.params, l.finish.p, l.finish.mods, data.values, k.depth, data.readMod);
   };
   const finishA = finishFor(s.a);
   const finish = s.b ? mixParams(finishA, finishFor(s.b), s.p) : finishA;
-  const cp = resolveParams(CAMERA.params, activeLook.camera.p, activeLook.camera.mods, mv, k.depth, modReader(activeLook, mv));
+  const cp = cameraParams(activeLook);
   return {
     needs,
     broll,
     trans: s.b && s.trans ? { name: s.trans, p: s.p } : null,
     seg: s,
-    layers: beforeTransition ? [] : layerStack(activeLook, mv, k, '', modReader(activeLook, mv)),
+    layers: beforeTransition ? [] : layerStack(activeLook, mv, k, '', forLook(activeLook).readMod),
     pre,
     finish,
     camera: cp,
@@ -207,12 +227,21 @@ export function compose(ctx: ComposeContext, t: number, look: Look = ctx.look): 
 /** How many <video> elements the preview keeps. */
 const BANK_SIZE = 20;
 
+interface BankVideo extends HTMLVideoElement {
+  _url?: string;
+  _used: number;
+  _retries: number;
+  _parked?: string;
+  _retryTimer?: ReturnType<typeof setTimeout>;
+  _onError?: () => void;
+}
+
 export class VideoBank {
   root: HTMLElement;
   /** The clip's playback copy, or null while it's still being made. */
   urlFor: (clipId: string) => string | null;
   onDrop?: (k: string) => void;
-  els: Map<string, HTMLVideoElement>;
+  els: Map<string, BankVideo>;
 
   constructor(root: HTMLElement, urlFor: (clipId: string) => string | null, onDrop?: (k: string) => void) {
     this.root = root;
@@ -221,7 +250,7 @@ export class VideoBank {
     this.els = new Map();
   }
 
-  get(vkey: string, clipId?: string): HTMLVideoElement {
+  get(vkey: string, clipId?: string): BankVideo {
     let e = this.els.get(vkey);
     // With more cuts than the bank holds, a new element per cut would be made and thrown away every time
     // round the loop, each one loading its file again. A full bank hands the cut an element of the same
@@ -229,10 +258,10 @@ export class VideoBank {
     if (!e && this.els.size >= BANK_SIZE) {
       const url = this.urlFor(clipId ?? vkey.split('#')[0]);
       const now = performance.now();
-      let idle: [string, HTMLVideoElement] | undefined;
+      let idle: [string, BankVideo] | undefined;
       for (const kv of this.els) {
-        const x = kv[1] as any;
-        if (url && x._url === url && now - x._used > 1000 && (!idle || x._used < (idle[1] as any)._used)) idle = kv;
+        const x = kv[1];
+        if (url && x._url === url && now - x._used > 1000 && (!idle || x._used < idle[1]._used)) idle = kv;
       }
       if (idle) {
         this.els.delete(idle[0]);
@@ -242,27 +271,33 @@ export class VideoBank {
       }
     }
     if (!e) {
-      e = document.createElement('video');
+      const video: BankVideo = Object.assign(document.createElement('video'), { _retries: 0, _used: performance.now() });
+      e = video;
       e.muted = true;
       e.playsInline = true;
       e.preload = 'auto';
       e.disableRemotePlayback = true;
       // A proxy that was still building (or failed once) answers with an error: retry a few times.
-      (e as any)._retries = 0;
-      e.addEventListener('error', () => {
-        const url = (e as any)._url;
-        if ((e as any)._retries++ < 6) setTimeout(() => { if (e?.isConnected) e.src = `${url}?retry=${(e as any)._retries}`; }, 2000 * (e as any)._retries);
-      });
+      video._onError = () => {
+        if (!video._url || video._retryTimer !== undefined || video._retries >= 6) return;
+        const url = video._url;
+        const attempt = ++video._retries;
+        video._retryTimer = setTimeout(() => {
+          video._retryTimer = undefined;
+          if (video.isConnected && video._url === url) video.src = `${url}${url.includes('?') ? '&' : '?'}retry=${attempt}`;
+        }, 2000 * attempt);
+      };
+      video.addEventListener('error', video._onError);
       this.root.appendChild(e);
       this.els.set(vkey, e);
     }
     // No source until the playback copy is ready: a request for one still being made would hold one of the
     // browser's few connections to the server for minutes, and the song and the other clips wait behind it.
-    if (!(e as any)._url) {
+    if (!e._url) {
       const url = this.urlFor(clipId ?? vkey.split('#')[0]);
-      if (url) e.src = (e as any)._url = url;
+      if (url) e.src = e._url = url;
     }
-    (e as any)._used = performance.now();
+    e._used = performance.now();
     return e;
   }
 
@@ -271,7 +306,7 @@ export class VideoBank {
     for (const n of needs) {
       const e = this.get(n.vkey, n.clipId);
       active.add(e);
-      (e as any)._parked = undefined;
+      e._parked = undefined;
       if (e.readyState < 1) continue;
       const drift = e.currentTime - n.time;
       if (!playing || n.rev) {
@@ -296,7 +331,7 @@ export class VideoBank {
   // its start as they come into view, it would be past its first frame when it starts, and seek back.
   prime(needs: VideoNeed[]): void {
     for (const n of needs) {
-      const e = this.get(n.vkey, n.clipId) as any;
+      const e = this.get(n.vkey, n.clipId);
       if (!e.paused || e.readyState < 1 || e.seeking || e._parked === n.vkey) continue;
       if (Math.abs(e.currentTime - n.time) > 0.05) e.currentTime = n.time;
       e._parked = n.vkey;
@@ -305,19 +340,27 @@ export class VideoBank {
 
   _gc(active: Set<HTMLVideoElement>): void {
     if (this.els.size <= BANK_SIZE) return;
-    const old = [...this.els.entries()].filter(([, e]) => !active.has(e)).sort((a, b) => (a[1] as any)._used - (b[1] as any)._used);
+    const old = [...this.els.entries()].filter(([, e]) => !active.has(e)).sort((a, b) => a[1]._used - b[1]._used);
     for (const [k, e] of old.slice(0, this.els.size - BANK_SIZE)) {
-      e.pause();
-      e.removeAttribute('src');
-      e.load();
-      e.remove();
+      this.release(e);
       this.els.delete(k);
       this.onDrop?.(k);
     }
   }
 
   clear(): void {
-    for (const [k, e] of this.els) { e.pause(); e.removeAttribute('src'); e.load(); e.remove(); this.onDrop?.(k); }
+    for (const [k, e] of this.els) { this.release(e); this.onDrop?.(k); }
     this.els.clear();
+  }
+
+  private release(video: BankVideo): void {
+    clearTimeout(video._retryTimer);
+    video._retryTimer = undefined;
+    if (video._onError) video.removeEventListener('error', video._onError);
+    video._onError = undefined;
+    video.pause();
+    video.removeAttribute('src');
+    video.load();
+    video.remove();
   }
 }

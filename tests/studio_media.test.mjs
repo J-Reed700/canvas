@@ -175,6 +175,22 @@ test('a clip whose proxy is still building is retried a few times', (t) => {
 
 const need = (vkey, time, o = {}) => ({ vkey, clipId: vkey.split('#')[0], time, rate: 1, rev: false, cam: {}, ...o });
 
+test('duplicate media errors share one retry and clearing the bank cancels it', (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const { b } = bank();
+  const video = b.get('a#0');
+  video.dispatch('error');
+  video.dispatch('error');
+  t.mock.timers.tick(2000);
+  assert.equal(video.src, '/api/proxy/a?retry=1');
+  video.dispatch('error');
+  b.clear();
+  assert.equal(video.listeners.error.length, 0);
+  video.parent = new FakeElement('div'); // even if another owner reattaches it, the old retry is gone
+  t.mock.timers.tick(20_000);
+  assert.equal(video.src, '');
+});
+
 test('preview sync seeks paused video, plays at the clip rate and pauses what is off screen', async () => {
   const { b } = bank();
   const a = b.get('a#0');
@@ -301,6 +317,48 @@ function exportCtx(L, look = LOOKS[0]) {
   return { look, tl, sampler, clipDur: (id) => durs.get(id), L, beatDur, seed: 1 };
 }
 
+test('export request timeouts cover the JSON body after the headers arrive', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  let bodyStarted;
+  const reading = new Promise((resolve) => { bodyStarted = resolve; });
+  t.mock.method(globalThis, 'fetch', async (_url, { signal }) => ({
+    ok: true,
+    json: () => {
+      bodyStarted();
+      return new Promise((_, reject) => signal.addEventListener('abort', () => reject(signal.reason), { once: true }));
+    },
+  }));
+  const engine = fakeEngine();
+  const pending = assert.rejects(
+    exportLoop({ engine, frames: fakeFrames(), ctx: exportCtx(1), width: 8, height: 8, meta: {} }),
+    { name: 'TimeoutError' },
+  );
+  await reading;
+  t.mock.timers.tick(30_000);
+  await pending;
+  assert.equal(engine.renders, 0, 'rendering cannot start from an incomplete server reply');
+});
+
+test('exports retire texture owners as cuts change, keeping both sides of a transition', async () => {
+  exportServer();
+  const engine = fakeEngine();
+  const active = new Set();
+  let pruned = 0;
+  engine.pruneFrames = (keys) => {
+    active.clear();
+    for (const key of keys) active.add(key);
+    assert.ok(active.size <= 3);
+    pruned++;
+  };
+  const upload = engine.frame;
+  engine.frame = (key, frame) => {
+    assert.ok(active.has(key), 'the exporter keeps the entire composition before uploading');
+    return upload(key, frame);
+  };
+  await exportLoop({ engine, frames: fakeFrames(), ctx: exportCtx(8), width: 8, height: 8, fps: 3, meta: {} });
+  assert.equal(pruned, engine.renders);
+});
+
 test('without WebCodecs every frame streams to the server as raw RGBA after a short warm-up', async () => {
   const reqs = exportServer();
   const ctx = exportCtx(1);
@@ -392,6 +450,26 @@ function withEncoder(t) {
   FakeEncoder.failAt = 0;
   t.after(() => { delete globalThis.window; });
 }
+
+test('an encoder dequeue timeout releases its pending event listener', async (t) => {
+  withEncoder(t);
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  let waiting;
+  const attached = new Promise((resolve) => { waiting = resolve; });
+  class SlowEncoder extends FakeEncoder {
+    listeners = new Set();
+    encode(frame, options) { super.encode(frame, options); this.encodeQueueSize = 5; }
+    addEventListener(_name, listener) { this.listeners.add(listener); waiting(); }
+    removeEventListener(_name, listener) { this.listeners.delete(listener); }
+  }
+  window.VideoEncoder = SlowEncoder;
+  exportServer();
+  const pending = exportLoop({ engine: fakeEngine(), frames: fakeFrames(), ctx: exportCtx(1 / 30), width: 8, height: 8, meta: {} });
+  await attached;
+  t.mock.timers.tick(50);
+  await pending;
+  assert.equal(FakeEncoder.last.listeners.size, 0);
+});
 
 test('a native-size GPU allocation failure aborts the server session and closes WebCodecs', async (t) => {
   withEncoder(t);

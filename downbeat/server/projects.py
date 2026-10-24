@@ -4,12 +4,14 @@ opened again in the studio."""
 from __future__ import annotations
 
 import json
+import math
 import os
 import re
 import secrets
-import tempfile
 import threading
 import time
+
+from .storage import read_json as _read_json, write_json as _write_json
 
 _ID = re.compile(r"^[0-9a-f]{12}$")
 NAME_MAX = 80
@@ -43,29 +45,6 @@ def _summary(record: dict) -> dict:
     }
 
 
-def _write_json(path: str, payload: dict) -> None:
-    """Write to a temp file and move it into place, so a crash mid-write can't leave half a project."""
-    os.makedirs(os.path.dirname(path), exist_ok=True)
-    fd, tmp = tempfile.mkstemp(dir=os.path.dirname(path), prefix=".tmp-", suffix=".json")
-    try:
-        with os.fdopen(fd, "w") as f:
-            json.dump(payload, f, separators=(",", ":"))
-        os.replace(tmp, path)
-    except BaseException:
-        if os.path.exists(tmp):
-            os.remove(tmp)
-        raise
-
-
-def _read_json(path: str) -> dict | None:
-    try:
-        with open(path) as f:
-            data = json.load(f)
-    except (OSError, ValueError):
-        return None
-    return data if isinstance(data, dict) else None
-
-
 def _check_data(data: object) -> dict:
     if not isinstance(data, dict):
         raise ValueError("The edit must be a JSON object")
@@ -80,14 +59,19 @@ class ProjectStore:
         self.exports = os.path.join(root, "exports")
 
     def _path(self, pid: str) -> str:
-        if not _ID.match(str(pid)):
+        if not _ID.fullmatch(str(pid)):
             raise KeyError(pid)
         return os.path.join(self.root, f"{pid}.json")
 
     def _load(self, pid: str) -> dict:
         record = _read_json(self._path(pid))
-        if record is None:
+        if (record is None or record.get("id") != pid or not isinstance(record.get("data"), dict)
+                or not isinstance(record.get("name", ""), str)):
             raise KeyError(pid)
+        for field in ("created", "updated"):
+            value = record.get(field)
+            if value is not None and (not isinstance(value, (int, float)) or not math.isfinite(value)):
+                raise KeyError(pid)
         return record
 
     def _unique(self, name: str, skip: str | None = None) -> str:
@@ -110,11 +94,12 @@ class ProjectStore:
             return []
         for fname in names:
             pid, ext = os.path.splitext(fname)
-            if ext != ".json" or not _ID.match(pid):
+            if ext != ".json" or not _ID.fullmatch(pid):
                 continue
-            record = _read_json(os.path.join(self.root, fname))
-            if record is not None and record.get("id") == pid:
-                out.append(_summary(record))
+            try:
+                out.append(_summary(self._load(pid)))
+            except KeyError:
+                continue
         return sorted(out, key=lambda p: p.get("updated") or 0, reverse=True)
 
     def get(self, pid: str) -> dict:

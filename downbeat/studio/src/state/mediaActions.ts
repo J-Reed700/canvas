@@ -4,7 +4,7 @@ import { LOOKS } from '../engine/looks.ts';
 import { resetHistory } from './historyController.ts';
 import { uploadMedia, upsertMedia } from '../lib/mediaClient.ts';
 import { clipIndex } from './mediaIndex.ts';
-import type { ClipMeta, TrackMeta, RenderRecord, ClipPalette } from '../engine/types.ts';
+import type { ClipMeta, TrackMeta, ClipPalette } from '../engine/types.ts';
 
 /** The server's listing of the songs, the clips and the folders they come from. */
 export interface LibraryInfo {
@@ -185,37 +185,35 @@ export async function revealClip(id: string) {
   if (!r.ok && path) toast(`The file is at ${homeShort(path)}`, 4000);
 }
 
+let autoFrameRequest = 0;
+
 export async function autoFrame() {
   const s = useStudioStore.getState();
   if (!s.selected.length) {
     toast('Pick a few clips first');
     return;
   }
+  const request = ++autoFrameRequest;
   toast('Finding subjects…');
+  const before = { ...s.clipFrame };
+  const results = await Promise.all(s.selected.map(async (id) => ({ id, analysis: await detectSubject(id) })));
+  const current = useStudioStore.getState();
+  if (request !== autoFrameRequest || current.project?.id !== s.project?.id) return;
   const found = { subject: 0, center: 0 };
-  const nextFrame = { ...s.clipFrame };
-  try {
-    await Promise.all(
-      s.selected.map(async (id) => {
-        const r = await detectSubject(id);
-        if (!r?.ok) return;
-        if (r.method === 'subject') found.subject++;
-        else found.center++;
-        if (r.method === 'center') {
-          delete nextFrame[id];
-          return;
-        }
-        nextFrame[id] = [r.focus[0], 1 - r.focus[1], nextFrame[id]?.[2] || 1];
-      }),
-    );
-  } finally {
-    useStudioStore.setState({ clipFrame: nextFrame });
-    s.rebuild();
-    const parts = [found.subject && `${found.subject} on the subject`, found.center && `${found.center} centered`].filter(
-      Boolean,
-    );
-    toast(parts.length ? `Auto-framed ${parts.join(', ')}. Drag the preview to adjust.` : 'Could not analyze the clips');
+  const nextFrame = { ...current.clipFrame };
+  for (const { id, analysis } of results) {
+    if (!analysis || !current.selected.includes(id) || !current.clips.some((clip) => clip.id === id) || current.clipFrame[id] !== before[id]) continue;
+    found[analysis.method]++;
+    if (analysis.method === 'center') delete nextFrame[id];
+    else nextFrame[id] = [analysis.focus[0], 1 - analysis.focus[1], before[id]?.[2] || 1];
   }
+  if (found.subject || found.center) {
+    useStudioStore.setState({ clipFrame: nextFrame });
+    current.rebuild();
+  }
+  const parts = [found.subject && `${found.subject} on the subject`, found.center && `${found.center} centered`].filter(Boolean);
+  toast(parts.length ? `Auto-framed ${parts.join(', ')}. Drag the preview to adjust.` : results.some(({ analysis }) => analysis)
+    ? 'Auto-frame finished. Newer framing changes were kept.' : 'Could not analyze the clips');
 }
 
 export function reorderClips(action: 'all' | 'stock' | 'solo' | 'reverse' | 'shuffle' | { from: number; to: number }) {

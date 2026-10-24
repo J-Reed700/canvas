@@ -2,24 +2,26 @@ import { TRANSITIONS } from '../engine/shaders.ts';
 import { defaultEnv, SEQ_STEPS, ENV_POINTS } from '../engine/audio.ts';
 import type { RollOptions, TrackMeta } from '../engine/types.ts';
 
-export const h = (tag: string, attrs: Record<string, any> = {}, ...kids: any[]): HTMLElement => {
+export type DomChild = Node | string | number | boolean | null | undefined | DomChild[];
+
+export const h = (tag: string, attrs: Record<string, unknown> = {}, ...kids: DomChild[]): HTMLElement => {
   const e = document.createElement(tag);
   for (const [k, v] of Object.entries(attrs)) {
-    if (k === 'class') e.className = v;
-    else if (k === 'style') e.style.cssText = v;
-    else if (k.startsWith('on')) e.addEventListener(k.slice(2), v);
+    if (k === 'class') e.className = String(v);
+    else if (k === 'style') e.style.cssText = String(v);
+    else if (k.startsWith('on')) { if (v != null) e.addEventListener(k.slice(2), v as EventListenerOrEventListenerObject); }
     else if (v === true) e.setAttribute(k, '');
     else if (v !== false && v != null) e.setAttribute(k, String(v));
   }
-  for (const k of kids.flat()) {
-    if (k != null && k !== false) {
-      e.append(k.nodeType ? k : document.createTextNode(String(k)));
-    }
-  }
+  const append = (child: DomChild): void => {
+    if (Array.isArray(child)) child.forEach(append);
+    else if (child != null && child !== false) e.append(typeof child === 'object' ? child : document.createTextNode(String(child)));
+  };
+  kids.forEach(append);
   return e;
 };
 
-export const fetchJSON = async <T = any>(u: string, o?: RequestInit): Promise<T> => {
+export const fetchJSON = async <T = unknown>(u: string, o?: RequestInit): Promise<T> => {
   const r = await fetch(u, o);
   if (!r.ok) throw new Error(`${u}: ${r.status}`);
   return r.json();
@@ -213,7 +215,21 @@ export function cropRect(c: { width?: number; height?: number }, zoom: number, x
   return [cx - w / 2, 1 - cy - hh / 2, w, hh];
 }
 
-export const detectSubject = (clipId: string): Promise<any> => fetchJSON(`/api/autoframe/${clipId}`).catch(() => null);
+interface SubjectAnalysis {
+  ok: true;
+  method: 'subject' | 'center';
+  focus: [number, number];
+}
+
+export async function detectSubject(clipId: string): Promise<SubjectAnalysis | null> {
+  const value = await fetchJSON<unknown>(`/api/autoframe/${encodeURIComponent(clipId)}`).catch(() => null);
+  if (!value || typeof value !== 'object') return null;
+  const result = value as Partial<SubjectAnalysis>;
+  if (result.ok !== true || (result.method !== 'subject' && result.method !== 'center') ||
+      !Array.isArray(result.focus) || result.focus.length !== 2 ||
+      !result.focus.every((point) => typeof point === 'number' && Number.isFinite(point) && point >= 0 && point <= 1)) return null;
+  return result as SubjectAnalysis;
+}
 
 export const songTitle = (t: TrackMeta): string => t.name.replace(/\.[^.]+$/, '');
 
