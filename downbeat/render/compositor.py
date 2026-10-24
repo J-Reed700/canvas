@@ -10,216 +10,13 @@ import cv2
 import numpy as np
 
 from ..analysis.audio import FrameAudioCurves, extract_frame_curves
-from .effects import coord_grid, zoom_in
 from .recipe import PRESETS, Recipe, build_effect_stack, evolve_effect_names
 from ..media.source import GLOBAL_CACHE, Source
+from .transitions import ALL_TRANSITIONS, _blend_transition
 
 CANVAS_FPS = 30
 CANVAS_SECONDS = 8.0  # Official Spotify Canvas max duration (3.0s - 8.0s)
 CANVAS_W, CANVAS_H = 1080, 1920
-
-ALL_TRANSITIONS = [
-    "datamosh",
-    "luma",
-    "flash",
-    "whip",
-    "whip_horiz",
-    "glitch",
-    "zoom_punch",
-    "spin_vortex",
-    "prism_split",
-    "pixelate",
-    "iris_wipe",
-    "burn_luma",
-    "shutter_slice",
-    "kaleido_twist",
-]
-
-_zoom_in = zoom_in
-_flow_grid = coord_grid
-
-
-def _blend_transition(
-    frame_a: np.ndarray,
-    frame_b: np.ndarray,
-    alpha: float,
-    mode: str,
-) -> np.ndarray:
-    """Blend outgoing clip `frame_a` -> incoming clip `frame_b` over alpha in [0, 1].
-
-    Supports 14 distinct transitions + dissolve alias:
-      - datamosh, whip, whip_horiz, luma, glitch, zoom_punch, spin_vortex,
-        prism_split, pixelate, iris_wipe, burn_luma, shutter_slice,
-        kaleido_twist, flash / dissolve.
-    """
-    alpha = float(np.clip(alpha, 0.0, 1.0))
-
-    if mode == "datamosh":
-        # Farneback flow at 1/4 scale for datamosh smear
-        h, w = frame_a.shape[:2]
-        sh, sw = max(16, h // 4), max(16, w // 4)
-        ga = cv2.cvtColor(cv2.resize(frame_a, (sw, sh)), cv2.COLOR_BGR2GRAY)
-        gb = cv2.cvtColor(cv2.resize(frame_b, (sw, sh)), cv2.COLOR_BGR2GRAY)
-        flow_small = cv2.calcOpticalFlowFarneback(ga, gb, None, 0.5, 2, 13, 2, 5, 1.1, 0)
-        flow = cv2.resize(flow_small, (w, h), interpolation=cv2.INTER_LINEAR)
-        gx, gy = _flow_grid(h, w)
-        surge = 4.2 * (1.0 - abs(alpha - 0.5) * 1.6)
-        warped_a = cv2.remap(
-            frame_a,
-            gx - flow[..., 0] * surge * alpha,
-            gy - flow[..., 1] * surge * alpha,
-            interpolation=cv2.INTER_NEAREST,
-            borderMode=cv2.BORDER_REPLICATE,
-        )
-        bh, bw = max(1, h // 24), max(1, w // 24)
-        rng = np.random.default_rng(int(alpha * 500) + 99)
-        block_mask = (rng.random((bh, bw, 1)) < (alpha ** 1.2)).astype(np.uint8)
-        mask_full = cv2.resize(block_mask, (w, h), interpolation=cv2.INTER_NEAREST)
-        return np.where(mask_full[..., None] > 0, frame_b, warped_a)
-
-    if mode == "whip":
-        h, w = frame_a.shape[:2]
-        offset = int(round((1.0 - alpha) * h))
-        stacked = np.vstack([frame_b, frame_a])
-        out = stacked[offset : offset + h, :]
-        blur_k = int(round(45 * (1.0 - abs(alpha - 0.5) * 2.0))) | 1
-        if blur_k >= 3:
-            out = cv2.GaussianBlur(out, (1, blur_k), 0)
-        return out
-
-    if mode == "whip_horiz":
-        h, w = frame_a.shape[:2]
-        offset = int(round((1.0 - alpha) * w))
-        stacked = np.hstack([frame_b, frame_a])
-        out = stacked[:, offset : offset + w]
-        blur_k = int(round(45 * (1.0 - abs(alpha - 0.5) * 2.0))) | 1
-        if blur_k >= 3:
-            out = cv2.GaussianBlur(out, (blur_k, 1), 0)
-        return out
-
-    if mode == "luma":
-        luma = frame_b.mean(axis=2, keepdims=True) / 255.0
-        mask = np.clip((luma - (1.0 - alpha * 1.45)) * 3.2, 0.0, 1.0).astype(np.float32)
-        return (frame_a.astype(np.float32) * (1.0 - mask) + frame_b.astype(np.float32) * mask).astype(np.uint8)
-
-    if mode == "glitch":
-        h, w = frame_a.shape[:2]
-        smooth_alpha = float(alpha * alpha * (3.0 - 2.0 * alpha))
-        base = cv2.addWeighted(frame_a, 1.0 - smooth_alpha, frame_b, smooth_alpha, 0)
-        out = base.copy()
-        # Fixed seed prevents 30Hz flicker
-        rng = np.random.default_rng(41)
-        mid_surge = float(max(0.0, 1.0 - abs(alpha - 0.5) * 2.0))
-        for _ in range(8):
-            y0 = int(rng.integers(0, max(1, h - 80)))
-            y1 = min(h, y0 + int(rng.integers(25, 110)))
-            max_dx = int(rng.integers(-90, 91))
-            dx = int(round(max_dx * mid_surge))
-            if dx != 0:
-                out[y0:y1] = np.roll(out[y0:y1], dx, axis=1)
-        return out
-
-    if mode == "zoom_punch":
-        za = _zoom_in(frame_a, 1.0 + 0.85 * alpha)
-        zb = _zoom_in(frame_b, 1.45 - 0.45 * alpha)
-        smooth_alpha = float(alpha * alpha * (3.0 - 2.0 * alpha))
-        return cv2.addWeighted(za, 1.0 - smooth_alpha, zb, smooth_alpha, 0)
-
-    if mode == "spin_vortex":
-        h, w = frame_a.shape[:2]
-        center = (w / 2.0, h / 2.0)
-        scale = 1.0 + 0.35 * float(np.sin(alpha * np.pi))
-        M_a = cv2.getRotationMatrix2D(center, float(alpha * 180.0), scale)
-        rot_a = cv2.warpAffine(frame_a, M_a, (w, h), borderMode=cv2.BORDER_REFLECT_101)
-        M_b = cv2.getRotationMatrix2D(center, float((alpha - 1.0) * 180.0), scale)
-        rot_b = cv2.warpAffine(frame_b, M_b, (w, h), borderMode=cv2.BORDER_REFLECT_101)
-        smooth_alpha = float(alpha * alpha * (3.0 - 2.0 * alpha))
-        return cv2.addWeighted(rot_a, 1.0 - smooth_alpha, rot_b, smooth_alpha, 0)
-
-    if mode == "prism_split":
-        alpha_b = float(np.clip(alpha * 1.4, 0.0, 1.0))
-        alpha_g = float(alpha)
-        alpha_r = float(np.clip((alpha - 0.25) * 1.35, 0.0, 1.0))
-        roll_shift = int(round(float(np.sin(alpha * np.pi)) * 28.0))
-
-        b_ch = (frame_a[..., 0].astype(np.float32) * (1.0 - alpha_b) + frame_b[..., 0].astype(np.float32) * alpha_b).astype(np.uint8)
-        g_ch = (frame_a[..., 1].astype(np.float32) * (1.0 - alpha_g) + frame_b[..., 1].astype(np.float32) * alpha_g).astype(np.uint8)
-        r_ch = (frame_a[..., 2].astype(np.float32) * (1.0 - alpha_r) + frame_b[..., 2].astype(np.float32) * alpha_r).astype(np.uint8)
-
-        if roll_shift != 0:
-            b_ch = np.roll(b_ch, roll_shift, axis=1)
-            r_ch = np.roll(r_ch, -roll_shift, axis=1)
-        return cv2.merge([b_ch, g_ch, r_ch])
-
-    if mode == "pixelate":
-        h, w = frame_a.shape[:2]
-        block = max(1, int(round(42.0 * float(np.sin(alpha * np.pi)))))
-        smooth_alpha = float(alpha * alpha * (3.0 - 2.0 * alpha))
-        if block <= 1:
-            return cv2.addWeighted(frame_a, 1.0 - smooth_alpha, frame_b, smooth_alpha, 0)
-        sw = max(1, w // block)
-        sh = max(1, h // block)
-        pix_a = cv2.resize(cv2.resize(frame_a, (sw, sh), interpolation=cv2.INTER_LINEAR), (w, h), interpolation=cv2.INTER_NEAREST)
-        pix_b = cv2.resize(cv2.resize(frame_b, (sw, sh), interpolation=cv2.INTER_LINEAR), (w, h), interpolation=cv2.INTER_NEAREST)
-        return cv2.addWeighted(pix_a, 1.0 - smooth_alpha, pix_b, smooth_alpha, 0)
-
-    if mode == "iris_wipe":
-        h, w = frame_a.shape[:2]
-        y = np.linspace(-1.0, 1.0, h, dtype=np.float32)[:, None]
-        x = np.linspace(-1.0, 1.0, w, dtype=np.float32)[None, :]
-        d = np.sqrt(x * x + y * y)
-        mask = np.clip((alpha * 1.45 - d) * 4.0, 0.0, 1.0)[..., None]
-        return (frame_a.astype(np.float32) * (1.0 - mask) + frame_b.astype(np.float32) * mask).astype(np.uint8)
-
-    if mode == "burn_luma":
-        luma = frame_b.mean(axis=2, keepdims=True) / 255.0
-        mask = np.clip((luma - (1.0 - alpha * 1.45)) * 3.2, 0.0, 1.0).astype(np.float32)
-        base = frame_a.astype(np.float32) * (1.0 - mask) + frame_b.astype(np.float32) * mask
-        base_luma = base.mean(axis=2, keepdims=True) / 255.0
-        mid_bell = float(np.sin(alpha * np.pi))
-        mid_mask = 4.0 * base_luma * np.maximum(0.0, 1.0 - base_luma)
-        glow_boost = 32.0 * mid_bell * mid_mask
-        base[..., 0] += glow_boost[..., 0] * 0.15
-        base[..., 1] += glow_boost[..., 0] * 0.45
-        base[..., 2] += glow_boost[..., 0] * 1.00
-        return np.clip(base, 0, 255).astype(np.uint8)
-
-    if mode == "shutter_slice":
-        h, w = frame_a.shape[:2]
-        out = frame_a.copy()
-        num_bands = 10
-        band_h = h // num_bands
-        for k in range(num_bands):
-            y0 = k * band_h
-            y1 = (k + 1) * band_h if k < num_bands - 1 else h
-            phase_alpha = float(np.clip((alpha - (k / num_bands) * 0.35) / 0.65, 0.0, 1.0))
-            cutoff = int(round(phase_alpha * w))
-            if cutoff > 0:
-                out[y0:y1, :cutoff] = frame_b[y0:y1, :cutoff]
-        return out
-
-    if mode == "kaleido_twist":
-        smooth_alpha = float(alpha * alpha * (3.0 - 2.0 * alpha))
-        base = cv2.addWeighted(frame_a, 1.0 - smooth_alpha, frame_b, smooth_alpha, 0)
-        mid = float(np.sin(alpha * np.pi))
-        if mid < 0.02:
-            return base
-        zoomed = _zoom_in(base, 1.0 + 0.25 * mid)
-        h, w = zoomed.shape[:2]
-        hw, hh = w // 2, h // 2
-        kframe = zoomed.copy()
-        kframe[:, w - hw :] = kframe[:, :hw][:, ::-1]
-        kframe[h - hh :, :] = kframe[:hh, :][::-1, :]
-        blend_amt = min(0.85, 0.85 * mid)
-        return cv2.addWeighted(base, 1.0 - blend_amt, kframe, blend_amt, 0)
-
-    smooth_alpha = float(alpha * alpha * (3.0 - 2.0 * alpha))
-    base = cv2.addWeighted(frame_a, 1.0 - smooth_alpha, frame_b, smooth_alpha, 0)
-    mid_bell = max(0.0, 1.0 - abs(alpha - 0.5) * 2.0)
-    cushion = int(round(10 * (mid_bell ** 2)))
-    if cushion > 0:
-        base = cv2.add(base, (int(round(cushion * 0.6)), int(round(cushion * 0.8)), cushion, 0))
-    return base
 
 
 @dataclasses.dataclass
@@ -442,94 +239,131 @@ def _weights_to_bounds(n_frames: int, weights: list[float], min_len: int = 12) -
     return _lengths_to_bounds(lengths, n_frames)
 
 
-def _compute_segment_bounds(
+def _cut_strategy_fit_all(
     n_frames: int,
     cut_frames: int,
     n_clips: int,
-    cut_mode: str,
     ensure_all: bool,
     audio_curves: FrameAudioCurves | None,
     rng: random.Random,
 ) -> list[tuple[int, int]]:
-    n_frames = max(1, n_frames)
-    n_clips = max(1, n_clips)
+    n_segs = max(1, n_clips)
+    return [
+        (int(round(k * n_frames / n_segs)), int(round((k + 1) * n_frames / n_segs)))
+        for k in range(n_segs)
+    ]
 
-    if cut_mode == "fit_all":
-        n_segs = max(1, n_clips)
-        return [
-            (int(round(k * n_frames / n_segs)), int(round((k + 1) * n_frames / n_segs)))
-            for k in range(n_segs)
-        ]
 
-    if cut_mode == "fit_all_2x":
-        n_segs = max(2, n_clips * 2)
-        return [
-            (int(round(k * n_frames / n_segs)), int(round((k + 1) * n_frames / n_segs)))
-            for k in range(n_segs)
-        ]
+def _cut_strategy_fit_all_2x(
+    n_frames: int,
+    cut_frames: int,
+    n_clips: int,
+    ensure_all: bool,
+    audio_curves: FrameAudioCurves | None,
+    rng: random.Random,
+) -> list[tuple[int, int]]:
+    n_segs = max(2, n_clips * 2)
+    return [
+        (int(round(k * n_frames / n_segs)), int(round((k + 1) * n_frames / n_segs)))
+        for k in range(n_segs)
+    ]
 
-    if cut_mode == "build_up":
-        n_segs = max(n_clips if ensure_all else 2, max(4, int(round(n_frames / max(1, cut_frames)))))
-        weights = [1.65 * (0.45 ** (k / max(1, n_segs - 1))) for k in range(n_segs)]
-        return _weights_to_bounds(n_frames, weights, min_len=12)
 
-    if cut_mode == "syncopated":
-        base = max(4.0, cut_frames / 1.333)
-        if ensure_all and n_clips > 1 and (n_frames / (base * 1.333)) < n_clips:
-            base = max(4.0, (n_frames / n_clips) / 1.333)
-        pat = [1.5, 1.5, 1.0]
-        lengths: list[int] = []
-        remaining = n_frames
-        idx = 0
-        while remaining > 0:
-            step = max(8, int(round(base * pat[idx % len(pat)])))
-            if remaining - step < 8:
-                step = remaining
-            lengths.append(step)
-            remaining -= step
-            idx += 1
-        if ensure_all and len(lengths) < n_clips:
-            lengths = _split_until_count(lengths, n_clips)
-        return _lengths_to_bounds(lengths, n_frames)
+def _cut_strategy_build_up(
+    n_frames: int,
+    cut_frames: int,
+    n_clips: int,
+    ensure_all: bool,
+    audio_curves: FrameAudioCurves | None,
+    rng: random.Random,
+) -> list[tuple[int, int]]:
+    n_segs = max(n_clips if ensure_all else 2, max(4, int(round(n_frames / max(1, cut_frames)))))
+    weights = [1.65 * (0.45 ** (k / max(1, n_segs - 1))) for k in range(n_segs)]
+    return _weights_to_bounds(n_frames, weights, min_len=12)
 
-    if cut_mode == "transient" and audio_curves is not None:
-        min_dist = max(15, cut_frames // 2)
-        transient_arr = np.asarray(audio_curves.transient, dtype=np.float32)
-        cand_indices = []
-        for f in range(1, len(transient_arr) - 1):
-            if transient_arr[f] > transient_arr[f - 1] and transient_arr[f] >= transient_arr[f + 1]:
-                cand_indices.append((float(transient_arr[f]), f))
-        cand_indices.sort(key=lambda x: x[0], reverse=True)
-        picked_peaks: list[int] = []
-        for _val, f in cand_indices:
-            if min_dist <= f <= n_frames - min_dist:
-                if all(abs(f - p) >= min_dist for p in picked_peaks):
-                    picked_peaks.append(f)
-        picked_peaks.sort()
-        cuts = [0] + picked_peaks + [n_frames]
-        bounds = [(cuts[k], cuts[k + 1]) for k in range(len(cuts) - 1)]
-        if ensure_all and len(bounds) < n_clips:
-            lengths = [end - start for start, end in bounds]
-            lengths = _split_until_count(lengths, n_clips)
-            return _lengths_to_bounds(lengths, n_frames)
-        return bounds
 
-    if cut_mode == "chaos":
-        scale = 1.0
-        if ensure_all and n_clips > 1 and (n_frames // max(1, cut_frames)) < n_clips:
-            scale = min(1.0, (n_frames / n_clips) / max(1, cut_frames))
-        lengths = []
-        remaining = n_frames
-        while remaining > 0:
-            l = max(10, int(round(rng.choice([0.6, 0.8, 1.0, 1.3, 1.6]) * cut_frames * scale)))
-            if remaining - l < 10:
-                l = remaining
-            lengths.append(l)
-            remaining -= l
-        if ensure_all and len(lengths) < n_clips:
-            lengths = _split_until_count(lengths, n_clips)
-        return _lengths_to_bounds(lengths, n_frames)
+def _cut_strategy_syncopated(
+    n_frames: int,
+    cut_frames: int,
+    n_clips: int,
+    ensure_all: bool,
+    audio_curves: FrameAudioCurves | None,
+    rng: random.Random,
+) -> list[tuple[int, int]]:
+    base = max(4.0, cut_frames / 1.333)
+    if ensure_all and n_clips > 1 and (n_frames / (base * 1.333)) < n_clips:
+        base = max(4.0, (n_frames / n_clips) / 1.333)
+    pat = [1.5, 1.5, 1.0]
+    lengths: list[int] = []
+    remaining = n_frames
+    idx = 0
+    while remaining > 0:
+        step = max(8, int(round(base * pat[idx % len(pat)])))
+        if remaining - step < 8:
+            step = remaining
+        lengths.append(step)
+        remaining -= step
+        idx += 1
+    return _lengths_to_bounds(lengths, n_frames)
 
+
+def _cut_strategy_transient(
+    n_frames: int,
+    cut_frames: int,
+    n_clips: int,
+    ensure_all: bool,
+    audio_curves: FrameAudioCurves | None,
+    rng: random.Random,
+) -> list[tuple[int, int]]:
+    if audio_curves is None:
+        return _cut_strategy_steady(n_frames, cut_frames, n_clips, ensure_all, audio_curves, rng)
+    min_dist = max(15, cut_frames // 2)
+    transient_arr = np.asarray(audio_curves.transient, dtype=np.float32)
+    cand_indices = []
+    for f in range(1, len(transient_arr) - 1):
+        if transient_arr[f] > transient_arr[f - 1] and transient_arr[f] >= transient_arr[f + 1]:
+            cand_indices.append((float(transient_arr[f]), f))
+    cand_indices.sort(key=lambda x: x[0], reverse=True)
+    picked_peaks: list[int] = []
+    for _val, f in cand_indices:
+        if min_dist <= f <= n_frames - min_dist:
+            if all(abs(f - p) >= min_dist for p in picked_peaks):
+                picked_peaks.append(f)
+    picked_peaks.sort()
+    cuts = [0] + picked_peaks + [n_frames]
+    return [(cuts[k], cuts[k + 1]) for k in range(len(cuts) - 1)]
+
+
+def _cut_strategy_chaos(
+    n_frames: int,
+    cut_frames: int,
+    n_clips: int,
+    ensure_all: bool,
+    audio_curves: FrameAudioCurves | None,
+    rng: random.Random,
+) -> list[tuple[int, int]]:
+    scale = 1.0
+    if ensure_all and n_clips > 1 and (n_frames // max(1, cut_frames)) < n_clips:
+        scale = min(1.0, (n_frames / n_clips) / max(1, cut_frames))
+    lengths: list[int] = []
+    remaining = n_frames
+    while remaining > 0:
+        l = max(10, int(round(rng.choice([0.6, 0.8, 1.0, 1.3, 1.6]) * cut_frames * scale)))
+        if remaining - l < 10:
+            l = remaining
+        lengths.append(l)
+        remaining -= l
+    return _lengths_to_bounds(lengths, n_frames)
+
+
+def _cut_strategy_steady(
+    n_frames: int,
+    cut_frames: int,
+    n_clips: int,
+    ensure_all: bool,
+    audio_curves: FrameAudioCurves | None,
+    rng: random.Random,
+) -> list[tuple[int, int]]:
     if ensure_all and n_clips > 1 and (n_frames // max(1, cut_frames)) < n_clips:
         over = min(1.0, max(0.0, (cut_frames * n_clips / max(1, n_frames) - 1.0) * 0.55))
         weights = [1.0 + over * (1.0 - 1.6 * (k / max(1, n_clips - 1))) for k in range(n_clips)]
@@ -544,6 +378,56 @@ def _compute_segment_bounds(
             end = n_frames
         bounds.append((cursor, end))
         cursor = end
+    return bounds
+
+
+_CUT_MODE_STRATEGIES: dict[
+    str,
+    Callable[
+        [int, int, int, bool, FrameAudioCurves | None, random.Random],
+        list[tuple[int, int]],
+    ],
+] = {
+    "fit_all": _cut_strategy_fit_all,
+    "fit_all_2x": _cut_strategy_fit_all_2x,
+    "build_up": _cut_strategy_build_up,
+    "syncopated": _cut_strategy_syncopated,
+    "transient": _cut_strategy_transient,
+    "chaos": _cut_strategy_chaos,
+    "steady": _cut_strategy_steady,
+}
+
+
+def _compute_segment_bounds(
+    n_frames: int,
+    cut_frames: int,
+    n_clips: int,
+    cut_mode: str,
+    ensure_all: bool,
+    audio_curves: FrameAudioCurves | None,
+    rng: random.Random,
+) -> list[tuple[int, int]]:
+    n_frames = max(1, n_frames)
+    n_clips = max(1, n_clips)
+
+    strategy = _CUT_MODE_STRATEGIES.get(cut_mode, _cut_strategy_steady)
+    bounds = strategy(
+        n_frames=n_frames,
+        cut_frames=cut_frames,
+        n_clips=n_clips,
+        ensure_all=ensure_all,
+        audio_curves=audio_curves,
+        rng=rng,
+    )
+
+    if not bounds:
+        bounds = [(0, n_frames)]
+
+    if ensure_all and len(bounds) < n_clips:
+        lengths = [end - start for start, end in bounds]
+        lengths = _split_until_count(lengths, n_clips)
+        bounds = _lengths_to_bounds(lengths, n_frames)
+
     return bounds
 
 

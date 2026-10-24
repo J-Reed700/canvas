@@ -189,6 +189,10 @@ export function clipAspect(clip?: { width?: number; height?: number } | null): n
   return (clip.width || 0) / Math.max(1, clip.height);
 }
 
+export function clipDisplayName(clip: { name: string; still?: boolean }): string {
+  return clip.still ? clip.name.replace(/\.still\.mp4$/, '') : clip.name;
+}
+
 /** The share of a clip that a canvas of aspect `ca` (width / height) shows, and how far its crop can move. Matches the SOURCE shader. */
 export function room(c: { width?: number; height?: number }, zoom: number, ca = 9 / 16): { frac: [number, number]; room: [number, number] } {
   const va = clipAspect(c);

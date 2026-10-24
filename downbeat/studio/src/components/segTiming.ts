@@ -11,6 +11,14 @@ import type { Segment } from '../engine/types.ts';
 const st = () => useStudioStore.getState();
 const EIGHTHS = ['', '⅛', '¼', '⅜', '½', '⅝', '¾', '⅞'];
 
+/** The segment playing block `id` in the edit as it is now. */
+export const segOf = (id: string): Segment | undefined => useStudioStore.getState().ctx?.tl.segs.find((x) => x.id === id);
+
+export const chip = (on: boolean, text: string, onclick: () => void, title = '') =>
+  h('button', { class: on ? 'on' : '', title, onclick: () => !on && onclick() }, text);
+
+export const chips = (...kids: (HTMLElement | boolean | null | undefined)[]) => h('div', { class: 'seg-chips' }, ...kids);
+
 /** Where a beat of the loop falls, as "Bar 2, beat 3½". Between eighths it gives the beat to two places. */
 export function beatName(beats: number): string {
   const q = Math.round(beats * 8);
@@ -254,7 +262,6 @@ export function timingSection(id: string, render: () => void, length: HTMLElemen
     len.textContent = `${seg.dur.toFixed(2)} s, ${beatsText(seg.dur / bd)}`;
     playhead();
   }
-  const segOf = (bid: string) => ctx().tl.segs.find((x) => x.id === bid);
 
   function playhead() {
     const L = span();

@@ -1,5 +1,5 @@
 import { useStudioStore } from './store.ts';
-import { fetchJSON, postJSON, shuffle, toast, detectSubject, sourceLabel } from '../lib/utils.ts';
+import { fetchJSON, postJSON, shuffle, toast, detectSubject, sourceLabel, clipDisplayName } from '../lib/utils.ts';
 import { LOOKS } from '../engine/looks.ts';
 import { resetHistory } from './historyController.ts';
 import type { ClipMeta, TrackMeta, RenderRecord, ClipPalette } from '../engine/types.ts';
@@ -163,7 +163,7 @@ export async function removeClip(id: string) {
     blocks: null,
   }));
   useStudioStore.getState().rebuild();
-  const name = c?.still ? c.name.replace(/\.still\.mp4$/, '') : c?.name || 'the clip';
+  const name = c?.name ? clipDisplayName({ name: c.name, still: c.still }) : 'the clip';
   toast(r?.deleted ? `Removed ${name} and deleted its uploaded copy` : `Removed ${name}. The file is still in its folder.`, 3600);
 }
 

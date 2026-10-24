@@ -1,6 +1,6 @@
 import React, { useCallback, useRef, useState } from 'react';
 import { useStudioStore, useVersion } from '../state/store.ts';
-import { METERS, fmt } from '../lib/utils.ts';
+import { METERS, fmt, clipDisplayName } from '../lib/utils.ts';
 import { MOD_SOURCES } from '../engine/modules.ts';
 import type { ClipMeta } from '../engine/types.ts';
 import { ExportsSection } from './Exports.tsx';
@@ -296,7 +296,7 @@ export const MediaPanel: React.FC = () => {
                   )}
                   <RemoveClipButton id={c.id} />
                   <div className="cap">
-                    {c.still ? `Still · ${c.name?.replace(/\.still\.mp4$/, '')}` : `${(c.duration || 0).toFixed(1)}s · ${c.name}`}
+                    {c.still ? `Still · ${clipDisplayName({ name: c.name || '', still: c.still })}` : `${(c.duration || 0).toFixed(1)}s · ${c.name}`}
                   </div>
                 </div>
               );

@@ -13,6 +13,7 @@ import urllib.request
 import webbrowser
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from typing import Callable
 
 from .. import delivery
 from ..analysis import framing
@@ -133,42 +134,77 @@ class StudioHandler(BaseHTTPRequestHandler):
         origin = self.headers.get("Origin")
         return self.command != "POST" or origin is None or origin.lower() in {f"http://{h}" for h in hosts}
 
+    GET_EXACT_ROUTES: dict[str, Callable[[StudioHandler, dict[str, list[str]]], None]] = {
+        "/": lambda self, q: self._get_root(),
+        "/index.html": lambda self, q: self._get_root(),
+        "/api/state": lambda self, q: self._get_state(q),
+        "/api/status": lambda self, q: self._get_status(),
+        "/api/tracks": lambda self, q: self._send_json(self._library_payload(rescan=True)),
+    }
+    GET_PREFIX_ROUTES: list[tuple[str, Callable[[StudioHandler, str, dict[str, list[str]]], None]]] = [
+        ("/studio/", lambda self, r, q: self._get_studio_static(r)),
+        ("/api/features/", lambda self, r, q: self._get_features(r, q)),
+        ("/api/proxy/", lambda self, r, q: self._get_proxy(r)),
+        ("/api/frames/", lambda self, r, q: self._get_frames(r, q)),
+        ("/api/thumb/", lambda self, r, q: self._get_thumb(r, q)),
+        ("/api/autoframe/", lambda self, r, q: self._get_autoframe(r)),
+        ("/api/palette/", lambda self, r, q: self._get_palette(r)),
+        ("/api/track_audio/", lambda self, r, q: self._get_track_audio(r)),
+        ("/out/", lambda self, r, q: self._get_out(r)),
+    ]
+
+    POST_EXACT_ROUTES: dict[str, Callable[[StudioHandler, bytes, dict[str, list[str]]], None]] = {
+        "/api/export": lambda self, b, q: self._post_export(b),
+        "/api/export/companion": lambda self, b, q: self._post_export_companion(b),
+        "/api/export/raw/begin": lambda self, b, q: self._post_raw_begin(b),
+        "/api/export/raw/frames": lambda self, b, q: self._post_raw_frames(b, q),
+        "/api/export/raw/abort": lambda self, b, q: self._post_raw_abort(q),
+        "/api/export/raw/end": lambda self, b, q: self._post_raw_end(b, q),
+        "/api/export/delete": lambda self, b, q: self._post_delete_export(b),
+        "/api/clip/remove": lambda self, b, q: self._post_remove_clip(b),
+        "/api/proxies": lambda self, b, q: self._post_proxies(b),
+        "/api/library/folders": lambda self, b, q: self._post_library_folders(b),
+        "/api/library/pick_folder": lambda self, b, q: self._post_pick_folder(),
+        "/api/reveal": lambda self, b, q: self._post_reveal(b),
+        "/api/shutdown": lambda self, b, q: self._post_shutdown(),
+        "/api/upload": lambda self, b, q: self._post_upload(b),
+    }
+    POST_PREFIX_ROUTES: list[tuple[str, Callable[[StudioHandler, str, bytes, dict[str, list[str]]], None]]] = []
+
+    def _dispatch_get(self, route: str, query: dict[str, list[str]]) -> None:
+        handler = self.GET_EXACT_ROUTES.get(route)
+        if handler is not None:
+            handler(self, query)
+            return
+        for prefix, prefix_handler in self.GET_PREFIX_ROUTES:
+            if route.startswith(prefix):
+                prefix_handler(self, route, query)
+                return
+        if hasattr(super(), "do_GET"):
+            super().do_GET()
+        else:
+            self.send_error(HTTPStatus.NOT_FOUND)
+
+    def _dispatch_post(self, route: str, body: bytes, query: dict[str, list[str]]) -> None:
+        handler = self.POST_EXACT_ROUTES.get(route)
+        if handler is not None:
+            handler(self, body, query)
+            return
+        for prefix, prefix_handler in self.POST_PREFIX_ROUTES:
+            if route.startswith(prefix):
+                prefix_handler(self, route, body, query)
+                return
+        if hasattr(super(), "do_POST"):
+            super().do_POST()
+        else:
+            self.send_error(HTTPStatus.NOT_FOUND)
+
     def do_GET(self) -> None:
         if not self._trusted():
             self.send_error(HTTPStatus.FORBIDDEN, "Untrusted host or origin")
             return
         parsed = urllib.parse.urlparse(self.path)
-        route = parsed.path
-        query = urllib.parse.parse_qs(parsed.query)
-
-        if route in ("/", "/index.html"):
-            self._get_root()
-        elif route.startswith("/studio/"):
-            self._get_studio_static(route)
-        elif route.startswith("/api/features/"):
-            self._get_features(route, query)
-        elif route.startswith("/api/proxy/"):
-            self._get_proxy(route)
-        elif route.startswith("/api/frames/"):
-            self._get_frames(route, query)
-        elif route == "/api/state":
-            self._get_state(query)
-        elif route == "/api/status":
-            self._get_status()
-        elif route.startswith("/api/thumb/"):
-            self._get_thumb(route, query)
-        elif route.startswith("/api/autoframe/"):
-            self._get_autoframe(route)
-        elif route.startswith("/api/palette/"):
-            self._get_palette(route)
-        elif route.startswith("/api/track_audio/"):
-            self._get_track_audio(route)
-        elif route == "/api/tracks":
-            self._send_json(self._library_payload(rescan=True))
-        elif route.startswith("/out/"):
-            self._get_out(route)
-        else:
-            self.send_error(HTTPStatus.NOT_FOUND)
+        self._dispatch_get(parsed.path, urllib.parse.parse_qs(parsed.query))
 
     def _get_root(self) -> None:
         dist_index = os.path.join(STUDIO_DIST_DIR, "index.html")
@@ -198,46 +234,39 @@ class StudioHandler(BaseHTTPRequestHandler):
             return
         self._serve_file(safe_studio_path, STATIC_TYPES.get(os.path.splitext(safe_studio_path)[1].lower()))
 
-    def _get_autoframe(self, route: str) -> None:
-        cid = urllib.parse.unquote(route.split("/api/autoframe/", 1)[1])
+    def _get_clip_analysis(
+        self,
+        route: str,
+        prefix: str,
+        cache: dict[str, object],
+        compute_fn: Callable[[str], object],
+    ) -> None:
+        cid = urllib.parse.unquote(route.split(prefix, 1)[1])
         src = STATE.clips.get(cid)
         if not src:
-            self._send_json({"ok": False}, status=404)
+            err = {"ok": False, "error": "unknown clip id"} if "/palette" in prefix else {"ok": False}
+            self._send_json(err, status=404)
             return
         with STATE.lock:
-            hit = STATE.framing.get(cid)
+            hit = cache.get(cid)
         if hit is None:
             # the short-GOP proxy seeks far faster than a long-GOP original; same framing
             proxy = STATE.proxies.path_for(src)
             path = proxy if STATE.proxies.ready(src) and os.path.isfile(proxy) else src.path
             try:
-                hit = framing.autoframe(path)
+                hit = compute_fn(path)
             except Exception as exc:
                 self._send_json({"ok": False, "error": str(exc)}, status=500)
                 return
             with STATE.lock:
-                STATE.framing[cid] = hit
+                cache[cid] = hit
         self._send_json({"ok": True, **hit})
 
+    def _get_autoframe(self, route: str) -> None:
+        self._get_clip_analysis(route, "/api/autoframe/", STATE.framing, framing.autoframe)
+
     def _get_palette(self, route: str) -> None:
-        cid = urllib.parse.unquote(route.split("/api/palette/", 1)[1])
-        src = STATE.clips.get(cid)
-        if not src:
-            self._send_json({"ok": False, "error": "unknown clip id"}, status=404)
-            return
-        with STATE.lock:
-            pal = STATE.palettes.get(cid)
-        if pal is None:
-            proxy = STATE.proxies.path_for(src)
-            path = proxy if STATE.proxies.ready(src) and os.path.isfile(proxy) else src.path
-            try:
-                pal = framing.extract_palette(path)
-            except Exception as exc:
-                self._send_json({"ok": False, "error": str(exc)}, status=500)
-                return
-            with STATE.lock:
-                STATE.palettes[cid] = pal
-        self._send_json({"ok": True, **pal})
+        self._get_clip_analysis(route, "/api/palette/", STATE.palettes, framing.extract_palette)
 
     def _get_features(self, route: str, query: dict[str, list[str]]) -> None:
         track_id = route.split("/api/features/", 1)[1]
@@ -416,41 +445,9 @@ class StudioHandler(BaseHTTPRequestHandler):
             self.send_error(HTTPStatus.FORBIDDEN, "Untrusted host or origin")
             return
         parsed = urllib.parse.urlparse(self.path)
-        route = parsed.path
         length = int(self.headers.get("Content-Length", "0"))
         body = self.rfile.read(length) if length > 0 else b"{}"
-        query = urllib.parse.parse_qs(parsed.query)
-
-        if route == "/api/export":
-            self._post_export(body)
-        elif route == "/api/export/companion":
-            self._post_export_companion(body)
-        elif route == "/api/export/raw/begin":
-            self._post_raw_begin(body)
-        elif route == "/api/export/raw/frames":
-            self._post_raw_frames(body, query)
-        elif route == "/api/export/raw/abort":
-            self._post_raw_abort(query)
-        elif route == "/api/export/raw/end":
-            self._post_raw_end(body, query)
-        elif route == "/api/export/delete":
-            self._post_delete_export(body)
-        elif route == "/api/clip/remove":
-            self._post_remove_clip(body)
-        elif route == "/api/proxies":
-            self._post_proxies(body)
-        elif route == "/api/library/folders":
-            self._post_library_folders(body)
-        elif route == "/api/library/pick_folder":
-            self._post_pick_folder()
-        elif route == "/api/reveal":
-            self._post_reveal(body)
-        elif route == "/api/shutdown":
-            self._post_shutdown()
-        elif route == "/api/upload":
-            self._post_upload(body)
-        else:
-            self.send_error(HTTPStatus.NOT_FOUND)
+        self._dispatch_post(parsed.path, body, urllib.parse.parse_qs(parsed.query))
 
     def _post_export(self, body: bytes) -> None:
         # body = H.264 Annex B elementary stream from the browser's WebCodecs encoder

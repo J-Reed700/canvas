@@ -144,3 +144,116 @@ export const Card: React.FC<{
     </div>
   );
 };
+
+export interface ArmedButtonProps {
+  onConfirm: () => void;
+  label?: React.ReactNode;
+  armedLabel?: React.ReactNode;
+  className?: string;
+  title?: string;
+  armedTitle?: string;
+  ms?: number;
+  children?: React.ReactNode;
+}
+
+export const ArmedButton: React.FC<ArmedButtonProps> = ({
+  onConfirm,
+  label = 'Delete',
+  armedLabel = 'Click again to confirm',
+  className = '',
+  title = 'Delete',
+  armedTitle = 'Click again to confirm',
+  ms = 3000,
+  children,
+}) => {
+  const [armed, setArmed] = useArmed(ms);
+  return (
+    <button
+      className={`btn ${armed ? 'armed' : ''} ${className}`.trim()}
+      title={armed ? armedTitle : title}
+      onClick={() => (armed ? onConfirm() : setArmed(true))}
+    >
+      {armed ? armedLabel : (children || label)}
+    </button>
+  );
+};
+
+export interface ModalProps {
+  open: boolean;
+  onClose: () => void;
+  title: React.ReactNode;
+  subtitle?: React.ReactNode;
+  subtitleId?: string;
+  headerActions?: React.ReactNode;
+  className?: string;
+  ariaLabel?: string;
+  closeButtonDataAction?: string;
+  id?: string;
+  style?: React.CSSProperties;
+  children: React.ReactNode;
+}
+
+export const Modal: React.FC<ModalProps> = ({
+  open,
+  onClose,
+  title,
+  subtitle,
+  subtitleId,
+  headerActions,
+  className = '',
+  ariaLabel,
+  closeButtonDataAction,
+  id,
+  style,
+  children,
+}) => {
+  if (!open && !id) return null;
+  const computedAriaLabel = ariaLabel || (typeof title === 'string' ? title : undefined);
+
+  return (
+    <div
+      className={`modal-bg ${open ? 'on' : ''}`}
+      id={id}
+      onClick={(e) => {
+        if (e.target === e.currentTarget || (e.target as HTMLElement).closest('[data-close]')) {
+          onClose();
+        }
+      }}
+    >
+      {open && (
+        <div
+          className={`modal ${className}`.trim()}
+          role="dialog"
+          aria-label={computedAriaLabel}
+          style={style}
+        >
+          <div className="modal-h">
+            <div>
+              {typeof title === 'string' ? <h2>{title}</h2> : title}
+              {subtitle && (
+                React.isValidElement(subtitle) ? (
+                  subtitle
+                ) : (
+                  <div className="sub modal-sub" id={subtitleId}>
+                    {subtitle}
+                  </div>
+                )
+              )}
+            </div>
+            {headerActions}
+            <button
+              className="btn icon modal-x"
+              data-close
+              data-action={closeButtonDataAction}
+              title="Close (Esc)"
+              onClick={onClose}
+            >
+              ✕
+            </button>
+          </div>
+          {children}
+        </div>
+      )}
+    </div>
+  );
+};

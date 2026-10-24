@@ -55,11 +55,83 @@ def mux_annexb(h264_path: str, dest: str, fps: int) -> None:
         raise
 
 
-class RawSession:
+class _ExportSession:
+    """Base class managing the export lifecycle, muxing, and verification."""
+
+    def __init__(
+        self,
+        dest: str,
+        fps: int = 30,
+        audio_path: str | None = None,
+        loop_start: float = 0.0,
+        duration: float = 0.0,
+        repeats: int = 1,
+    ) -> None:
+        self.dest = dest
+        self.fps = fps
+        self.tmp: str | None = dest[:-4] + ".h264"
+        self.audio_path = audio_path
+        self.loop_start = loop_start
+        self.duration = duration
+        self.repeats = repeats
+        self.bytes_written = 0
+
+    def write(self, data: bytes) -> int:
+        raise NotImplementedError
+
+    def finish(self) -> None:
+        raise NotImplementedError
+
+    def abort(self) -> None:
+        raise NotImplementedError
+
+    def _mux_and_verify(
+        self,
+        stats: dict | None = None,
+        fmt: str = "spotify",
+        promo_seconds: float = 0,
+        with_audio: bool = True,
+    ) -> dict:
+        return deliver(
+            self.dest,
+            self.audio_path,
+            self.loop_start,
+            self.duration,
+            stats,
+            fmt=fmt,
+            promo_seconds=promo_seconds,
+            with_audio=with_audio,
+        )
+
+    def __enter__(self) -> _ExportSession:
+        return self
+
+    def __exit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
+        self.finish()
+
+
+class RawSession(_ExportSession):
     """Fallback path: bottom-up RGBA frames from WebGL readPixels, encoded by ffmpeg."""
 
-    def __init__(self, dest: str, width: int, height: int, fps: int) -> None:
-        self.dest = dest
+    def __init__(
+        self,
+        dest: str,
+        width: int,
+        height: int,
+        fps: int,
+        audio_path: str | None = None,
+        loop_start: float = 0.0,
+        duration: float = 0.0,
+        repeats: int = 1,
+    ) -> None:
+        super().__init__(
+            dest=dest,
+            fps=fps,
+            audio_path=audio_path,
+            loop_start=loop_start,
+            duration=duration,
+            repeats=repeats,
+        )
         self.frame_bytes = width * height * 4
         self.frames = 0
         self.encoder = Encoder(dest, fps=fps, width=width, height=height, crf=16, pix_fmt="rgba", vflip=True)
@@ -68,6 +140,7 @@ class RawSession:
         n = len(data) // self.frame_bytes
         self.encoder.write(data[: n * self.frame_bytes])
         self.frames += n
+        self.bytes_written += n * self.frame_bytes
         return n
 
     def finish(self) -> None:
@@ -86,25 +159,34 @@ class RawSession:
         if os.path.exists(self.dest):
             os.remove(self.dest)
 
-    def __enter__(self) -> RawSession:
-        return self
 
-    def __exit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
-        self.finish()
-
-
-class ChunkSession:
+class ChunkSession(_ExportSession):
     """WebCodecs path: H.264 Annex B chunks appended to disk as the browser encodes them, then
     remuxed once at the end. Streaming keeps exports minutes long out of browser and server memory."""
 
-    def __init__(self, dest: str, fps: int) -> None:
-        self.dest = dest
-        self.fps = fps
+    def __init__(
+        self,
+        dest: str,
+        fps: int,
+        audio_path: str | None = None,
+        loop_start: float = 0.0,
+        duration: float = 0.0,
+        repeats: int = 1,
+    ) -> None:
+        super().__init__(
+            dest=dest,
+            fps=fps,
+            audio_path=audio_path,
+            loop_start=loop_start,
+            duration=duration,
+            repeats=repeats,
+        )
         self.tmp = dest[:-4] + ".h264"
         self.file = open(self.tmp, "wb")
 
     def write(self, data: bytes) -> int:
         self.file.write(data)
+        self.bytes_written += len(data)
         return len(data)
 
     def finish(self) -> None:
@@ -118,7 +200,7 @@ class ChunkSession:
     def abort(self) -> None:
         self.file.close()
         for path in (self.tmp, self.dest):
-            if os.path.exists(path):
+            if path and os.path.exists(path):
                 os.remove(path)
 
 
@@ -306,13 +388,13 @@ def verify(path: str, stats: dict | None = None, fmt: str = "spotify") -> list[d
         _motion_checks(checks, check, stats)
         return checks
 
-    if fmt == "youtube_16_9":
-        spec = FORMATS[fmt]
+    def _verify_fixed_size(format_name: str, standard_desc: str) -> list[dict]:
+        spec = FORMATS[format_name]
         sw, sh = spec["size"]
         checks = [
             check("aspect", spec["label"], h > 0 and abs(w / h - spec["aspect"]) < 0.01, f"{w}×{h}"),
             check("size", f"{sw}×{sh}", w >= sw and h >= sh,
-                  f"{w}×{h}" if w >= sw else f"{w}×{h}; YouTube standard is {sw}×{sh}", warn=True),
+                  f"{w}×{h}" if w >= sw else f"{w}×{h}; {standard_desc} {sw}×{sh}", warn=True),
             codec,
             check("fps", "Constant 30 fps", abs(fps - 30.0) < 0.01, f"{fps:g} fps"),
             faststart,
@@ -320,19 +402,11 @@ def verify(path: str, stats: dict | None = None, fmt: str = "spotify") -> list[d
         _motion_checks(checks, check, stats)
         return checks
 
+    if fmt == "youtube_16_9":
+        return _verify_fixed_size("youtube_16_9", "YouTube standard is")
+
     if fmt == "social_square":
-        spec = FORMATS[fmt]
-        sw, sh = spec["size"]
-        checks = [
-            check("aspect", spec["label"], h > 0 and abs(w / h - spec["aspect"]) < 0.01, f"{w}×{h}"),
-            check("size", f"{sw}×{sh}", w >= sw and h >= sh,
-                  f"{w}×{h}" if w >= sw else f"{w}×{h}; Social feed asks for {sw}×{sh}", warn=True),
-            codec,
-            check("fps", "Constant 30 fps", abs(fps - 30.0) < 0.01, f"{fps:g} fps"),
-            faststart,
-        ]
-        _motion_checks(checks, check, stats)
-        return checks
+        return _verify_fixed_size("social_square", "Social feed asks for")
 
     if fmt == "cover_art":
         spec = FORMATS[fmt]
