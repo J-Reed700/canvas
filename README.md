@@ -33,7 +33,7 @@ The full guide to every panel and control is in [docs/STUDIO_GUIDE.md](docs/STUD
 
 - Finds the song's tempo (to 0.02 BPM) and its downbeats, and suggests where the loop should start, with labels such as Drop, Peak and Intro.
 - Cuts your clips on the beat grid. Loops are always a whole number of bars, so the end of the loop meets the start in time with the music.
-- Styles the video with one of 44 looks, or with your own stack built from 49 effects. Cuts can use any of 16 transitions, each centered on its beat.
+- Styles the video with one of 44 looks, or with your own stack built from 52 effects. Cuts can use any of 16 transitions, each centered on its beat.
 - Moves any slider with the music. A slider can follow one of eight bands of the song (kick, snare, hats, bass, energy, brightness, vocals, presence), a clock synced to the tempo, two LFOs, a 16-step sequencer, an envelope you draw, or one of two macro knobs.
 - Animates still images and cover art with a fake-depth parallax effect. One look adds a spectrum visualizer on top.
 - Frames each clip on its subject. You can drag the preview to reframe, or pick a different moment of a clip for one segment.
@@ -403,7 +403,7 @@ Downbeat lists the videos and songs in the folders you pick, and the files you a
 
 | Kind | Formats |
 | :--- | :--- |
-| Video | `.mp4 .mov .m4v .webm .mkv`, and anything else ffmpeg can read |
+| Video | `.mp4 .mov .m4v .webm .mkv`. Other videos ffmpeg can read, such as `.avi`, `.mts` or `.wmv`, are converted to `.mp4` when you add them |
 | Images | `.jpg .jpeg .png .webp .heic`, also `.bmp .tif .tiff .heif` |
 | Songs | `.wav .mp3 .flac .m4a .aac .aif .aiff .ogg .opus` |
 
@@ -427,11 +427,11 @@ A look is a stack of effect layers, plus a Camera stage (zoom, drift, shake, swa
 
 Every enabled layer runs on every frame. To make a slider move with the music, click the dot at the end of the slider and choose what drives it: a band of the song, a tempo clock, LFO A or B, the step sequencer, your drawn envelope, or a macro. You edit the LFOs, envelope, steps and macros in the Modulators card on the Layers tab.
 
-Each clip can use the main look, a variation of it, or its own stack.
+Each clip can use the main look, a variation of it, or its own stack. FX intensity, at the top of the Layers tab, fades the whole stack below 100% and turns up each layer's strength above it, up to 180%.
 
 ### The edit
 
-In the Edit tab, choose the cut rhythm, which transitions to use, the clip direction and speed ramps. On the timeline:
+In the Edit tab, choose the cut rhythm, which transitions to use, the clip direction and speed ramps. Loop can be Repeat, or Rebound, which plays the cuts forward and then backward so the footage meets itself at the seam. When there are more clips than cuts, the longest cuts are split so every clip gets on screen. On the timeline:
 
 - Split a segment at the playhead (`B`), repeat its first half (`⌘D`), put another clip in from the playhead, or delete it (`Delete`) and let the segment before play on. The buttons above the timeline do the same on a touch screen.
 - Drag a cut to move it along the beat grid, or to half or quarter beats with Snap (`N`). Hold `Shift` to put it anywhere.
@@ -509,35 +509,35 @@ The 18 classic looks are the presets from Downbeat's earlier CPU-based studio, r
 
 | Look | Layers | Description |
 | :--- | :--- | :--- |
-| Hypnotic Tunnel | tunnel, echo, chroma, bloom | Tunnel with prism echoes and a color split on the kick |
+| Hypnotic Tunnel | tunnel, prismecho, chroma, bloom | Tunnel with prism echoes and a color split on the kick |
 | Acid Dither 2026 | dither, edges, crt | Dither with neon outlines and CRT scanlines |
 | Analog CRT Melt | liquid, chroma, crt, bloom | Liquid warp on an old CRT screen, with grain |
 | Kaleido Rave | mirror, hue, chroma, bloom | Four-way mirror cycling through the color wheel |
 | Cyber Glitch | glitch, edges, chroma, bloom | Block glitches and neon outlines, shaking on the beat |
-| Liquid Acid | liquid, echo, solarize, bloom | Fluid warp with trails and solarized highlights |
+| Liquid Acid | liquid, prismecho, acidsolar, bloom | Fluid warp with a prism echo and pastel pink highlights |
 | Dark Cinema | filmstock, bloom, streaks | Teal and orange with a heavy vignette and a shake on the beat |
 | VHS Retro Rewind | lens, vhs, crt | Tape tracking errors with scanlines and grain |
-| Neon Tokyo 2026 | echo, edges, filmstock, bloom | Cyberpunk colors with neon outlines and trails |
-| Solar Flare | solarize, filmstock, streaks, pulse | Lens flares and solarized gold, with a warm pulse on the kick |
+| Neon Tokyo 2026 | edges, filmstock, prismecho, bloom | Cyberpunk colors with neon outlines and a prism echo |
+| Solar Flare | streaks, acidsolar, filmstock, pulse | Lens flares and a golden grade, with a pastel flash and a warm pulse |
 | Matrix Data Stream | ascii, glitch, chroma, bloom | Glowing text characters torn up by glitches |
-| Prism Velocity | zoomblur, echo, chroma, bloom | Zoom blur on the kick with prism trails |
+| Prism Velocity | zoomblur, prismecho, chroma, bloom | Zoom blur on the kick with a prism echo |
 | Thermal Infrared | ripple, gradient, bloom | Infrared heat map with shockwaves on the bass |
 | Duotone Acid Punk | gradient, dither, edges, pulse | Two-color acid palette with outlines and dither |
 | 35mm Noir | filmstock, leak, bloom | Sepia film with light leaks and a letterbox |
 | Kaleido Vortex | kaleido, vortex, hue, bloom | Six-sided kaleidoscope that twists on the kick |
 | Sub-Bass Quake | ripple, chroma, bassrim | Shockwaves and a heavy shake on the bass |
-| Cosmic Hyperdrive | tunnel, echo, glint, bloom | Star tunnel with prism trails and glints |
+| Cosmic Hyperdrive | glint, fractal, prismecho, bloom | Pictures nested in pictures, with star glints and a prism echo |
 
-### 49 effects
+### 52 effects
 
 | Group | Effects |
 | :--- | :--- |
-| Space (9) | 2.5D Parallax, Kaleidoscope, Mirror, Infinite Tunnel, Clone Grid, Fisheye, Ribbon Split, Little Planet, B-Roll Blend |
+| Space (10) | 2.5D Parallax, Kaleidoscope, Mirror, Infinite Tunnel, Fractal Tunnel, Clone Grid, Fisheye, Ribbon Split, Little Planet, B-Roll Blend |
 | Warp (6) | Liquid Flow, Liquid Glass, Shockwave, Vortex, Zoom Blur, Gravity Melt |
 | Time (5) | Feedback Trails, Chroma Echo, Slit Scan, Datamosh Smear, Stutter |
-| Light (11) | Bloom, Anamorphic Flare, God Rays, Spectral Aberration, Light Leak, Star Glint, Tilt Shift, Double Vision, Warm Pulse, Beat Shutter, Bass Rim |
+| Light (12) | Bloom, Anamorphic Flare, God Rays, Spectral Aberration, Light Leak, Star Glint, Tilt Shift, Double Vision, Prism Echo, Warm Pulse, Beat Shutter, Bass Rim |
 | Stylize (11) | 1-Bit Dither, Halftone, Pixel Sort, Glyph Matrix, Data Glitch, VHS Tape, CRT Monitor, Neon Contours, Mosaic, Frost Mist, Audio Visualizer |
-| Color (7) | Gradient Map, Holographic, Liquid Chrome, Hue Orbit, Posterize, Solarize, Film Stock |
+| Color (8) | Gradient Map, Holographic, Liquid Chrome, Hue Orbit, Posterize, Solarize, Acid Solarize, Film Stock |
 
 Together with the Camera and Finish stages, these cover all 52 shaders of the earlier studio. Beat Shutter only dims the picture, never below half brightness and at most once per beat. What each effect's sliders do is in [the guide](docs/STUDIO_GUIDE.md#16-effects).
 
@@ -578,7 +578,7 @@ The GIF Loop and WebP Loop buttons in the export sheet, and the GIF teaser and W
 
 The Stills and teasers row makes stills from clip 1, framed on its subject: a 3000 × 3000 cover, a 2660 × 1140 Spotify artist header, a 2560 × 1440 YouTube banner and a 2480 × 520 SoundCloud header.
 
-Batch has two buttons. Export 4 rolls renders four random rolls of the current edit, then puts your edit back. "This look on N songs" renders the current look and edit on the 12 newest songs in the same folder as the current one, each at its top loop suggestion, so every song on a release shares one style.
+Batch has two buttons. Export 4 rolls renders four random rolls of the current edit, then puts your edit back. "This look on N songs" renders the current look and edit on the 12 newest songs in the same folder as the current one, each at its top loop suggestion, so every song on a release shares one style. A batch ends with a list of what it exported and a download link for each file.
 
 ### What each export is checked for
 
@@ -625,7 +625,7 @@ On a Mac, the Reveal in Finder button shows the file in Finder. On Linux and Win
 | On WSL, http://localhost:8765 doesn't load in Windows | Update WSL with `wsl --update` in PowerShell. If that doesn't fix it, add `networkingMode=mirrored` under `[wsl2]` in `%UserProfile%\.wslconfig` and run `wsl --shutdown`. |
 | On WSL, the Track menu has no songs | Add your Windows music folder with + Add a folder, for example `/mnt/c/Users/<your-windows-name>/Music`, or drag songs onto the studio. |
 | Exports fail or come out broken on Ubuntu 22.04 or Debian 12 | Their ffmpeg (4.4 and 5.1) is too old. Use Ubuntu 24.04 or Debian 13 or newer, or install ffmpeg 6.1 or newer and make sure it's first on your PATH. |
-| The preview stays black, or the browser console says `WebGL2 is not available` | In Chrome, open Settings, then System, turn on "Use graphics acceleration when available" and relaunch. `chrome://gpu` should list WebGL2 as hardware accelerated. On Windows, update your graphics driver. |
+| The preview says it can't start, or stays black | In Chrome, open Settings, then System, turn on "Use graphics acceleration when available" and relaunch. `chrome://gpu` should list WebGL2 as hardware accelerated. On Windows, update your graphics driver. |
 | Export fails with an error about `VideoEncoder` or WebCodecs | Update Chrome or Edge. Without hardware H.264, the studio sends raw frames to ffmpeg instead. That's slower, but it works. |
 | The FPS counter is well under 60 | Try a lighter look (Clean Cut, or fewer layers), close other GPU-heavy tabs, and check `chrome://gpu`. Exports aren't affected: they render every frame however long it takes. |
 | A clip keeps spinning, or the preview says "Preparing clip…" | The playback copies are still being built, and 4K files take longer. They're stored in `out/.proxies/` and are safe to delete. |

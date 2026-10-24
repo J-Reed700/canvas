@@ -139,7 +139,7 @@ const BOUNCE: LookOptions = { camera: { shake: 0.3 }, cameraMods: { zoom: mod('k
 
 export const CLASSIC_LOOKS: Look[] = [
   C('hypnotic', 'Hypnotic Tunnel', 'Tunnel with prism echoes and a color split on the kick', [
-    L('tunnel', { mix: 0.85, fog: 0.5 }), L('echo', { amount: 0.6 }), L('chroma', { amount: 0.25 }, { amount: mod('kick', 0.3) }), L('bloom', { intensity: 0.9 }),
+    L('tunnel', { mix: 0.85, fog: 0.5 }), L('prismecho'), L('chroma', { amount: 0.25 }, { amount: mod('kick', 0.3) }), L('bloom', { intensity: 0.9 }),
   ], { finish: { contrast: 1.15, saturation: 1.1, vignette: 0.5 }, cut: { rhythm: 'bar', transitions: ['luma', 'dissolve'] } }),
   C('acid-dither', 'Acid Dither 2026', 'Dither with neon outlines and CRT scanlines', [
     L('dither', { palette: 2, size: 3 }), L('edges', { dim: 0.55, strength: 1.1 }), L('crt', { curve: 0.12, scan: 0.6, mask: 0.3 }),
@@ -153,8 +153,8 @@ export const CLASSIC_LOOKS: Look[] = [
   C('cyber-glitch', 'Cyber Glitch', 'Block glitches and neon outlines, shaking on the beat', [
     L('glitch', { amount: 0.5 }, { amount: mod('snare', 0.25) }), L('edges', { dim: 0.45, mode: 1 }), L('chroma', { amount: 0.45, mode: 1 }), L('bloom', { intensity: 0.6 }),
   ], { ...BOUNCE, finish: { contrast: 1.2, saturation: 1.15 }, cut: { rhythm: 'half', transitions: ['mosh', 'glitch'], beats: 0.25 } }),
-  C('liquid-acid', 'Liquid Acid', 'Fluid warp with trails and solarized highlights', [
-    L('liquid', { amount: 0.5, scale: 2.5 }), L('echo', { amount: 0.65 }), L('solarize', { mode: 1, amount: 0.85 }), L('bloom', { intensity: 0.7 }),
+  C('liquid-acid', 'Liquid Acid', 'Fluid warp with a prism echo and pastel pink highlights', [
+    L('liquid', { amount: 0.5, scale: 2.5 }), L('prismecho'), L('acidsolar'), L('bloom', { intensity: 0.7 }),
   ], { finish: { halation: 0.4, contrast: 1.1 }, cut: { rhythm: 'bar2', transitions: ['luma', 'morph'], beats: 1 } }),
   C('dark-cinema', 'Dark Cinema', 'Teal and orange with a heavy vignette and a shake on the beat', [
     L('filmstock', { mode: 5, strength: 0.95 }), L('bloom', { threshold: 1.1, intensity: 0.45 }), L('streaks', { threshold: 1.2, intensity: 0.5 }),
@@ -162,17 +162,17 @@ export const CLASSIC_LOOKS: Look[] = [
   C('vhs-rewind', 'VHS Retro Rewind', 'Tape tracking errors with scanlines and grain', [
     L('lens', { bulge: 0.3 }), L('vhs', { amount: 0.65 }), L('crt', { curve: 0.3, scan: 0.6, mask: 0.3 }),
   ], { finish: { halation: 0.4, grain: 0.45, contrast: 1.1, saturation: 1.1 }, cut: { rhythm: 'bar', transitions: ['glitch', 'cut'], beats: 0.25 } }),
-  C('neon-tokyo', 'Neon Tokyo 2026', 'Cyberpunk colors with neon outlines and trails', [
-    L('echo', { amount: 0.5 }), L('edges', { dim: 0.6 }), L('filmstock', { mode: 1, strength: 0.85 }), L('bloom', { intensity: 1 }),
+  C('neon-tokyo', 'Neon Tokyo 2026', 'Cyberpunk colors with neon outlines and a prism echo', [
+    L('edges', { dim: 0.6 }), L('filmstock', { mode: 1, strength: 0.85 }), L('prismecho'), L('bloom', { intensity: 1 }),
   ], { finish: { vignette: 0.5, contrast: 1.15 }, cut: { rhythm: 'bar', transitions: ['flare', 'prism'] } }),
-  C('solar-flare', 'Solar Flare', 'Lens flares and solarized gold, with a warm pulse on the kick', [
-    L('solarize', { amount: 0.8, threshold: 0.6 }), L('filmstock', { mode: 2, strength: 1 }), L('streaks', { threshold: 0.7, intensity: 1.5, hue: 0.08 }), L('pulse', { amount: 0.35 }),
+  C('solar-flare', 'Solar Flare', 'Lens flares and a golden grade, with a pastel flash and a warm pulse', [
+    L('streaks', { threshold: 0.7, intensity: 1.5, hue: 0.08 }), L('acidsolar'), L('filmstock', { mode: 2, strength: 1 }), L('pulse', { amount: 0.35 }),
   ], { finish: { vignette: 0.45 }, cut: { rhythm: 'bar', transitions: ['dissolve', 'flare'] } }),
   C('matrix-stream', 'Matrix Data Stream', 'Glowing text characters torn up by glitches', [
     L('ascii', { color: 1, charset: 1, cell: 12 }), L('glitch', { amount: 0.3 }), L('chroma', { amount: 0.25 }), L('bloom', { intensity: 0.8 }),
   ], { finish: { vignette: 0.5, contrast: 1.15 }, cut: { rhythm: 'half', transitions: ['mosh', 'glitch'], beats: 0.25 } }),
-  C('prism-velocity', 'Prism Velocity', 'Zoom blur on the kick with prism trails', [
-    L('zoomblur', { amount: 0.45 }, { amount: mod('kick', 0.3) }), L('echo', { amount: 0.75 }), L('chroma', { amount: 0.4 }), L('bloom', { intensity: 0.6 }),
+  C('prism-velocity', 'Prism Velocity', 'Zoom blur on the kick with a prism echo', [
+    L('zoomblur', { amount: 0.45 }, { amount: mod('kick', 0.3) }), L('prismecho'), L('chroma', { amount: 0.4 }), L('bloom', { intensity: 0.6 }),
   ], { ...BOUNCE, finish: { vignette: 0.5 }, cut: { rhythm: 'bar', transitions: ['zoom', 'prism'] } }),
   C('thermal-ir', 'Thermal Infrared', 'Infrared heat map with shockwaves on the bass', [
     L('ripple', { strength: 0.45, every: 0 }), L('gradient', { palette: 0 }), L('bloom', { intensity: 0.5 }),
@@ -189,8 +189,8 @@ export const CLASSIC_LOOKS: Look[] = [
   C('subbass-quake', 'Sub-Bass Quake', 'Shockwaves and a heavy shake on the bass', [
     L('ripple', { strength: 0.75, every: 0, glow: 0.45 }), L('chroma', { amount: 0.35 }, { amount: mod('bass', 0.35) }), L('bassrim', { amount: 0.85, rim: 0.7 }),
   ], { camera: { shake: 0.45 }, cameraMods: { zoom: mod('kick', 0.07), shake: mod('bass', 0.3) }, finish: { halation: 0.4, contrast: 1.2 }, cut: { rhythm: 'bar', transitions: ['slices', 'zoom'] } }),
-  C('cosmic-hyperdrive', 'Cosmic Hyperdrive', 'Star tunnel with prism trails and glints', [
-    L('tunnel', { speed: 2, mix: 0.9 }), L('echo', { amount: 0.6 }), L('glint', { intensity: 1.2 }), L('bloom', { intensity: 1 }),
+  C('cosmic-hyperdrive', 'Cosmic Hyperdrive', 'Pictures nested in pictures, with star glints and a prism echo', [
+    L('glint', { threshold: 0.8, intensity: 0.9 }), L('fractal'), L('prismecho'), L('bloom', { threshold: 0.9, intensity: 0.6 }),
   ], { finish: { vignette: 0.5, contrast: 1.12 }, cut: { rhythm: 'bar', transitions: ['prism', 'zoom'] } }),
 ];
 // Album art: built for a single still (cover art, a photo). Depth parallax and slow camera
@@ -322,7 +322,7 @@ export function insertAtStage(layers: LayerSpec[], layer: LayerSpec): void {
   layers.splice(at < 0 ? layers.length : at, 0, layer);
 }
 const CAPS: Record<string, number> = { space: 1, warp: 2, time: 1, stylize: 1, color: 2, light: 2 };
-const GLOWS: string[] = ['bloom', 'streaks', 'rays', 'leak', 'glint', 'pulse', 'ghost'];
+const GLOWS: string[] = ['bloom', 'streaks', 'rays', 'leak', 'glint', 'pulse', 'ghost', 'prismecho'];
 
 // Starting points: every setting a built-in look uses for a module.
 const CURATED: Record<string, Record<string, number>[]> = {};

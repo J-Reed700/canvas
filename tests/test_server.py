@@ -693,11 +693,35 @@ class TestServerMedia(_ServerCase):
         self.assertEqual(status, 400)
         self.assertFalse(json.loads(raw)["ok"])
 
-        # The library lists only these video types, so another kind would vanish on the next rescan.
+        # Another kind of video is converted to an .mp4, so one ffmpeg can't read is refused and nothing is left.
         status, _, raw = self.request("POST", "/api/upload", b"avi data", {"X-Filename": "old.avi"})
         self.assertEqual(status, 400)
-        self.assertIn("Videos need to be .mp4, .mov, .m4v, .webm or .mkv", json.loads(raw)["error"])
-        self.assertFalse(os.path.exists(os.path.join(self.out, "uploads", "old.avi")))
+        err = json.loads(raw)["error"]
+        self.assertIn("could not read it as a video", err)
+        self.assertNotIn(self.out, err, "the error names the file, not where it was saved")
+        self.assertFalse([f for f in os.listdir(os.path.join(self.out, "uploads")) if f.startswith("old.")])
+
+    def test_videos_the_library_does_not_list_are_converted_to_mp4(self) -> None:
+        avi = os.path.join(self.tmp, "camera.avi")
+        subprocess.run(
+            ["ffmpeg", "-v", "error", "-y", "-f", "lavfi", "-i", "testsrc2=size=321x240:rate=25", "-t", "1",
+             "-c:v", "mpeg4", avi],
+            check=True,
+        )
+        with open(avi, "rb") as f:
+            status, _, raw = self.request("POST", "/api/upload", f.read(), {"X-Filename": "camera.avi"})
+        clip = json.loads(raw)
+        self.assertEqual((status, clip["kind"], clip["name"], clip["converted"]), (200, "video", "camera.mp4", True))
+        made = sorted(f for f in os.listdir(os.path.join(self.out, "uploads")) if f.startswith("camera"))
+        self.assertEqual(made, ["camera.mp4"], "the .avi isn't kept")
+        listed = next(c for c in self.get_json("/api/state")[1]["clips"] if c["id"] == clip["id"])
+        # an odd width is evened up for H.264
+        self.assertEqual((listed["width"], listed["height"]), (320, 240))
+
+        # A second upload with the same name doesn't overwrite the first.
+        with open(avi, "rb") as f:
+            status, _, raw = self.request("POST", "/api/upload", f.read(), {"X-Filename": "camera.avi"})
+        self.assertEqual((status, json.loads(raw)["name"]), (200, "camera-2.mp4"))
 
     def _annexb(self, size: str, frames: int) -> bytes:
         path = os.path.join(self.tmp, f"{size}-{frames}.h264")

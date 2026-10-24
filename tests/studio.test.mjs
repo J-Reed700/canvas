@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { planTimeline, sampleTimeline, clipTime, cameraFor, moveAt, loopBeats, velocityAt, RHYTHMS, DIRECTIONS, VELOCITY } from '../downbeat/studio/src/engine/timeline.ts';
+import { segAt } from '../downbeat/studio/src/engine/blocks.ts';
 import { compose, resolveParams } from '../downbeat/studio/src/engine/composer.ts';
 import { flashesPerSecond } from '../downbeat/studio/src/engine/exporter.ts';
 import { LOOKS, chaosLook, evolveLook, mutate, randomLook } from '../downbeat/studio/src/engine/looks.ts';
@@ -237,6 +238,99 @@ test('FX intensity fades layers toward dry and scales modulation depth', () => {
   assert.equal(at(1.5).uWet, 1);
   assert.ok(Math.abs(at(1).p_intensity - (0.5 + 0.1 * (range.max - range.min))) < 1e-9);
   assert.ok(Math.abs(at(0).p_intensity - 0.5) < 1e-9, 'no modulation at 0%');
+});
+
+test("FX intensity past 100% turns up each layer's strength settings, but not its shape", () => {
+  const tl = planTimeline({ ...base, rhythm: 'bar' });
+  const sampler = () => ({ kick: 0, snare: 0, hats: 0, bass: 0, energy: 0, bright: 0, beat: 0, bar: 0, lfo: 0, rand: 0 });
+  const look = {
+    ...LOOKS[0],
+    layers: [
+      { m: 'bloom', on: true, p: { intensity: 0.5, radius: 0.4 } },
+      { m: 'kaleido', on: true, p: { zoom: 1.2, slices: 6 } },
+      { m: 'vortex', on: true, p: { twist: -0.4 } },
+      { m: 'chroma', on: true, p: { amount: 0.8 } },
+    ],
+  };
+  const at = (intensity) => compose({ look, tl, sampler, clipDur: () => 10, L: base.L, beatDur: base.beatDur, seed: 1, intensity }, 1).layers.map((l) => l.params);
+  const [bloom1, kal1, vort1] = at(1);
+  const [bloom, kal, vort, chroma] = at(1.8);
+  assert.ok(Math.abs(bloom.p_intensity - 0.9) < 1e-9);
+  assert.equal(bloom.p_radius, bloom1.p_radius, 'the glow gets brighter, not wider');
+  assert.equal(kal.p_zoom, kal1.p_zoom);
+  assert.equal(kal.p_slices, kal1.p_slices);
+  assert.ok(Math.abs(vort.p_twist - -0.72) < 1e-9, 'a twist the other way gets stronger the other way');
+  assert.equal(chroma.p_amount, 1, 'held to the slider range');
+  assert.equal(vort1.p_twist, -0.4);
+  // below 100% the settings stay as set and the layer fades instead
+  const [half] = at(0.5);
+  assert.equal(half.p_intensity, 0.5);
+  assert.equal(half.uWet, 0.5);
+});
+
+test('Show every clip splits the longest cuts on the grid until each clip has one', () => {
+  const six = Array.from({ length: 6 }, (_, i) => ({ id: `k${i}`, duration: 30 }));
+  const opts = { ...base, clips: six, rhythm: 'bar' };
+  assert.equal(planTimeline(opts).segs.length, 4, 'four bars, four cuts, two clips left out');
+  const tl = planTimeline({ ...opts, fitAll: true });
+  assert.equal(tl.segs.length, 6);
+  assert.equal(new Set(tl.segs.map((s) => s.clipId)).size, 6);
+  assert.deepEqual(tl.segs.map((s) => +(s.t0 / base.beatDur).toFixed(6)), [0, 2, 4, 6, 8, 12], 'the earliest of the longest cuts is split first');
+  assert.equal(tl.handCut, false, "the split cuts are the rhythm's own");
+  for (const s of tl.segs) assert.ok(s.in + s.dur * s.speed <= 30 + 1e-6);
+
+  // a rhythm that already gives every clip a cut is left as it is
+  const beat = (fitAll) => planTimeline({ ...opts, rhythm: 'beat', fitAll }).segs.map((s) => s.t0);
+  assert.deepEqual(beat(true), beat(false));
+
+  // past whole beats it splits on half and quarter beats, and a quarter beat is as short as a cut gets
+  const nine = Array.from({ length: 9 }, (_, i) => ({ id: `m${i}`, duration: 30 }));
+  const tiny = planTimeline({ ...base, L: base.beatDur, clips: nine, rhythm: 'bar', fitAll: true });
+  assert.deepEqual(tiny.segs.map((s) => +(s.t0 / base.beatDur).toFixed(6)), [0, 0.25, 0.5, 0.75]);
+});
+
+test('a Rebound loop plays its edit forward, then backward, and meets itself at the seam', () => {
+  const half = base.L / 2;
+  const tl = planTimeline({ ...base, L: half, rhythm: 'half', rebound: true });
+  assert.equal(tl.rebound, true);
+  assert.deepEqual([tl.segs[0].trans, tl.segs[0].transDur], ['cut', 0], 'nothing to hide at the seam');
+  assert.ok(tl.segs.slice(1).every((s) => s.transDur > 0), 'the other cuts keep their transitions');
+
+  // the second half mirrors the first, transitions included
+  // (sampled off the frame grid, so no sample sits exactly on a transition's edge)
+  const N = Math.round(base.L * FPS);
+  for (let i = 0; i < N / 2; i++) {
+    const f = sampleTimeline(tl, (i + 0.37) / FPS);
+    const b = sampleTimeline(tl, base.L - (i + 0.37) / FPS);
+    assert.equal(f.back, false);
+    assert.equal(b.back, true);
+    assert.equal(b.a.seg.id, f.a.seg.id, `frame ${i}`);
+    assert.ok(Math.abs(b.a.local - f.a.local) < 1e-6, `frame ${i}`);
+    assert.equal(b.trans, f.trans);
+    if (f.b) assert.ok(Math.abs(b.p - f.p) < 1e-6);
+  }
+
+  // the footage turns round in the middle and runs back into the first frame
+  const clipAt = (t) => {
+    const s = sampleTimeline(tl, t);
+    return [s.a.key, clipTime(s.a.seg, s.a.local, 60)];
+  };
+  const [k0, c0] = clipAt(0);
+  const [kEnd, cEnd] = clipAt(base.L - 1 / FPS);
+  assert.equal(kEnd, k0);
+  assert.ok(Math.abs(cEnd - c0 - 1 / FPS) < 1e-6, 'one frame away from the first frame, the other side of the seam');
+  const [kIn, cIn] = clipAt(half - 1 / FPS);
+  const [kOut, cOut] = clipAt(half + 1 / FPS);
+  assert.equal(kIn, kOut);
+  assert.ok(Math.abs(cIn - cOut) < 1e-6);
+  assert.equal(segAt(tl, half + 1e-3).id, tl.segs.at(-1).id, 'the turn belongs to the last block');
+  assert.equal(segAt(tl, base.L - 0.05).id, tl.segs[0].id);
+
+  // the backward half is previewed by seeking, since a video can't play backward
+  const ctx = { look: LOOKS[0], tl, sampler: makeSampler({ features: null, loopStart: 0, beatDur: base.beatDur, seed: 1, L: base.L }), clipDur: () => 60, L: base.L, beatDur: base.beatDur, seed: 1 };
+  assert.equal(compose(ctx, 0.1).needs[0].rev, false);
+  assert.equal(compose(ctx, base.L - 0.1).needs[0].rev, true);
+  assert.equal(compose(ctx, base.L - 0.1).globals.uTime, base.L - 0.1, 'the effects and the music keep going forward');
 });
 
 test('chaos rolls build full, valid stacks', () => {
@@ -493,6 +587,27 @@ test('audio visualizer module shader compilation, composition, and art looks', (
     assert.equal(fr.layers[0].params.p_mode, m);
     assert.ok(fr.layers[0].params.p_scale >= 0.15 && fr.layers[0].params.p_scale <= 1.0);
   }
+});
+
+test('Fractal Tunnel, Prism Echo and Acid Solarize are back, and the classic looks that had them use them again', () => {
+  const ports = { fractal: ['Fractal Tunnel', 'space'], prismecho: ['Prism Echo', 'light'], acidsolar: ['Acid Solarize', 'color'] };
+  for (const [id, [name, cat]] of Object.entries(ports)) {
+    const m = MODULES[id];
+    assert.ok(m, id);
+    assert.equal(m.name, name);
+    assert.equal(m.cat, cat);
+    assert.ok(!m.feedback, `${id} needs no frame history`);
+    const src = moduleSource(id);
+    for (const p of m.params) assert.ok(src.includes(`uniform float p_${p.id};`), `${id}: p_${p.id}`);
+    // they move only with the beat or the kick, so every export loops without a seam
+    assert.ok(!/uTime|uFrame|uPhase/.test(m.glsl), `${id} uses a free-running clock`);
+    assert.ok(/uBeat|beatEnv/.test(m.glsl) && m.glsl.includes('uKick'), `${id} pulses on the beat or the kick`);
+  }
+  assert.ok(MODULES.fractal.glsl.includes('uScale') && MODULES.prismecho.glsl.includes('uScale'), 'pixel sizes follow the output size');
+  const uses = (id) => LOOKS.find((l) => l.id === `classic-${id}`).layers.map((l) => l.m);
+  for (const id of ['hypnotic', 'liquid-acid', 'neon-tokyo', 'prism-velocity', 'cosmic-hyperdrive']) assert.ok(uses(id).includes('prismecho'), id);
+  for (const id of ['liquid-acid', 'solar-flare']) assert.ok(uses(id).includes('acidsolar'), id);
+  assert.ok(uses('cosmic-hyperdrive').includes('fractal'));
 });
 
 test('LFOs make whole cycles per loop in every shape, rate and phase, so the seam never jumps', () => {

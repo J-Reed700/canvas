@@ -129,7 +129,7 @@ export const Modals: React.FC = () => {
               />
               <span className="muted">Wild</span>
               <button className="btn" id="btnMutate" onClick={mutateAgain}>
-                ⟳ Mutate again
+                ⟳ Mutate again <span className="kbd">M</span>
               </button>
             </div>
             <button className="btn icon modal-x" data-close title="Close (Esc)" onClick={closeModals}>
@@ -184,7 +184,7 @@ export const Modals: React.FC = () => {
             <span className="kbd">← →</span>
             <span>Previous / next look</span>
             <span className="kbd">M</span>
-            <span>Variations of the current look</span>
+            <span>Variations of the current look. Press it again for six more</span>
             <span className="kbd">D</span>
             <span>🎲 Roll everything: look, layers, edit, per-clip FX</span>
             <span className="kbd">⇧ D</span>

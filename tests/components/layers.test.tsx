@@ -140,6 +140,30 @@ describe('layer cards', () => {
   });
 });
 
+describe('folding cards', () => {
+  test('clicking a card header folds it, but not when the click is on a control in it', () => {
+    resetStudio();
+    renderStudio(<LayersPane />);
+    const bloom = cardFor('Bloom');
+    const fold = bloom.querySelector('button.fold') as HTMLButtonElement;
+    expect(fold.getAttribute('aria-expanded')).toBe('true');
+    fireEvent.click(bloom.querySelector('.ct')!);
+    expect(bloom.classList.contains('collapsed')).toBe(true);
+    expect(fold.getAttribute('aria-expanded')).toBe('false');
+    expect(fold.title).toBe('Unfold');
+    expect(bloom.querySelector('.prms input[type=range]'), 'the controls stay in the page, hidden').toBeTruthy();
+
+    const on = st().look!.layers.find((l) => l.m === 'bloom')!.on;
+    fireEvent.click(within(bloom).getByTitle('Enable / bypass'));
+    expect(st().look!.layers.find((l) => l.m === 'bloom')!.on).toBe(!on);
+    expect(bloom.classList.contains('collapsed'), 'the switch does not fold the card').toBe(true);
+
+    fireEvent.click(fold);
+    expect(bloom.classList.contains('collapsed')).toBe(false);
+    expect(cardFor('Master').classList.contains('collapsed')).toBe(false);
+  });
+});
+
 describe('master card', () => {
   test('FX intensity sets the store and the playing edit, and double-click resets it', () => {
     resetStudio();
@@ -151,6 +175,31 @@ describe('master card', () => {
     expect(row.querySelector('output')!.textContent).toBe('50%');
     fireEvent.doubleClick(sliderIn(rowFor('FX intensity')));
     expect(st().intensity).toBe(1);
+  });
+
+  test('FX intensity goes past 100% up to 180%', () => {
+    resetStudio();
+    renderStudio(<LayersPane />);
+    const slider = sliderIn(rowFor('FX intensity'));
+    expect(slider.max).toBe('1.8');
+    fireEvent.change(slider, { target: { value: '1.5' } });
+    expect(st().ctx!.intensity).toBe(1.5);
+    expect(rowFor('FX intensity').querySelector('output')!.textContent).toBe('150%');
+  });
+
+  test('Evolve can mutate every cut instead of every clip', () => {
+    resetStudio();
+    renderStudio(<LayersPane />);
+    expect(screen.queryByLabelText('A new mutation on every cut, not just every clip')).toBeNull();
+    fireEvent.click(screen.getByText('Evolve'));
+    const box = screen.getByLabelText('A new mutation on every cut, not just every clip') as HTMLInputElement;
+    expect(box.checked).toBe(false);
+    fireEvent.click(box);
+    expect(st().evolveCuts).toBe(true);
+    expect(screen.getByText(/every later cut gets its own mutation of it, even when its clip has been on before/)).toBeTruthy();
+    expect(document.querySelector('.stack-scope')!.textContent).toBe('Main stack: runs on the first cut. Every later cut gets a mutation of it.');
+    const [, second] = st().ctx!.tl.segs;
+    expect(st().ctx!.clipLook!(second.clipId, second)).not.toBe(st().look);
   });
 
   test('Evolve shows its amount slider and explains what happens to later clips', () => {

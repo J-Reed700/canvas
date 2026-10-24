@@ -65,6 +65,13 @@ export const LooksPane: React.FC = () => {
     };
   }, [allLooks.length, engine]);
 
+  // ← and → step through the looks: keep the current one in view
+  useEffect(() => {
+    const cards = looksRef.current?.querySelectorAll<HTMLElement>('[data-look-id]') || [];
+    const card = [...cards].find((c) => c.dataset.lookId === activeId);
+    card?.scrollIntoView?.({ block: 'nearest', behavior: 'smooth' });
+  }, [activeId]);
+
   return (
     <div className="pane on" id="pane-looks" ref={looksRef}>
       <div className="look-target" id="lookTarget" hidden={!isClipEdit}>
