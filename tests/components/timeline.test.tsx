@@ -112,34 +112,46 @@ describe('lane', () => {
     expect(lane().style.cursor).toBe('');
   });
 
-  test('double-clicking a segment picks its clip, speed ramp and transition', () => {
+  test('double-clicking a segment opens a menu for its clip, in-point, speed ramp and transition that stays open', () => {
     barEdit();
     fireEvent.doubleClick(lane(), { clientX: 125, clientY: 30 });
-    expect(pop().className).toContain('on');
-    const heads = Array.from(pop().querySelectorAll('.ph')).map((h) => h.textContent);
-    expect(heads).toEqual(['Segment 2 · clip', 'In-point · which moment of the clip plays', 'Speed ramp for this segment', 'Transition into this segment']);
-    expect(popButton('#2 city.mp4').className).toContain('on');
-    fireEvent.click(popButton('#3 cover.still.mp4'));
+    const open = () => pop().classList.contains('on');
+    const tile = (title: string) => pop().querySelector<HTMLButtonElement>(`.seg-clip[title="${title}"]`)!;
+    expect(open()).toBe(true);
+    expect(pop().className).toContain('seg-menu');
+    expect(pop().querySelector('h4')!.textContent).toBe('Segment 2');
+    expect(pop().querySelector('.seg-head .meta')!.textContent).toMatch(/^Bar 2 · \d+\.\d\d s long$/);
+    const labels = Array.from(pop().querySelectorAll('.seg-l > span:first-child')).map((l) => l.textContent);
+    expect(labels).toEqual(['Clip', 'In-point', 'Speed ramp', 'Transition in']);
+    expect(Array.from(pop().querySelectorAll('.seg-group small')).map((g) => g.textContent)).toEqual(['Smooth', 'Kinetic', 'Glitch', 'Other']);
+
+    expect(tile('#2 city.mp4').className).toContain('on');
+    fireEvent.click(tile('#3 cover'));
     expect(st().segOverrides[1].clipId).toBe('c');
     expect(st().ctx!.tl.segs[1].clipId).toBe('c');
+    expect(open(), 'a pick keeps the menu open').toBe(true);
+    expect(tile('#3 cover').className).toContain('on');
+    expect(tile('#2 city.mp4').className).not.toContain('on');
+    expect(pop().querySelector('.seg-name')!.textContent).toBe('cover');
 
-    fireEvent.doubleClick(lane(), { clientX: 125, clientY: 30 });
     fireEvent.click(popButton(VELOCITY.hold.name));
     expect(st().ctx!.tl.segs[1].vel).toBe('hold');
-    fireEvent.doubleClick(lane(), { clientX: 125, clientY: 30 });
+    expect(popButton(VELOCITY.hold.name).className).toBe('on');
     fireEvent.click(popButton(TRANSITIONS.zoom.name));
     expect(st().ctx!.tl.segs[1].trans).toBe('zoom');
     expect(st().segOverrides[1]).toEqual({ clipId: 'c', vel: 'hold', trans: 'zoom' });
 
-    fireEvent.doubleClick(lane(), { clientX: 125, clientY: 30 });
     const slider = pop().querySelector('input[type=range]') as HTMLInputElement;
     fireEvent.input(slider, { target: { value: '1.5' } });
     expect(st().ctx!.tl.segs[1].in).toBe(1.5);
-    expect(pop().querySelector('.row .muted')!.textContent).toBe('1.50 s');
+    expect(pop().querySelector('.seg-val')!.textContent).toBe('1.50 s');
     expect(st().transport.loopTime()).toBeCloseTo(2.25, 9);
 
+    fireEvent.click(pop().querySelector('.seg-x')!);
+    expect(open()).toBe(false);
+
     fireEvent.doubleClick(lane(), { clientX: 10, clientY: 30 });
-    expect(Array.from(pop().querySelectorAll('.ph')).at(-1)!.textContent).toBe('Transition into this segment (loop seam)');
+    expect(pop().querySelector('.seg-note')!.textContent).toContain('loop seam');
   });
 });
 

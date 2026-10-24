@@ -1,6 +1,6 @@
 import React, { useRef, useEffect, useLayoutEffect } from 'react';
 import { useStudioStore } from '../state/store.ts';
-import { fmt, openPop, closePop, h } from '../lib/utils.ts';
+import { fmt, openPop, closePop, h, POOLS } from '../lib/utils.ts';
 import { clamp } from '../engine/looks.ts';
 import { RHYTHMS, VELOCITY } from '../engine/timeline.ts';
 import { TRANSITIONS } from '../engine/shaders.ts';
@@ -11,6 +11,124 @@ function patchSegment(i: number, patch: SegmentOverride) {
   const ov = { ...useStudioStore.getState().segOverrides };
   ov[i] = { ...(ov[i] || {}), ...patch };
   useStudioStore.setState({ segOverrides: ov });
+}
+
+// The Edit tab's pools, then whatever is in none of them (Hard Cut, Shock Ripple).
+const TRANS_GROUPS: [string, string[]][] = (() => {
+  const groups: [string, string[]][] = ['Smooth', 'Kinetic', 'Glitch'].map((n) => [n, POOLS[n]]);
+  const grouped = new Set(groups.flatMap(([, ids]) => ids));
+  return [...groups, ['Other', Object.keys(TRANSITIONS).filter((k) => !grouped.has(k))]];
+})();
+
+/** The menu a double-click on a segment opens. Picks apply straight away and the menu stays open, so a
+ * segment's clip, in-point, speed ramp and transition can all be set in one go. */
+function segmentMenu(box: HTMLElement, si: number) {
+  const render = () => {
+    const s = useStudioStore.getState();
+    const seg = s.ctx?.tl.segs[si];
+    if (!s.ctx || !seg) return closePop();
+    const pick = (patch: SegmentOverride) => {
+      patchSegment(si, patch);
+      s.rebuild();
+      render();
+    };
+    const field = (label: string, aside: any, ...kids: any[]) =>
+      h('div', { class: 'seg-f' }, h('div', { class: 'seg-l' }, h('span', {}, label), aside), ...kids);
+    const chip = (on: boolean, text: string, onclick: () => void, title?: string) =>
+      h('button', { class: on ? 'on' : '', title, onclick: () => !on && onclick() }, text);
+
+    const b = seg.t0 / s.ctx.beatDur + 1e-6;
+    const beat = Math.floor(b % 4) + 1;
+    const where = `Bar ${Math.floor(b / 4) + 1}${beat > 1 ? `, beat ${beat}` : ''} · ${seg.dur.toFixed(2)} s long`;
+
+    const name = (id: string) => {
+      const c = s.clips.find((x) => x.id === id);
+      return c ? (c.still ? c.name.replace(/\.still\.mp4$/, '') : c.name) : id;
+    };
+    const clips = h(
+      'div',
+      { class: 'seg-clips' },
+      ...s.selected.map((id, k) =>
+        h(
+          'button',
+          {
+            class: `seg-clip${id === seg.clipId ? ' on' : ''}`,
+            title: `#${k + 1} ${name(id)}`,
+            style: `background-image:url(/api/thumb/${id}?w=160)`,
+            onclick: () => id !== seg.clipId && pick({ clipId: id }),
+          },
+          h('span', {}, `#${k + 1}`),
+        ),
+      ),
+    );
+
+    const dur = s.clipDur.get(seg.clipId) || 10;
+    const maxIn = Math.max(0, dur - seg.dur * seg.speed - 0.1);
+    const inVal = h('b', { class: 'seg-val' }, `${seg.in.toFixed(2)} s`);
+    const slider = h('input', {
+      type: 'range',
+      min: 0,
+      max: maxIn.toFixed(2),
+      step: 0.01,
+      value: Math.min(seg.in, maxIn),
+      disabled: maxIn <= 0,
+      oninput: (ev: Event) => {
+        const v = +(ev.target as HTMLInputElement).value;
+        patchSegment(si, { in: v });
+        inVal.textContent = `${v.toFixed(2)} s`;
+        s.transport.seek(seg.t0 + Math.min(seg.dur / 2, 0.25));
+        s.rebuild();
+      },
+    });
+
+    box.replaceChildren(
+      h(
+        'div',
+        { class: 'seg-head' },
+        h('h4', {}, `Segment ${si + 1}`),
+        h('span', { class: 'meta' }, where),
+        h('button', { class: 'seg-x', title: 'Close (Esc)', 'aria-label': 'Close', onclick: closePop }, '✕'),
+      ),
+      h(
+        'div',
+        { class: 'seg-body' },
+        h(
+          'div',
+          { class: 'seg-col' },
+          field('Clip', null, clips, h('div', { class: 'seg-name' }, name(seg.clipId))),
+          field(
+            'In-point',
+            h('span', {}, inVal, h('small', {}, ` of ${dur.toFixed(1)} s`)),
+            slider,
+            maxIn <= 0 && h('div', { class: 'seg-note' }, 'This clip is only just long enough to fill the segment.'),
+          ),
+          field(
+            'Speed ramp',
+            null,
+            h('div', { class: 'seg-chips' }, ...Object.entries(VELOCITY).map(([k, v]) => chip(seg.vel === k, v.name, () => pick({ vel: k }), v.desc || 'Constant clip speed'))),
+          ),
+        ),
+        h(
+          'div',
+          { class: 'seg-col' },
+          field(
+            'Transition in',
+            null,
+            si === 0 && h('div', { class: 'seg-note' }, 'This cut is the loop seam, where the end of the loop joins the start.'),
+            ...TRANS_GROUPS.map(([group, ids]) =>
+              h(
+                'div',
+                { class: 'seg-group' },
+                h('small', {}, group),
+                h('div', { class: 'seg-chips' }, ...ids.map((k) => chip(seg.trans === k, TRANSITIONS[k].name, () => pick({ trans: k })))),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  };
+  render();
 }
 
 export const TimelinePanel: React.FC = () => {
@@ -169,99 +287,7 @@ export const TimelinePanel: React.FC = () => {
       anchor.style.cssText = `position:fixed;left:${e.clientX}px;top:${e.clientY}px;width:1px;height:1px`;
       document.body.append(anchor);
 
-      openPop(anchor, (box) => {
-        const seg = currentCtx.tl.segs[si];
-        box.append(h('div', { class: 'ph' }, `Segment ${si + 1} · clip`));
-
-        const stateSelected = useStudioStore.getState().selected;
-        const stateClips = useStudioStore.getState().clips;
-
-        stateSelected.forEach((cid, k) => {
-          const c = stateClips.find((x) => x.id === cid);
-          box.append(
-            h(
-              'button',
-              {
-                class: `pi ${seg.clipId === cid ? 'on' : ''}`,
-                onclick: () => {
-                  patchSegment(si, { clipId: cid });
-                  rebuild();
-                  closePop();
-                },
-              },
-              h('span', { class: 'sd', style: '--c:#C8FF4D' }),
-              `#${k + 1} ${c?.name || cid}`,
-            ),
-          );
-        });
-
-        const dur = clipDur.get(seg.clipId) || 10;
-        const maxIn = Math.max(0, dur - seg.dur * seg.speed - 0.1);
-        const inLabel = h('span', { class: 'muted' }, `${seg.in.toFixed(2)} s`);
-
-        box.append(
-          h('div', { class: 'ph' }, 'In-point · which moment of the clip plays'),
-          h(
-            'div',
-            { class: 'row', style: 'padding:2px 10px 6px;gap:8px' },
-            h('input', {
-              type: 'range',
-              min: 0,
-              max: maxIn.toFixed(2),
-              step: 0.01,
-              value: Math.min(seg.in, maxIn),
-              style: 'flex:1;accent-color:var(--accent)',
-              oninput: (ev: Event) => {
-                const val = +(ev.target as HTMLInputElement).value;
-                patchSegment(si, { in: val });
-                inLabel.textContent = `${val.toFixed(2)} s`;
-                transport.seek(seg.t0 + Math.min(seg.dur / 2, 0.25));
-                rebuild();
-              },
-            }),
-            inLabel,
-          ),
-          h('div', { class: 'ph' }, 'Speed ramp for this segment'),
-          h(
-            'div',
-            { class: 'tgrid', style: 'padding:4px 6px 6px' },
-            ...Object.entries(VELOCITY).map(([k, v]) =>
-              h(
-                'button',
-                {
-                  class: seg.vel === k ? 'on' : '',
-                  title: v.desc || 'Constant clip speed',
-                  onclick: () => {
-                    patchSegment(si, { vel: k });
-                    rebuild();
-                    closePop();
-                  },
-                },
-                v.name,
-              ),
-            ),
-          ),
-          h('div', { class: 'ph' }, si === 0 ? 'Transition into this segment (loop seam)' : 'Transition into this segment'),
-          h(
-            'div',
-            { class: 'tgrid', style: 'padding:4px 6px 6px' },
-            ...Object.entries(TRANSITIONS).map(([k, t]) =>
-              h(
-                'button',
-                {
-                  class: seg.trans === k ? 'on' : '',
-                  onclick: () => {
-                    patchSegment(si, { trans: k });
-                    rebuild();
-                    closePop();
-                  },
-                },
-                t.name,
-              ),
-            ),
-          ),
-        );
-      });
+      openPop(anchor, (box) => segmentMenu(box, si), 'seg-menu');
 
       anchor.remove();
     };
