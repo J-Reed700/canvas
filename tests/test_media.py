@@ -114,6 +114,25 @@ class TestEncoder(TempDirCase):
         with mock.patch.object(encoder, "_HAS_VIDEOTOOLBOX", True), \
              mock.patch.object(encoder.subprocess, "check_output", side_effect=AssertionError("asked again")):
             self.assertTrue(encoder.has_videotoolbox())
+
+    def test_videotoolbox_probe_is_cached_per_resolution_and_bounded(self) -> None:
+        calls = []
+
+        def run(cmd, **_kwargs):
+            size = next(x for x in cmd if x.startswith("color=black:size="))
+            calls.append(size)
+            return mock.Mock(returncode=0 if "16x16" in size else 1)
+
+        with mock.patch.object(encoder, "_HAS_VIDEOTOOLBOX", True), \
+             mock.patch.object(encoder, "_VIDEOTOOLBOX_USABLE", {}), \
+             mock.patch.object(encoder.subprocess, "run", side_effect=run):
+            self.assertTrue(encoder.videotoolbox_usable(16, 16))
+            self.assertFalse(encoder.videotoolbox_usable(3840, 3840))
+            self.assertTrue(encoder.videotoolbox_usable(16, 16), "same size uses its short cache")
+            self.assertEqual(calls, ["color=black:size=16x16:rate=1", "color=black:size=3840x3840:rate=1"])
+            for i in range(encoder._VIDEOTOOLBOX_CACHE_SIZE + 2):
+                encoder.videotoolbox_usable(100 + i * 2, 200)
+            self.assertLessEqual(len(encoder._VIDEOTOOLBOX_USABLE), encoder._VIDEOTOOLBOX_CACHE_SIZE)
         with mock.patch.object(encoder, "_HAS_VIDEOTOOLBOX", None), \
              mock.patch.object(encoder.shutil, "which", return_value="/bin/ffmpeg"), \
              mock.patch.object(encoder.subprocess, "check_output", side_effect=OSError("boom")):
@@ -146,6 +165,14 @@ class TestEncoder(TempDirCase):
                 enc.write(frame.ravel().tolist())
         video = _video(_ffprobe(dest))
         self.assertEqual((video["width"], video["height"], int(video["nb_frames"])), (16, 16, 20))
+
+    @unittest.skipUnless(HAS_FFMPEG, "ffmpeg required")
+    def test_encoder_probes_hardware_at_its_output_resolution(self) -> None:
+        dest = self.path("sized-probe.mp4")
+        with mock.patch.object(encoder, "videotoolbox_usable", return_value=False) as usable:
+            with encoder.Encoder(dest, fps=30, width=32, height=48) as enc:
+                enc.write(np.zeros((48, 32, 3), np.uint8))
+        usable.assert_called_once_with(32, 48)
 
     @unittest.skipUnless(HAS_FFMPEG, "ffmpeg required")
     def test_encoder_failures_raise_and_errors_inside_with_kill_it(self) -> None:

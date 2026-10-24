@@ -1,0 +1,17 @@
+[run]
+branch = True
+source = downbeat
+command_line = -m unittest discover -s tests -v
+data_file = artifacts/coverage/python/.coverage
+
+[report]
+fail_under = 90
+precision = 2
+show_missing = True
+skip_empty = True
+
+[json]
+output = artifacts/coverage/python/coverage.json
+
+[html]
+directory = artifacts/coverage/python/html

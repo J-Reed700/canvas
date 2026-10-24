@@ -1,10 +1,11 @@
 import React, { useRef, useEffect, useMemo } from 'react';
 import { useStudioStore, type LookJob } from '../state/store.ts';
-import { FORMATS, SIZES, fmt, fmtLength, siblingTracks, sourceLabel } from '../lib/utils.ts';
+import { FORMATS, SIZES, fmt, fmtLength, siblingTracks, sourceLabel, toast } from '../lib/utils.ts';
 import { mutate } from '../engine/looks.ts';
 import { screenOf, thumbSize } from '../lib/screens.ts';
 import { MODULES } from '../engine/modules.ts';
 import { Modal } from './ui.tsx';
+import { frame0ReferenceLabel, hasFrame0Reference, setFrame0Reference } from '../state/exportController.ts';
 
 export const VariationsModal: React.FC = () => {
   const varsContainerRef = useRef<HTMLDivElement>(null);
@@ -110,6 +111,9 @@ export const VariationsModal: React.FC = () => {
 
 const SHORTCUTS: [string, string][] = [
   ['Space', 'Play / pause'],
+  [', .', 'Previous / next frame (pauses playback)'],
+  ['⌘ K', 'Search studio commands (Ctrl+K on Windows and Linux)'],
+  ['⇧ F', 'Focus viewer / restore workspace'],
   ['← →', 'Previous / next look'],
   ['M', 'Variations of the current look. Press it again for six more'],
   ['D', '🎲 Roll everything: look, layers, edit, per-clip FX'],
@@ -170,6 +174,7 @@ export const ShortcutsModal: React.FC = () => {
 };
 
 export const ExportSheet: React.FC = () => {
+  const referenceInput = useRef<HTMLInputElement>(null);
   const exportOpen = useStudioStore((s) => s.exportOpen);
   const exportOpts = useStudioStore((s) => s.exportOpts);
   const features = useStudioStore((s) => s.features);
@@ -192,7 +197,8 @@ export const ExportSheet: React.FC = () => {
 
   const currentFormat = exportOpts.format || 'spotify';
   const isSpotify = currentFormat === 'spotify';
-  const hasAudioSupport = currentFormat === 'spotify' || currentFormat === 'youtube_16_9' || currentFormat === 'social_square';
+  const isApple = currentFormat === 'apple_tall' || currentFormat === 'apple_square';
+  const hasAudioSupport = currentFormat === 'spotify' || currentFormat === 'youtube_16_9' || currentFormat === 'social_vertical' || currentFormat === 'social_square';
   const currentSizeKey = exportOpts.size || 'master';
   const sizeArr = FORMATS[currentFormat]?.size || SIZES[currentSizeKey] || SIZES.master;
   const [W, H] = sizeArr;
@@ -253,11 +259,13 @@ export const ExportSheet: React.FC = () => {
                 return 'Every frame is rendered on the GPU, frame-exact, encoded to H.264 in hardware and verified against the Spotify Canvas spec.';
               case 'apple_tall':
               case 'apple_square':
-                return "Apple Music motion artwork: the same edit re-framed for Apple's aspect ratio, silent, looping and repeated to at least 15 s. Square art is rendered at 2048 px, then upscaled to Apple's 3840 × 3840.";
+                return "Apple Music motion artwork: silent, 8–35 s, rendered by the GPU at Apple's native delivery dimensions. ProRes avoids an extra H.264 output intermediate; source footage still comes from Downbeat's 8-bit playback pipeline.";
               case 'youtube_16_9':
                 return 'YouTube visualizer: 1920 × 1080 landscape video, as long as the loop you set in the Edit tab. For a copy with the song as its audio, check Also save a copy with the song.';
               case 'social_square':
                 return 'Social feed loop: 1080 × 1080 square format for Instagram, Twitter/X, and Facebook feeds, with optional synced song audio.';
+              case 'social_vertical':
+                return 'Vertical social video: 1080 × 1920 for TikTok, Instagram Reels and YouTube Shorts, separate from Spotify Canvas length limits.';
               case 'cover_art':
                 return 'Album cover art: a 3000 × 3000 sRGB JPEG for distributors such as DistroKid and TuneCore, plus a 1:1 motion preview.';
               default:
@@ -299,6 +307,88 @@ export const ExportSheet: React.FC = () => {
             )}
           </>
         )}
+
+        {isApple && (
+          <div className="field">
+            <label>Master codec</label>
+            <div className="seg">
+              {([
+                ['h264', 'H.264 MP4'],
+                ['prores422', 'ProRes 422 HQ'],
+                ['prores4444', 'ProRes 4444'],
+              ] as const).map(([value, label]) => (
+                <button
+                  key={value}
+                  className={(exportOpts.codec || 'h264') === value ? 'on' : ''}
+                  onClick={() => {
+                    useStudioStore.setState({ exportOpts: { ...exportOpts, codec: value } });
+                    save();
+                  }}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+            <div className="note">
+              ProRes exports a native-size MOV. The renderer is opaque 8-bit RGB, so 4444 preserves 4:4:4 chroma but does not invent alpha or extra source precision.
+            </div>
+          </div>
+        )}
+
+        <div className="field">
+          <label>Frame 0 reference still · optional QA</label>
+          <input
+            ref={referenceInput}
+            type="file"
+            accept="image/*"
+            style={{ display: 'none' }}
+            onChange={async (e) => {
+              const file = e.target.files?.[0];
+              if (!file) return;
+              const started = useStudioStore.getState();
+              const projectId = started.project?.id;
+              const format = started.exportOpts.format;
+              const previousId = started.exportOpts.coverRefId;
+              try {
+                const reference = await setFrame0Reference(file);
+                if (!reference) return;
+                const current = useStudioStore.getState();
+                if (current.project?.id !== projectId || current.exportOpts.format !== format || current.exportOpts.coverRefId !== previousId) {
+                  if (hasFrame0Reference(reference.id)) await setFrame0Reference(null);
+                  return;
+                }
+                useStudioStore.setState((state) => ({ exportOpts: { ...state.exportOpts, coverRefId: reference.id } }));
+                save();
+              } catch (err: any) {
+                toast(err?.message || 'Could not read that reference still');
+              } finally {
+                if (referenceInput.current) referenceInput.current.value = '';
+              }
+            }}
+          />
+          <div className="row" style={{ gap: '6px', flexWrap: 'wrap' }}>
+            <button className="btn sm" onClick={() => referenceInput.current?.click()}>
+              {exportOpts.coverRefId ? 'Replace reference…' : 'Choose reference…'}
+            </button>
+            {exportOpts.coverRefId && (
+              <>
+                <span className="note">{frame0ReferenceLabel(exportOpts.coverRefId)}</span>
+                <button
+                  className="btn sm"
+                  onClick={() => {
+                    setFrame0Reference(null);
+                    useStudioStore.setState({ exportOpts: { ...exportOpts, coverRefId: undefined } });
+                    if (referenceInput.current) referenceInput.current.value = '';
+                    save();
+                  }}
+                >
+                  Clear
+                </button>
+              </>
+            )}
+          </div>
+          <div className="note">The chosen image stays in this browser session. QA compares its pixels with the actual rendered first frame; without one, the export reports a warning instead of claiming a match.</div>
+        </div>
 
         {features && (
           <>
@@ -342,6 +432,31 @@ export const ExportSheet: React.FC = () => {
                 ))}
               </div>
               <div className="note">The loop repeated under the song, for Reels, TikTok or a Spotify Countdown Page.</div>
+              {!!exportOpts.promo && (
+                <>
+                  <label htmlFor="promoTitle">Promo title card · optional</label>
+                  <input
+                    id="promoTitle"
+                    type="text"
+                    maxLength={120}
+                    placeholder="Artist — Release"
+                    value={exportOpts.promoTitle || ''}
+                    onChange={(e) => useStudioStore.setState({ exportOpts: { ...exportOpts, promoTitle: e.target.value } })}
+                    onBlur={save}
+                  />
+                  <label className="check">
+                    <input
+                      type="checkbox"
+                      checked={exportOpts.promoOutNow === true}
+                      onChange={(e) => {
+                        useStudioStore.setState({ exportOpts: { ...exportOpts, promoOutNow: e.target.checked } });
+                        save();
+                      }}
+                    />
+                    Add “OUT NOW” to the promo card
+                  </label>
+                </>
+              )}
             </div>
           </>
         )}
@@ -370,10 +485,10 @@ export const ExportSheet: React.FC = () => {
           <b>{look?.name}</b>
           <span>Size</span>
           <b>
-            {currentFormat === 'apple_square'
-              ? '3840 × 3840 (rendered at 2048)'
-              : `${W} × ${H} · ${FORMATS[currentFormat]?.name}`}
+            {`${W} × ${H} · ${FORMATS[currentFormat]?.name}`}
           </b>
+          <span>Codec</span>
+          <b>{isApple ? ({ h264: 'H.264 MP4', prores422: 'ProRes 422 HQ MOV', prores4444: 'ProRes 4444 MOV' } as const)[exportOpts.codec || 'h264'] : 'H.264 MP4'}</b>
           <span>Length</span>
           <b>
             {L < 60 ? `${L.toFixed(3)} s` : fmtLength(L)} · {frames} frames @ 30 fps

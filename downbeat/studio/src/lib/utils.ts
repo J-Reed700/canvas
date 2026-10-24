@@ -83,8 +83,9 @@ export const ROLL_OPTS: [keyof RollOptions, string, string][] = [
 export const FORMATS: Record<string, { name: string; short: string; sub: string; size?: [number, number] }> = {
   spotify: { name: 'Spotify Canvas', short: 'Spotify 9:16', sub: '9:16 · 3–8 s · silent' },
   apple_tall: { name: 'Apple Music · 3:4', short: 'Apple 3:4', sub: 'Motion artwork 2048 × 2732', size: [2048, 2732] },
-  apple_square: { name: 'Apple Music · 1:1', short: 'Apple 1:1', sub: 'Square motion art · rendered at 2048, delivered at 3840 × 3840', size: [2048, 2048] },
+  apple_square: { name: 'Apple Music · 1:1', short: 'Apple 1:1', sub: 'Native 3840 × 3840 square motion artwork', size: [3840, 3840] },
   youtube_16_9: { name: 'YouTube Visualizer · 16:9', short: 'YouTube 16:9', sub: '1920 × 1080 landscape visualizer with song audio', size: [1920, 1080] },
+  social_vertical: { name: 'Social Video · 9:16', short: 'Social 9:16', sub: '1080 × 1920 for TikTok, Reels and Shorts + optional song promo', size: [1080, 1920] },
   social_square: { name: 'Social Feed · 1:1', short: 'Social 1:1', sub: '1080 × 1080 square loop + optional song promo', size: [1080, 1080] },
   cover_art: { name: 'Album Cover Art · 1:1', short: 'Cover 3000²', sub: '3000 × 3000 sRGB cover art JPEG + 1:1 motion preview', size: [1500, 1500] },
 };

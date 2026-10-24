@@ -406,6 +406,7 @@ export function segmentMenu(box: HTMLElement, start: string) {
       vel: block?.vel != null,
       dir: block?.dir != null,
       frame: block?.frame != null,
+      overrides: block?.overrides != null,
     };
     const pick = (patch: BlockPatch) => {
       s.setBlock(id, patch);

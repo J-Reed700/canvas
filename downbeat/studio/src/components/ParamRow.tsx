@@ -2,13 +2,13 @@ import React from 'react';
 import { useStudioStore } from '../state/store.ts';
 import { h, openPop, closePop } from '../lib/utils.ts';
 import { MOD_SOURCES } from '../engine/modules.ts';
-import type { ParamDef } from '../engine/types.ts';
+import type { ComposedFrame, HolderSpec, Modulation, ParamDef } from '../engine/types.ts';
 import { Slider } from './ui.tsx';
 
 export function openModPopover(
   anchor: HTMLElement,
   p: ParamDef,
-  holder: any,
+  holder: HolderSpec,
   paintMod: () => void,
 ) {
   const { features, touch, save } = useStudioStore.getState();
@@ -17,6 +17,12 @@ export function openModPopover(
   openPop(anchor, (box) => {
     box.append(h('div', { class: 'ph' }, `Modulate ${p.name}`));
     const amtRow = h('div', { class: 'amt' });
+    const shape = h('div', { class: 'mod-shape' });
+    const changed = () => {
+      paintMod();
+      touch();
+      save();
+    };
     const drawAmt = () => {
       const m = mods[p.id];
       amtRow.replaceChildren();
@@ -33,13 +39,61 @@ export function openModPopover(
           oninput: (e: Event) => {
             m.amt = +(e.target as HTMLInputElement).value;
             o.textContent = m.amt.toFixed(2);
-            paintMod();
-            touch();
-            save();
+            changed();
           },
         }),
         o,
       );
+    };
+    const drawShape = () => {
+      shape.replaceChildren();
+      const m: Modulation | undefined = mods[p.id];
+      if (!m) return;
+      shape.append(h('div', { class: 'ph' }, 'Shape this route'));
+      const slider = (name: string, key: 'attack' | 'decay' | 'gate', max: number, step: number, suffix = '') => {
+        const value = m[key] ?? 0;
+        const output = h('output', {}, `${value}${suffix}`);
+        shape.append(h('div', { class: 'amt mod-control' }, h('span', {}, name), h('input', {
+          'aria-label': name,
+          type: 'range', min: 0, max, step, value,
+          oninput: (e: Event) => {
+            const next = +(e.target as HTMLInputElement).value;
+            m[key] = next;
+            output.textContent = `${next}${suffix}`;
+            changed();
+          },
+        }), output));
+      };
+      slider('Attack', 'attack', 2000, 5, ' ms');
+      slider('Decay', 'decay', 5000, 5, ' ms');
+      slider('Gate', 'gate', 1, 0.01);
+
+      const side = h('select', { 'aria-label': 'Sidechain source' }) as HTMLSelectElement;
+      side.append(h('option', { value: '', selected: !m.duck }, 'No sidechain'));
+      for (const [key, source] of Object.entries(MOD_SOURCES)) {
+        if (source.kind !== 'audio' || key === m.src) continue;
+        side.append(h('option', { value: key, selected: m.duck?.src === key }, source.name));
+      }
+      side.addEventListener('change', () => {
+        if (side.value) m.duck = { src: side.value, amount: m.duck?.amount ?? 0.5 };
+        else delete m.duck;
+        drawShape();
+        changed();
+      });
+      shape.append(h('label', { class: 'mod-control' }, h('span', {}, 'Sidechain ducking'), side));
+      if (m.duck) {
+        const out = h('output', {}, m.duck.amount.toFixed(2));
+        shape.append(h('div', { class: 'amt mod-control' }, h('span', {}, 'Duck amount'), h('input', {
+          'aria-label': 'Duck amount', type: 'range', min: 0, max: 1, step: 0.01, value: m.duck.amount,
+          oninput: (e: Event) => {
+            if (!m.duck) return;
+            m.duck.amount = +(e.target as HTMLInputElement).value;
+            out.textContent = m.duck.amount.toFixed(2);
+            changed();
+          },
+        }), out));
+      }
+      shape.append(h('div', { class: 'muted' }, 'Attack softens rises, decay holds falls, gate removes quiet input, and the sidechain turns this route down when another band hits.'));
     };
 
     const kinds: Record<string, string> = {
@@ -59,11 +113,14 @@ export function openModPopover(
               class: `pi ${mods[p.id]?.src === k ? 'on' : ''}`,
               style: `--c:${s.color}`,
               onclick: (e: MouseEvent) => {
-                mods[p.id] = { src: k, amt: mods[p.id]?.amt ?? (kind === 'user' ? 0.5 : 0.25) };
+                const next = { ...mods[p.id], src: k, amt: mods[p.id]?.amt ?? (kind === 'user' ? 0.5 : 0.25) } as Modulation;
+                if (next.duck?.src === k) delete next.duck;
+                mods[p.id] = next;
                 (box.querySelectorAll('.pi') as NodeListOf<HTMLElement>).forEach((b) => b.classList.remove('on'));
                 (e.currentTarget as HTMLElement).classList.add('on');
                 paintMod();
                 drawAmt();
+                drawShape();
                 touch();
                 save();
               },
@@ -75,7 +132,7 @@ export function openModPopover(
       }
     }
 
-    box.append(amtRow);
+    box.append(amtRow, shape);
     box.append(
       h(
         'button',
@@ -93,13 +150,14 @@ export function openModPopover(
       ),
     );
     drawAmt();
+    drawShape();
   });
 }
 
 export interface ParamRowProps {
   p: ParamDef;
-  holder: any;
-  readLive?: (fr: any) => number | undefined;
+  holder: HolderSpec;
+  readLive?: (fr: ComposedFrame) => number | undefined;
 }
 
 export const ParamRow: React.FC<ParamRowProps> = ({ p, holder, readLive }) => {

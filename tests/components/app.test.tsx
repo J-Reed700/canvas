@@ -26,7 +26,7 @@ describe('the whole studio', () => {
     for (const sel of ['header.top', 'aside.media', 'main.stage', 'section.timeline', 'aside.inspector', '#exportSheet', '#libraryModal', '#pop', '#toast']) {
       expect(document.querySelector(sel), sel).toBeTruthy();
     }
-    expect(initStudio).toHaveBeenCalledWith(document.getElementById('view'), document.getElementById('videoBank'), document.getElementById('ambient'));
+    expect(initStudio).toHaveBeenCalledWith(document.getElementById('view'), document.getElementById('videoBank'));
   });
 
   test('Layers controls respond inside the full layout', () => {
@@ -223,6 +223,8 @@ describe('dropping files', () => {
     expect(document.body.classList.contains('dropping')).toBe(false);
     await waitFor(() => expect(st().selected).toContain('dropped'));
     expect(fetch.mock.calls.some(([u]) => u === '/api/upload')).toBe(true);
-    expect(within(document.getElementById('clips')!).getByText('5.0s · dropped.mp4')).toBeTruthy();
+    const dropped = within(document.getElementById('clips')!).getByText('dropped.mp4').closest('.clip')!;
+    expect(dropped.textContent).toContain('5.0s');
+    expect(dropped.getAttribute('aria-label')).toContain('clip 4 in the edit');
   });
 });

@@ -2,6 +2,8 @@ import { useStudioStore } from './store.ts';
 import { fetchJSON, postJSON, shuffle, toast, detectSubject, sourceLabel, clipDisplayName, homeShort } from '../lib/utils.ts';
 import { LOOKS } from '../engine/looks.ts';
 import { resetHistory } from './historyController.ts';
+import { uploadMedia, upsertMedia } from '../lib/mediaClient.ts';
+import { clipIndex } from './mediaIndex.ts';
 import type { ClipMeta, TrackMeta, RenderRecord, ClipPalette } from '../engine/types.ts';
 
 /** The server's listing of the songs, the clips and the folders they come from. */
@@ -28,10 +30,12 @@ export const isLoaded = (c: ClipMeta, selected: string[]) => c.proxy !== 'none' 
 /** Asks the server to make playback copies for clips in the edit that don't have one yet. */
 export async function requestProxies() {
   const s = useStudioStore.getState();
-  const ids = s.selected.filter((id) => s.clips.find((c) => c.id === id)?.proxy === 'none');
+  const index = clipIndex(s.clips);
+  const ids = s.selected.filter((id) => index.get(id)?.proxy === 'none');
   if (!ids.length) return;
+  const requested = new Set(ids);
   const mark = (status: (id: string) => string | undefined) =>
-    useStudioStore.setState((p) => ({ clips: p.clips.map((c) => (ids.includes(c.id) ? { ...c, proxy: status(c.id) ?? c.proxy } : c)) }));
+    useStudioStore.setState((p) => ({ clips: p.clips.map((c) => (requested.has(c.id) ? { ...c, proxy: status(c.id) ?? c.proxy } : c)) }));
   mark(() => 'queued'); // so a second call while this one is out doesn't ask again
   const r = await postJSON<{ ok?: boolean; proxies?: Record<string, string> }>('/api/proxies', { ids }).catch(() => null);
   if (r?.proxies) mark((id) => r.proxies![id]);
@@ -94,22 +98,27 @@ export async function removeFolder(path: string) {
 export async function uploadFiles(files: File[]) {
   let n = 0;
   let stills = 0;
+  let refresh = false;
+  let pendingTrack: string | null = null;
   for (const f of files) {
     // the library lists the usual video types; the server turns other videos into an .mp4 first
     const convert = !/\.(mp4|mov|m4v|webm|mkv)$/i.test(f.name) && (f.type.startsWith('video/') || /\.(avi|mts|m2ts|ts|wmv|flv|mpe?g|3gp|vob|ogv)$/i.test(f.name));
     toast(convert ? `Uploading ${f.name} and converting it to .mp4…` : `Uploading ${f.name}…`, convert ? 60000 : 6000);
-    const r = await fetch('/api/upload', {
-      method: 'POST',
-      headers: { 'X-Filename': encodeURIComponent(f.name) },
-      body: f,
-    })
-      .then((x) => x.json())
-      .catch(() => ({}));
+    const r = await uploadMedia(f);
     if (!r.ok) {
-      toast(r.error ? `Could not add ${f.name}: ${r.error}` : `Could not add ${f.name}`, 5000);
+      toast(r.error, 5000);
       continue;
     }
     n++;
+    if (r.kind === 'video' && r.clip) {
+      const clip = r.clip;
+      useStudioStore.setState((state) => ({ clips: upsertMedia(state.clips, clip) }));
+    } else if (r.kind === 'audio' && r.track) {
+      const track = r.track;
+      useStudioStore.setState((state) => ({ tracks: upsertMedia(state.tracks, track) }));
+    } else {
+      refresh = true;
+    }
     if (r.still) {
       stills++;
       const curLook = useStudioStore.getState().look;
@@ -121,18 +130,20 @@ export async function uploadFiles(files: File[]) {
         }
       }
     }
-    const st = await fetchJSON<{ clips: ClipMeta[]; tracks: TrackMeta[]; renders: RenderRecord[] }>('/api/state').catch(
-      () => null,
-    );
-    if (st) useStudioStore.setState({ clips: st.clips, tracks: st.tracks });
     if (r.kind === 'video' && !useStudioStore.getState().selected.includes(r.id)) {
       useStudioStore.setState((prev) => ({ selected: [...prev.selected, r.id] }));
     }
     if (r.kind === 'audio') {
-      await useStudioStore.getState().selectTrack(r.id);
+      pendingTrack = r.track ? null : r.id;
+      if (r.track) await useStudioStore.getState().selectTrack(r.id);
     }
   }
   if (n) {
+    if (refresh) {
+      const state = await fetchJSON<{ clips: ClipMeta[]; tracks: TrackMeta[] }>('/api/state').catch(() => null);
+      if (state) useStudioStore.setState({ clips: state.clips, tracks: state.tracks });
+    }
+    if (pendingTrack) await useStudioStore.getState().selectTrack(pendingTrack);
     useStudioStore.setState({ welcome: false });
     useStudioStore.getState().rebuild();
     toast(

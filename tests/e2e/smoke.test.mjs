@@ -8,112 +8,13 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
-import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { join } from 'node:path';
 
-const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-const which = (name) => {
-  const r = spawnSync('which', [name], { encoding: 'utf8' });
-  return r.status === 0 ? r.stdout.trim() : null;
-};
+import { ROOT, sleep, python, missing, freePort, writeSong, makeClip, openBrowser } from '../browserHarness.mjs';
 
-function findChrome() {
-  const paths = [
-    process.env.CHROME_PATH,
-    '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
-    '/Applications/Chromium.app/Contents/MacOS/Chromium',
-  ];
-  for (const p of paths) if (p && existsSync(p)) return p;
-  for (const name of ['google-chrome', 'google-chrome-stable', 'chromium', 'chromium-browser']) {
-    const p = which(name);
-    if (p) return p;
-  }
-  return null;
-}
-
-const chromePath = findChrome();
-const python = existsSync(join(ROOT, '.venv/bin/python')) ? join(ROOT, '.venv/bin/python') : 'python3';
-const missing = [
-  !chromePath && 'Chrome or Chromium (set CHROME_PATH)',
-  !which('ffmpeg') && 'ffmpeg',
-  !existsSync(join(ROOT, 'downbeat/studio/dist/index.html')) && 'the built studio (npm run build)',
-].filter(Boolean);
-
-const freePort = () =>
-  new Promise((res) => {
-    const s = createServer();
-    s.listen(0, '127.0.0.1', () => {
-      const { port } = s.address();
-      s.close(() => res(port));
-    });
-  });
-
-/** 16-bit stereo WAV of kick-like thumps on every beat. */
-function writeSong(path, seconds, bpm) {
-  const rate = 22050;
-  const n = Math.round(rate * seconds);
-  const pcm = new Int16Array(n * 2);
-  for (let t = 0.1; t < seconds - 0.2; t += 60 / bpm) {
-    const i0 = Math.round(t * rate);
-    for (let k = 0; k < rate * 0.1 && i0 + k < n; k++) {
-      const v = Math.sin((2 * Math.PI * 60 * k) / rate) * Math.exp(-k / (rate * 0.03)) * 28000;
-      pcm[(i0 + k) * 2] = pcm[(i0 + k) * 2 + 1] = v;
-    }
-  }
-  const head = Buffer.alloc(44);
-  head.write('RIFF', 0); head.writeUInt32LE(36 + pcm.byteLength, 4); head.write('WAVE', 8);
-  head.write('fmt ', 12); head.writeUInt32LE(16, 16); head.writeUInt16LE(1, 20); head.writeUInt16LE(2, 22);
-  head.writeUInt32LE(rate, 24); head.writeUInt32LE(rate * 4, 28); head.writeUInt16LE(4, 32); head.writeUInt16LE(16, 34);
-  head.write('data', 36); head.writeUInt32LE(pcm.byteLength, 40);
-  writeFileSync(path, Buffer.concat([head, Buffer.from(pcm.buffer)]));
-}
-
-function makeClip(path, source, size) {
-  const r = spawnSync('ffmpeg', ['-v', 'error', '-y', '-f', 'lavfi', '-i', `${source}=size=${size}:rate=30`, '-t', '4',
-    '-c:v', 'libx264', '-preset', 'ultrafast', '-pix_fmt', 'yuv420p', path]);
-  assert.equal(r.status, 0, String(r.stderr));
-}
-
-// Minimal Chrome DevTools Protocol client.
-async function openBrowser(userDir) {
-  const args = ['--headless=new', '--remote-debugging-port=0', `--user-data-dir=${userDir}`, '--no-first-run',
-    '--no-default-browser-check', '--autoplay-policy=no-user-gesture-required', '--mute-audio', '--window-size=1600,1000'];
-  if (process.platform === 'darwin') args.push('--use-angle=metal');
-  else args.push('--use-angle=swiftshader', '--enable-unsafe-swiftshader');
-  if (process.getuid?.() === 0) args.push('--no-sandbox');
-  const proc = spawn(chromePath, [...args, 'about:blank'], { stdio: 'ignore' });
-  const portFile = join(userDir, 'DevToolsActivePort');
-  for (let i = 0; i < 100 && !existsSync(portFile); i++) await sleep(100);
-  const port = readFileSync(portFile, 'utf8').split('\n')[0];
-  let page;
-  for (let i = 0; i < 50 && !page; i++) {
-    page = (await (await fetch(`http://127.0.0.1:${port}/json`)).json()).find((t) => t.type === 'page');
-    if (!page) await sleep(100);
-  }
-  const ws = new WebSocket(page.webSocketDebuggerUrl);
-  await new Promise((r, j) => { ws.onopen = r; ws.onerror = j; });
-  let id = 0;
-  const pending = new Map();
-  const problems = [];
-  ws.onmessage = (ev) => {
-    const m = JSON.parse(ev.data);
-    if (m.id && pending.has(m.id)) { pending.get(m.id)(m); pending.delete(m.id); }
-    if (m.method === 'Runtime.exceptionThrown') problems.push(`exception: ${m.params.exceptionDetails?.exception?.description || m.params.exceptionDetails?.text}`);
-    if (m.method === 'Runtime.consoleAPICalled' && m.params.type === 'error') problems.push(`console.error: ${m.params.args.map((a) => a.value ?? a.description).join(' ')}`);
-  };
-  const send = (method, params = {}) => new Promise((r) => { const i = ++id; pending.set(i, r); ws.send(JSON.stringify({ id: i, method, params })); });
-  await send('Page.enable');
-  await send('Runtime.enable');
-  /** Runs an async function body in the page and returns its JSON result; page errors become test failures. */
-  const run = async (body) => {
-    const r = await send('Runtime.evaluate', { expression: `(async () => { ${body} })()`, awaitPromise: true, returnByValue: true });
-    if (r.result?.exceptionDetails) throw new Error(r.result.exceptionDetails.exception?.description || r.result.exceptionDetails.text);
-    return r.result?.result?.value;
-  };
-  return { proc, ws, send, run, problems };
+if (process.env.DOWNBEAT_REQUIRE_E2E === '1' && missing.length) {
+  throw new Error(`The quality gate requires ${missing.join(', ')}`);
 }
 
 // Helpers defined in the page before each step.
@@ -162,14 +63,15 @@ test('the studio works end to end in a real browser', { skip: missing.length ? `
   const server = spawn(python, ['-c', launcher, out, String(port)], { cwd: ROOT, env: { ...process.env, HOME: home }, stdio: ['ignore', 'ignore', 'pipe'] });
   let serverErr = '';
   server.stderr.on('data', (d) => { serverErr += d; });
-  const browser = await openBrowser(join(tmp, 'chrome'));
+  let browser;
   t.after(async () => {
-    browser.ws.close();
-    browser.proc.kill();
+    browser?.ws.close();
+    browser?.proc.kill();
     server.kill();
     await sleep(300);
     rmSync(tmp, { recursive: true, force: true });
   });
+  browser = await openBrowser(join(tmp, 'chrome'));
   for (let i = 0; ; i++) {
     try { if ((await fetch(`http://127.0.0.1:${port}/api/status`)).ok) break; } catch {}
     assert.ok(i < 150, `the server did not start: ${serverErr.slice(-1500)}`);
@@ -179,14 +81,17 @@ test('the studio works end to end in a real browser', { skip: missing.length ? `
   await browser.send('Page.navigate', { url: `http://127.0.0.1:${port}/` });
   // Steps run in order on one page; after a failure the rest are skipped rather than failing for the same reason.
   let broken = null;
-  const step = (name, body) =>
+  const step = (name, body, viewport = null) =>
     t.test(name, { skip: broken ? `an earlier step failed: ${broken}` : false }, async () => {
       try {
+        if (viewport) await browser.send('Emulation.setDeviceMetricsOverride', { ...viewport, deviceScaleFactor: 1, mobile: false });
         await browser.run(PAGE + body);
       } catch (e) {
         broken = name;
         const files = readdirSync(out).filter((f) => !f.startsWith('.')).map((f) => `${f} (${statSync(join(out, f)).size} B)`);
         throw new Error(`${e.message}\nout/: ${files.join(', ') || 'empty'}\nserver: ${serverErr.slice(-800)}`);
+      } finally {
+        if (viewport) await browser.send('Emulation.clearDeviceMetricsOverride');
       }
     });
 
@@ -208,6 +113,94 @@ test('the studio works end to end in a real browser', { skip: missing.length ? `
     await until(() => S.getState().clips.length === 2 && S.getState().clips.every((c) => c.proxy === 'ready'), 90000, 'playback proxies');
     if (!$('#trackSelect').textContent.includes('Test Song')) throw new Error('song not picked: ' + $('#trackSelect').textContent);
     if (Math.abs(S.getState().bpm() - 120) > 1) throw new Error('tempo ' + S.getState().bpm());
+  `);
+
+  await step('the workspace command menu, focus viewer, panel sizing and frame stepping work', `
+    const originalView = $('#view');
+    const originalLook = S.getState().lookId;
+    const originalTab = S.getState().tab;
+    const inputEvent = (element, key, extras = {}) => element.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true, ...extras }));
+    inputEvent(window, 'k', { metaKey: true });
+    const commands = await until(() => $('[role="combobox"][aria-label="Search commands"]'), 2000, 'commands');
+    setRange(commands, 'color');
+    await until(() => $$('.command-option').length === 1, 2000, 'filtered commands');
+    inputEvent(commands, 'Enter');
+    await until(() => $('#pane-layers') && !$('.command-menu'), 2000, 'the layer inspector');
+    await tap(byText('.layers-subnav button', 'Color'));
+    if (!$('#layer-effects-section').hidden || $('#layer-color-section').hidden) throw new Error('Color section did not isolate');
+    await tap(byText('.layers-subnav button', 'All'));
+    await tap($('[aria-label="Focus viewer"]'));
+    if (getComputedStyle($('.media')).display !== 'none' || getComputedStyle($('.inspector')).display !== 'none') throw new Error('panels did not hide');
+    if ($('#view') !== originalView) throw new Error('focus remounted the GPU canvas');
+    key('Escape');
+    await until(() => !$('.workspace-focus'), 2000, 'restored workspace');
+    const divider = $('[aria-label="Resize library"]');
+    const width = +divider.getAttribute('aria-valuenow');
+    inputEvent(divider, 'ArrowRight');
+    await until(() => +divider.getAttribute('aria-valuenow') === width + 10, 2000, 'panel resize');
+    inputEvent(divider, 'Home');
+    S.getState().transport.pause(); S.getState().transport.seek(0);
+    await tap($('[aria-label="Next frame"]'));
+    if (Math.abs(S.getState().transport.loopTime() - 1/30) > 1e-6) throw new Error('not one frame');
+    await until(() => $('#viewerTimecode').textContent === '00:00:00:01', 2000, 'frame timecode');
+    if (S.getState().lookId !== originalLook) throw new Error('workspace navigation changed the edit');
+    S.getState().setTab(originalTab);
+    S.getState().transport.seek(0);
+  `);
+
+  const responsiveControls = `
+    await sleep(150);
+    const reachable = (selector) => {
+      const element = $(selector);
+      if (!element) throw new Error('missing control ' + selector);
+      element.scrollIntoView({ block: 'center', inline: 'center', behavior: 'instant' });
+      const rect = element.getBoundingClientRect();
+      if (!rect.width || !rect.height || !element.checkVisibility()) throw new Error('hidden control ' + selector);
+      const target = document.elementFromPoint(rect.x + rect.width / 2, rect.y + rect.height / 2);
+      if (target !== element && !element.contains(target)) throw new Error('obscured control ' + selector + ' by ' + target?.className);
+      return element;
+    };
+    for (const selector of ['#btnAddMedia', '#trackSelect', '#btnAddFolder', '.clip-arrange > summary', '#btnAutoFrame', '#tScreen', '#tHud', '#tSafe', '#btnPlay', '#modeSeg button[data-mode="listen"]', '#barsSeg button', '#loopChips button', '#rhythmSeg button:last-child', '#btnRoll', '#btnRollOpts', '#btnUndo', '#btnRedo', '#btnHelp', '#btnExport', '#tabs button:last-child']) reachable(selector);
+    const wasHud = S.getState().hud, wasSafe = S.getState().safe;
+    await tap(reachable('#tHud'));
+    if (S.getState().hud === wasHud) throw new Error('player UI toggle failed');
+    await tap(reachable('#tHud'));
+    await tap(reachable('#tSafe'));
+    if (S.getState().safe === wasSafe) throw new Error('safe guide toggle failed');
+    await tap(reachable('#tSafe'));
+    await tap(reachable('#modeSeg button[data-mode="listen"]'));
+    if (S.getState().transport.mode !== 'listen') throw new Error('Listener mode unavailable');
+    await tap(reachable('#tOffSync'));
+    if (!S.getState().transport.phase) throw new Error('off-sync unavailable');
+    await tap(reachable('#tOffSync'));
+    await tap(reachable('#modeSeg button[data-mode="loop"]'));
+    window.scrollTo(0, 0);
+    if (document.documentElement.scrollWidth > innerWidth) throw new Error('workspace overflows the window');
+  `;
+  await step('existing controls remain reachable and work in a narrow desktop window', responsiveControls, { width: 1024, height: 768 });
+  await step('existing controls remain reachable and work in a phone-width window', responsiveControls, { width: 390, height: 844 });
+
+  await step('the compact Sequence menu preserves All, Solo, Reverse and Shuffle actions', `
+    const selected = [...S.getState().selected];
+    const menu = $('.clip-arrange');
+    const arrange = async (id) => {
+      await tap(menu.querySelector('summary'));
+      if (!menu.open) throw new Error('Sequence menu did not open');
+      const control = $('#' + id);
+      const r = control.getBoundingClientRect();
+      if (!r.width || !r.height || getComputedStyle(control).visibility === 'hidden') throw new Error(id + ' unavailable');
+      await tap(control);
+      if (menu.open) throw new Error('Sequence menu did not close');
+    };
+    await arrange('btnReverse');
+    if (JSON.stringify(S.getState().selected) !== JSON.stringify([...selected].reverse())) throw new Error('Reverse changed behavior');
+    await arrange('btnShuffle');
+    if ([...S.getState().selected].sort().join() !== [...selected].sort().join()) throw new Error('Shuffle lost clips');
+    await arrange('btnSoloClip');
+    if (S.getState().selected.length !== 1) throw new Error('Solo did not isolate a clip');
+    await arrange('btnAllClips');
+    if (S.getState().selected.length !== S.getState().clips.length) throw new Error('All did not select loaded clips');
+    window.__studio.store.setState({ selected }); S.getState().rebuild();
   `);
 
   await step('Clips: the search narrows the panel, and the browser shows a clip with its folder', `
@@ -232,6 +225,68 @@ test('the studio works end to end in a real browser', { skip: missing.length ? `
     if (errors.length) throw new Error(errors.join('\\n'));
   `);
 
+  await step('Color studio imports a LUT, applies it in the finish pass, and draws scopes', `
+    S.getState().setTab('layers');
+    await until(() => document.querySelector('[aria-label="Import 3D LUT"]'), 5000, 'the color studio');
+    const upload = document.querySelector('[aria-label="Import 3D LUT"]');
+    const transfer = new DataTransfer();
+    transfer.items.add(new File(['TITLE "Test red"\\nLUT_3D_SIZE 2\\n' + Array(8).fill('1 0 0').join('\\n')], 'red.cube'));
+    upload.files = transfer.files;
+    upload.dispatchEvent(new Event('change', { bubbles: true }));
+    await until(() => S.getState().look.finish.lut?.name === 'Test red', 5000, 'the grade to import');
+    await until(() => S.getState().engine.main.frame?.lut?.name === 'Test red', 5000, 'the composed LUT');
+    const engine = S.getState().engine, gpu = engine.gpu, gl = engine.gl;
+    const dest = gpu.target(4, 4, { float: false });
+    const lut = S.getState().look.finish.lut;
+    const uniforms = { ...engine.main.U(dest), p_exposure: 0, p_contrast: 1, p_saturation: 1, p_temp: 0, p_tint: 0, p_fade: 0,
+      p_split: 0, p_splitHue: 0, p_vignette: 0, p_grain: 0, p_bars: 0, p_halation: 0,
+      uLutSize: 2, uLutMin: [0,0,0], uLutMax: [1,1,1], uLutMix: 1 };
+    const draw = (mix) => {
+      gpu.draw('finish', '', dest, { ...uniforms, uLutMix: mix }, { uSrc: gpu.black, uGlow: gpu.black, uLut: gpu.lut(lut) });
+      const px = new Uint8Array(4 * 4 * 4);
+      gl.readPixels(0, 0, 4, 4, gl.RGBA, gl.UNSIGNED_BYTE, px);
+      return [...px.slice(0, 3)];
+    };
+    const red = draw(1), half = draw(0.5), black = draw(0);
+    if (red[0] < 254 || red[1] > 1 || red[2] > 1) throw new Error('3D LUT output ' + red);
+    if (half[0] < 126 || half[0] > 129 || half[1] > 1) throw new Error('LUT mix ' + half);
+    if (black.some((v) => v > 1)) throw new Error('LUT bypass ' + black);
+    gpu.free(dest);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    if (gl.getError() !== gl.NO_ERROR) throw new Error('WebGL error after grading');
+    await tap(byText('.scope-toolbar button', 'RGB parade'));
+    $('.video-scope').scrollIntoView({ block: 'end', behavior: 'instant' });
+    await until(() => {
+      const canvas = $('.video-scope');
+      return canvas && canvas.getContext('2d').getImageData(0, 0, canvas.width, canvas.height).data.some((v, i) => i % 4 !== 3 && v > 40);
+    }, 5000, 'visible scopes to draw actual pixels');
+    await tap(byText('.scope-toolbar button', 'Off'));
+    await tap(byText('.grade-actions button', 'Remove LUT'));
+    if (S.getState().look.finish.lut) throw new Error('LUT not removed');
+    S.getState().setTab('looks');
+    await sleep(0);
+  `);
+
+  await step('renders a native 3840-square frame and returns to the preview', `
+    const engine = S.getState().engine, gl = engine.gl;
+    const width = engine.main.w, height = engine.main.h;
+    const frame = engine.main.frame;
+    window.__studio.store.setState({ exporting: true });
+    try {
+      engine.resize(3840, 3840);
+      const out = engine.renderMain({ ...frame, sources: frame.sources.slice(0, 1), needs: frame.needs.slice(0, 1),
+        broll: null, trans: null, pre: null, layers: [], finish: { ...frame.finish, p_halation: 0 } });
+      if (out.w !== 3840 || out.h !== 3840) throw new Error('Native render was resized');
+      const pixels = engine.readStats(out);
+      if (!pixels.some((v, i) => i % 4 !== 3 && v > 10)) throw new Error('Native render is black');
+      if (gl.getError() !== gl.NO_ERROR) throw new Error('WebGL error at native square size');
+    } finally {
+      engine.resize(width, height);
+      engine.main.reset();
+      window.__studio.store.setState({ exporting: false });
+    }
+  `);
+
   await step('Layers: the step grid, a layer switch, Add effect, a macro and the palette respond', `
     byText('#tabs button', 'Layers ' + $('#layerCount').textContent).click();
     await until(() => $('#pane-layers'), 5000, 'the Layers tab');
@@ -253,6 +308,19 @@ test('the studio works end to end in a real browser', { skip: missing.length ? `
     await tap($('.pal-row'));
     await until(() => $('.pal-row').className.includes('on'), 2000, 'the palette tint');
   `);
+
+  if (!broken && process.env.DOWNBEAT_E2E_SCREENSHOT) {
+    await browser.run(PAGE + `
+      const color = card('Color studio');
+      color?.scrollIntoView({ block: 'end' });
+      await tap(byText('.scope-toolbar button', 'Waveform'));
+      $('.video-scope')?.scrollIntoView({ block: 'end' });
+      await sleep(300);
+    `);
+    const shot = await browser.send('Page.captureScreenshot', { format: 'png' });
+    if (shot.result?.data) writeFileSync(process.env.DOWNBEAT_E2E_SCREENSHOT, Buffer.from(shot.result.data, 'base64'));
+    await browser.run(PAGE + `await tap(byText('.scope-toolbar button', 'Off'));`);
+  }
 
   await step('Edit and transport: a 2-bar loop, play and pause, and the readouts move', `
     byText('#tabs button', 'Edit').click();
@@ -447,6 +515,28 @@ test('the studio works end to end in a real browser', { skip: missing.length ? `
     await until(() => !S.getState().libraryOpen && S.getState().bars === 2 && S.getState().ctx.tl.handCut, 10000, "the export's edit");
     if (S.getState().project !== null) throw new Error("the export's edit should open outside the project");
     if (S.getState().exportOpts.format !== 'spotify') throw new Error('format ' + S.getState().exportOpts.format);
+  `);
+
+  await step('bulk imports preserve metadata and selection without full-library refreshes', `
+    const original = window.fetch;
+    const source = S.getState().clips[0];
+    const bytes = await (await original('/api/proxy/' + encodeURIComponent(source.id))).arrayBuffer();
+    let refreshes = 0;
+    const before = S.getState().clips.length;
+    const selected = [...S.getState().selected];
+    window.fetch = (input, options) => {
+      if (input === '/api/state') refreshes++;
+      return original.call(window, input, options);
+    };
+    try {
+      await S.getState().uploadFiles(['Import check one.mp4', 'Import check two.mp4'].map((name) => new File([bytes], name, { type: 'video/mp4' })));
+      if (refreshes !== 0) throw new Error('bulk import refreshed the whole library ' + refreshes + ' times');
+      const added = S.getState().clips.filter((clip) => clip.name.startsWith('Import check'));
+      if (S.getState().clips.length !== before + 2 || added.length !== 2) throw new Error('imported clips missing');
+      if (added.some((clip) => !(clip.width > 0 && clip.height > 0 && clip.duration > 0) || clip.source !== 'added')) throw new Error('upload metadata was lost');
+      if (selected.some((id) => !S.getState().selected.includes(id)) || added.some((clip) => !S.getState().selected.includes(clip.id))) throw new Error('import changed existing selection');
+      await until(() => added.every((clip) => S.getState().clips.find((current) => current.id === clip.id)?.proxy === 'ready'), 30000, 'imported playback copies');
+    } finally { window.fetch = original; }
   `);
 
   await t.test('no errors in the page', () => {

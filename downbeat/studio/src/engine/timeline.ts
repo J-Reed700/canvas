@@ -107,7 +107,7 @@ export function loopBeats(L: number, beatDur: number): number[] {
 }
 
 function cutTimes(opts: TimelinePlanOptions): number[] {
-  const { L, beatDur, rhythm, nClips, hitCurve, custom, seed = 1 } = opts;
+  const { L, beatDur, rhythm = 'even', nClips = opts.clips.length, hitCurve, custom, seed = 1 } = opts;
   const beats = loopBeats(L, beatDur);
   const nb = beats.length;
   if (rhythm === 'custom' && custom?.length) return [0, ...custom.filter((c) => c > 0.05 && c < L - 0.05)].sort((a, b) => a - b);
@@ -261,6 +261,10 @@ export function resolve(blocks: Block[], opts: TimelinePlanOptions, rolled: Bloc
   const segs: Segment[] = list.map((b, k) => {
     const clip = byId.get(b.clipId) || clips[k % clips.length];
     const dur = durs[k];
+    const ownSpeed = b.overrides?.camera?.speed;
+    // Project JSON can outlive the UI that constrained this value. Keep corrupt or hand-edited
+    // block data from producing negative clip time or an unbounded source range.
+    const blockSpeed = Number.isFinite(ownSpeed) ? Math.min(2, Math.max(0.25, ownSpeed!)) : speed;
     const vel = b.vel ?? velocity;
     const d =
       b.dir ??
@@ -273,7 +277,7 @@ export function resolve(blocks: Block[], opts: TimelinePlanOptions, rolled: Bloc
     const trans = rebound && k === 0 ? 'cut' : b.trans ?? deal(b, k, prevTrans);
     prevTrans = trans;
     // A block that grew past its footage starts earlier in its clip, so it doesn't stop on a frozen frame.
-    const fit = Math.max(0, clip.duration - dur * speed - 0.1);
+    const fit = Math.max(0, clip.duration - dur * blockSpeed - 0.1);
     const seg: Segment = {
       i: k,
       id: b.id,
@@ -281,7 +285,7 @@ export function resolve(blocks: Block[], opts: TimelinePlanOptions, rolled: Bloc
       t1: t0s[k] + dur,
       clipId: clip.id,
       dur,
-      speed,
+      speed: blockSpeed,
       vel,
       bd: beatDur,
       focus: clip.focus || null,
@@ -294,6 +298,7 @@ export function resolve(blocks: Block[], opts: TimelinePlanOptions, rolled: Bloc
       span: b.span || [0, 1],
     };
     if (b.frame) seg.frame = b.frame;
+    if (b.overrides) seg.overrides = b.overrides;
     if (k + 1 === n) seg.t1 = L;
     return seg;
   });
@@ -309,12 +314,28 @@ export function planTimeline(opts: TimelinePlanOptions): TimelinePlan {
 
 // Which segment(s) are visible at loop time t, with local times and transition progress. Part keys are
 // block ids, so a player stays with its footage when blocks around it are split or deleted.
+/** Index of the last cut at or before t. Resolved segments are ordered and cover the loop. */
+export function segmentIndexAt(segs: readonly Segment[], t: number): number {
+  let lo = 0, hi = segs.length;
+  while (lo < hi) {
+    const mid = (lo + hi) >>> 1;
+    if (segs[mid].t0 - 1e-9 <= t) lo = mid + 1;
+    else hi = mid;
+  }
+  return Math.max(0, lo - 1);
+}
+
 export function sampleTimeline(tl: TimelinePlan, t: number): TimelineSample {
   const { L, segs } = tl;
   const { t: x, back } = editTime(tl, t);
   t = x;
   const n = segs.length;
-  for (let k = 0; k < n; k++) {
+  const current = segmentIndexAt(segs, t);
+  // fitTrans() caps windows at 90% of each adjacent segment, so only the cuts on either
+  // side of this segment can contribute. Preserve seam-first priority and exact tolerances.
+  const next = (current + 1) % n;
+  const candidates = current < next ? [current, next] : [next, current];
+  for (const k of candidates) {
     const b = segs[k];
     if (b.transDur <= 1 / 60) continue;
     let d = t - b.t0;
@@ -352,10 +373,8 @@ export function sampleTimeline(tl: TimelinePlan, t: number): TimelineSample {
       }
     }
   }
-  for (let k = n - 1; k >= 0; k--) {
-    if (t >= segs[k].t0 - 1e-9) return { a: { seg: segs[k], local: t - segs[k].t0, key: segs[k].id }, b: null, p: 0, trans: null, back };
-  }
-  return { a: { seg: segs[0], local: t, key: segs[0].id }, b: null, p: 0, trans: null, back };
+  const seg = segs[current];
+  return { a: { seg, local: t - seg.t0, key: seg.id }, b: null, p: 0, trans: null, back };
 }
 
 export function clipTime(seg: Segment, local: number, clipDur: number): number {

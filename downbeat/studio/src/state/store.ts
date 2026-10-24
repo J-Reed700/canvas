@@ -1,9 +1,9 @@
 import { create } from 'zustand';
 import { Engine } from '../engine/engine.ts';
 import { Transport, makeSampler } from '../engine/audio.ts';
-import { planTimeline, resolve, rng } from '../engine/timeline.ts';
+import { planTimeline, resolve } from '../engine/timeline.ts';
 import { fromLegacy } from '../engine/blocks.ts';
-import { LOOKS, clamp, cloneLook, evolveLook } from '../engine/looks.ts';
+import { LOOKS, clamp, cloneLook } from '../engine/looks.ts';
 import { VideoBank } from '../engine/composer.ts';
 import type {
   ClipMeta,
@@ -33,20 +33,26 @@ import {
   exportCompanion,
 } from './exportController.ts';
 import { surprise, rollClips, rollAll, undoRoll } from './rollController.ts';
-import { save, restore, snapshot, applySnapshot, undo, redo, resetHistory, saveLook, rememberLook, editFields } from './historyController.ts';
+import { save, restore, snapshot, applySnapshot, undo, redo, resetHistory, saveLook, rememberLook, editFields, sanitizeLutLooks } from './historyController.ts';
 import { startingEdit, syncProject } from './projectController.ts';
 import { uploadFiles, autoFrame, reorderClips, toggleClip, fetchPalette, requestProxies } from './mediaActions.ts';
 import { selectBlock, splitAtPlayhead, splitBlockAt, deleteBlock, repeatSegment, insertClip, trimCut, setBlock, clearBlock, setSnap } from './blockActions.ts';
 import type { StudioState } from './storeTypes.ts';
+import { ClipLookResolver, editingLook } from './clipLooks.ts';
+import { clipIndex } from './mediaIndex.ts';
 
 export type { LookJob, GhostItem, StudioState } from './storeTypes.ts';
 
 const transportInstance = new Transport();
 const clipDurMap = new Map<string, number>();
+// These callbacks must be created outside rebuild(). Closures created in that activation can
+// share its captured `s` with other callbacks, retaining every previous state/context and sampler.
+const liveClipDuration = (id: string): number => clipDurMap.get(id) || 10;
+const liveClipLook = (id: string, seg?: Segment): Look => useStudioStore.getState().clipLookOf(id, seg);
 let tapTimes: number[] = [];
 let tapTimer: ReturnType<typeof setTimeout> | undefined;
 let trackTokenVal = 0;
-let clipCacheState = { v: -1, map: new Map<string, Look>(), filled: false };
+const clipLooks = new ClipLookResolver();
 let lastVbBd = -1;
 let lastVb: number[] = BAR_CHOICES;
 
@@ -83,7 +89,7 @@ export const useStudioStore = create<StudioState>((set, get) => ({
   snap: 1,
   clipFrame: {},
   gridNudge: {},
-  hud: true,
+  hud: false,
   safe: false,
   muted: false,
   tab: 'looks',
@@ -161,54 +167,8 @@ export const useStudioStore = create<StudioState>((set, get) => ({
     get().setBars(get().maxBars());
   },
 
-  clipLookOf: (id: string, seg?: Segment): Look => {
-    const s = get();
-    if (!s.look) return LOOKS[0];
-    if (s.clipMode === 'one') return s.look;
-    if (clipCacheState.v !== s.version) clipCacheState = { v: s.version, map: new Map<string, Look>(), filled: false };
-    if (s.clipMode === 'evolve' && s.evolveCuts) {
-      // every cut after the first gets its own mutation, made the first time the cut is drawn
-      if (!seg?.i) return s.look;
-      const key = `#${seg.i}`;
-      let l = clipCacheState.map.get(key);
-      if (!l) clipCacheState.map.set(key, (l = evolveLook(s.look, s.evolveAmt, s.seed * 31 + seg.i * 7919 + 17)));
-      return l;
-    }
-    if (!clipCacheState.filled) {
-      clipCacheState.filled = true;
-      const m = clipCacheState.map;
-      if (s.clipMode === 'evolve') {
-        s.selected.forEach((cid, i) => {
-          if (i && s.look) m.set(cid, evolveLook(s.look, s.evolveAmt, s.seed * 31 + i * 7919));
-        });
-      } else if (s.clipMode === 'cycle') {
-        const r = rng(s.seed + 99);
-        const base = s.lookId?.replace(/^edit:/, '');
-        const pool = [...s.saved, ...LOOKS].filter((l) => l.id !== base && l.id !== 'clean');
-        for (let i = pool.length - 1; i > 0; i--) {
-          const j = Math.floor(r() * (i + 1));
-          [pool[i], pool[j]] = [pool[j], pool[i]];
-        }
-        s.selected.forEach((cid, i) => {
-          if (i) m.set(cid, pool[(i - 1) % pool.length]);
-        });
-      } else if (s.clipMode === 'custom') {
-        s.selected.forEach((cid) => {
-          if (s.clipLooks[cid]) m.set(cid, s.clipLooks[cid]);
-        });
-      }
-    }
-    return clipCacheState.map.get(id) || s.look;
-  },
-
-  editLook: (): Look => {
-    const s = get();
-    if (!s.look) return LOOKS[0];
-    if (s.clipMode === 'custom' && s.editClip && s.clipLooks[s.editClip] && s.selected.includes(s.editClip)) {
-      return s.clipLooks[s.editClip];
-    }
-    return s.look;
-  },
+  clipLookOf: (id, seg) => clipLooks.resolve(get(), id, seg),
+  editLook: () => editingLook(get()),
 
   save: () => save(),
   restore: () => restore(),
@@ -227,14 +187,16 @@ export const useStudioStore = create<StudioState>((set, get) => ({
       const fits = (f.downbeats || []).filter((d) => d + L <= f.duration! + 1e-3);
       set({ loopStart: fits.length ? fits[fits.length - 1] : (f.downbeats?.[0] ?? 0) });
     }
+    const index = clipIndex(s.clips);
     const clips = s.selected
-      .map((id) => s.clips.find((c) => c.id === id))
-      .filter(Boolean)
-      .map((c: any) => ({
+      .map((id) => index.get(id))
+      .filter((c): c is ClipMeta => c !== undefined)
+      .map((c) => ({
         id: c.id,
         duration: Math.max(0.5, Math.min(c.duration, 60)),
         focus: s.clipFrame[c.id] || null,
       }));
+    s.clipDur.clear();
     clips.forEach((c) => s.clipDur.set(c.id, c.duration));
 
     if (!clips.length || !s.look) {
@@ -282,10 +244,9 @@ export const useStudioStore = create<StudioState>((set, get) => ({
       L,
       beatDur: bd,
       seed: s.seed,
-      // Read live state, never `s`: a closure over `s` would keep every earlier state (and ctx) alive.
-      clipDur: (id: string) => clipDurMap.get(id) || 10,
+      clipDur: liveClipDuration,
       intensity: s.intensity,
-      clipLook: s.clipMode === 'one' ? null : (id: string, seg?: Segment) => get().clipLookOf(id, seg),
+      clipLook: s.clipMode === 'one' ? null : liveClipLook,
       sampler: makeSampler({
         features: s.features,
         loopStart: s.audioStart(),
@@ -548,7 +509,7 @@ export const useStudioStore = create<StudioState>((set, get) => ({
   },
 
   initStudio: async (viewCanvas: HTMLCanvasElement, bankContainer: HTMLElement, ambientCanvas?: HTMLCanvasElement) => {
-    let engineObj: any;
+    let engineObj: Engine;
     try {
       engineObj = new Engine(viewCanvas);
     } catch (e: any) {
@@ -561,7 +522,7 @@ export const useStudioStore = create<StudioState>((set, get) => ({
     const bankObj = new VideoBank(
       bankContainer,
       (id: string) => {
-        const c = get().clips.find((x) => x.id === id);
+        const c = clipIndex(get().clips).get(id);
         return !c?.proxy || c.proxy === 'ready' ? `/api/proxy/${id}` : null;
       },
       (k: string) => engineObj.dropVideo(k),
@@ -582,10 +543,10 @@ export const useStudioStore = create<StudioState>((set, get) => ({
       canPick: !!st.can_pick,
       welcome: !!st.folders && !st.folders.length && !st.clips.length,
       ...editFields(saved, st.clips, st.tracks),
-      saved: Array.isArray(saved.saved) ? saved.saved : [],
+      saved: Array.isArray(saved.saved) ? sanitizeLutLooks(saved.saved) : [],
       rollOpts: saved.rollOpts || { look: true, edit: true, perClip: true, clips: false, loop: false },
       snap: [0, 1, 2, 4].includes(saved.snap) ? saved.snap : 1,
-      hud: saved.hud ?? true,
+      hud: saved.hud ?? false,
       safe: saved.safe ?? false,
       muted: saved.muted ?? false,
       tab: saved.tab || 'looks',

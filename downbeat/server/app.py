@@ -6,6 +6,7 @@ import mimetypes
 import os
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 import urllib.parse
@@ -18,7 +19,7 @@ from typing import Callable
 from .. import delivery
 from ..analysis import framing
 from ..analysis.features import track_features
-from .library import AUDIO_EXTS, VIDEO_EXTS, pick_folder_dialog, playable_path, source_of
+from .library import AUDIO_EXTS, VIDEO_EXTS, pick_folder_dialog, playable_path
 from ..media import frames as clip_frames
 from ..media.encoder import CANVAS_FPS
 from ..media.proxy import MAX_SECONDS as PROXY_SECONDS
@@ -50,6 +51,38 @@ STATIC_TYPES = {
 # the file that way; answering with all of it keeps a connection busy for as long as the file plays, and the
 # studio has a video per cut while a browser opens only about six connections to the server.
 RANGE_CHUNK = 4 << 20
+REQUEST_CHUNK = 1 << 20
+JSON_BODY_LIMIT = 16 << 20
+STREAM_BODY_LIMIT = 64 << 30
+RAW_FRAME_LIMIT = 256 << 20
+SOCKET_IDLE_TIMEOUT = 120.0
+VALID_EXPORT_CODECS = {"h264", "prores_422_hq", "prores_4444"}
+
+
+def _request_chunks(stream, length: int, chunk_size: int = REQUEST_CHUNK):
+    """Yield exactly ``length`` bytes while retaining at most one bounded chunk."""
+    remaining = length
+    while remaining:
+        chunk = stream.read(min(chunk_size, remaining))
+        if not chunk:
+            raise ConnectionError(f"request ended with {remaining} bytes missing")
+        remaining -= len(chunk)
+        yield chunk
+
+
+def _unique_upload_path(directory: str, filename: str) -> str:
+    """Atomically reserve a non-clobbering destination for an uploaded file."""
+    stem, ext = os.path.splitext(filename)
+    for number in range(1, 100_000):
+        name = filename if number == 1 else f"{stem}-{number}{ext}"
+        candidate = os.path.join(directory, name)
+        try:
+            fd = os.open(candidate, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        except FileExistsError:
+            continue
+        os.close(fd)
+        return candidate
+    raise OSError(f"too many files named like {filename}")
 
 
 def _parse_byte_range(range_header: str | None, file_size: int, max_open: int | None = None) -> tuple[int, int, bool]:
@@ -242,7 +275,7 @@ class StudioHandler(BaseHTTPRequestHandler):
         self,
         route: str,
         prefix: str,
-        cache: dict[str, object],
+        cache,
         compute_fn: Callable[[str], object],
     ) -> None:
         cid = urllib.parse.unquote(route.split(prefix, 1)[1])
@@ -251,19 +284,14 @@ class StudioHandler(BaseHTTPRequestHandler):
             err = {"ok": False, "error": "unknown clip id"} if "/palette" in prefix else {"ok": False}
             self._send_json(err, status=404)
             return
-        with STATE.lock:
-            hit = cache.get(cid)
-        if hit is None:
-            # the short-GOP proxy seeks far faster than a long-GOP original; same framing
-            proxy = STATE.proxies.path_for(src)
-            path = proxy if STATE.proxies.ready(src) and os.path.isfile(proxy) else src.path
-            try:
-                hit = compute_fn(path)
-            except Exception as exc:
-                self._send_json({"ok": False, "error": str(exc)}, status=500)
-                return
-            with STATE.lock:
-                cache[cid] = hit
+        # The short-GOP proxy seeks far faster than a long-GOP original; same framing.
+        proxy = STATE.proxies.path_for(src)
+        path = proxy if STATE.proxies.ready(src) and os.path.isfile(proxy) else src.path
+        try:
+            hit = cache.get_or_create(cid, path, lambda: compute_fn(path))
+        except Exception as exc:
+            self._send_json({"ok": False, "error": str(exc)}, status=500)
+            return
         self._send_json({"ok": True, **hit})
 
     def _get_autoframe(self, route: str) -> None:
@@ -326,45 +354,9 @@ class StudioHandler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
-    def _clip_dicts(self) -> list[dict]:
-        folders = STATE.library.folders()
-        where = {s.id: source_of(s.path, STATE.library.uploads, folders) for s in STATE.clips.values()}
-        return [
-            {
-                "id": s.id,
-                "name": s.name,
-                "path": s.path,
-                "source": where[s.id][0],
-                "dir": where[s.id][1],
-                "width": s.width,
-                "height": s.height,
-                "fps": round(s.fps, 1),
-                "duration": round(s.duration, 1),
-                "is_stock": s.name[0].isdigit(),
-                "still": s.path.endswith(".still.mp4"),
-                "proxy": STATE.proxies.status(s),
-            }
-            for s in STATE.clips.values()
-        ]
-
     def _get_state(self, query: dict[str, list[str]]) -> None:
-        clips_list = self._clip_dicts()
         # The studio polls ?only=clips while playback proxies build; that needn't carry the song library.
-        if query.get("only") == ["clips"]:
-            self._send_json({"clips": clips_list})
-            return
-        with STATE.lock:
-            renders = list(STATE.renders)
-        self._send_json(
-            {
-                "clips": clips_list,
-                "tracks": [t.to_dict() for t in STATE.tracks.values()],
-                "renders": renders,
-                # With no folder picked and nothing added, the studio opens on Pick a folder.
-                "folders": STATE.library.folders(),
-                "can_pick": sys.platform == "darwin",
-            }
-        )
+        self._send_json(STATE.snapshot(clips_only=query.get("only") == ["clips"]))
 
     def _get_status(self) -> None:
         # Lets a second launch find a running server (see _is_downbeat_running).
@@ -408,12 +400,14 @@ class StudioHandler(BaseHTTPRequestHandler):
         self._serve_file(path, ctype)
 
     def _library_payload(self, rescan: bool = False) -> dict:
-        tracks = STATE.rescan() if rescan else STATE.tracks
+        if rescan:
+            STATE.rescan()
+        snapshot = STATE.snapshot()
         return {
             "ok": True,
-            "tracks": [t.to_dict() for t in tracks.values()],
-            "clips": self._clip_dicts(),
-            "folders": STATE.library.folders(),
+            "tracks": snapshot["tracks"],
+            "clips": snapshot["clips"],
+            "folders": snapshot["folders"],
             "suggestions": STATE.library.suggestions(),
             "can_pick": sys.platform == "darwin",
         }
@@ -499,18 +493,58 @@ class StudioHandler(BaseHTTPRequestHandler):
             self.send_error(HTTPStatus.FORBIDDEN, "Untrusted host or origin")
             return
         parsed = urllib.parse.urlparse(self.path)
-        length = int(self.headers.get("Content-Length", "0"))
-        body = self.rfile.read(length) if length > 0 else b"{}"
-        self._dispatch_post(parsed.path, body, urllib.parse.parse_qs(parsed.query))
+        if self.headers.get("Transfer-Encoding"):
+            self._send_json({"ok": False, "error": "chunked request bodies are not supported"}, status=411)
+            return
+        try:
+            length = int(self.headers.get("Content-Length", "0"))
+            if length < 0:
+                raise ValueError
+        except ValueError:
+            self._send_json({"ok": False, "error": "invalid Content-Length"}, status=400)
+            return
+        if length > STREAM_BODY_LIMIT:
+            self._send_json({"ok": False, "error": "request body is too large"}, status=413)
+            return
+        query = urllib.parse.parse_qs(parsed.query)
+        if parsed.path == "/api/upload":
+            self._post_upload_stream(length)
+            return
+        if parsed.path == "/api/export":
+            self._post_export_stream(length)
+            return
+        if parsed.path == "/api/export/raw/frames":
+            self._post_raw_frames_stream(length, query)
+            return
+        if length > JSON_BODY_LIMIT:
+            self._send_json({"ok": False, "error": "JSON request body is too large"}, status=413)
+            return
+        try:
+            body = b"".join(_request_chunks(self.rfile, length)) if length else b"{}"
+        except ConnectionError as exc:
+            self._send_json({"ok": False, "error": str(exc)}, status=400)
+            return
+        self._dispatch_post(parsed.path, body, query)
 
     def _post_export(self, body: bytes) -> None:
         # body = H.264 Annex B elementary stream from the browser's WebCodecs encoder
+        self._post_export_chunks((body,))
+
+    def _post_export_stream(self, length: int) -> None:
+        self._post_export_chunks(_request_chunks(self.rfile, length))
+
+    def _post_export_chunks(self, chunks) -> None:
         try:
             meta = json.loads(urllib.parse.unquote(self.headers.get("X-Export-Meta", "{}")))
+            if not isinstance(meta, dict):
+                raise ValueError("export metadata must be a JSON object")
+            if str(meta.get("codec") or "h264") != "h264":
+                raise ValueError("one-request exports support H.264 only")
             dest = _export_dest(meta)
-            tmp = dest[:-4] + ".h264"
-            with open(tmp, "wb") as f:
-                f.write(body)
+            tmp = os.path.splitext(dest)[0] + ".h264"
+            with open(tmp, "xb") as f:
+                for chunk in chunks:
+                    f.write(chunk)
             try:
                 delivery.mux_annexb(tmp, dest, int(meta.get("fps", CANVAS_FPS)))
             finally:
@@ -518,6 +552,10 @@ class StudioHandler(BaseHTTPRequestHandler):
                     os.remove(tmp)
             self._send_json({"ok": True, "render": _finish_export(dest, meta)})
         except Exception as exc:
+            if "dest" in locals():
+                STATE.discard_export(os.path.basename(dest))
+            if "tmp" in locals() and os.path.exists(tmp):
+                os.remove(tmp)
             self._send_json({"ok": False, "error": str(exc)}, status=500)
 
     def _post_export_companion(self, body: bytes) -> None:
@@ -562,8 +600,9 @@ class StudioHandler(BaseHTTPRequestHandler):
                 dest_path = os.path.join(OUT_DIR, out_name)
                 focus = None
                 if clip_id:
-                    with STATE.lock:
-                        focus_val = STATE.framing.get(clip_id, {}).get("focus")
+                    clip = STATE.clips.get(clip_id)
+                    cached = STATE.framing.current(clip_id, clip.path) if clip else None
+                    focus_val = cached.get("focus") if cached else None
                     if focus_val:
                         focus = tuple(focus_val)
                 if focus is None:
@@ -581,32 +620,99 @@ class StudioHandler(BaseHTTPRequestHandler):
             self._send_json({"ok": False, "error": str(exc)}, status=500)
 
     def _post_raw_begin(self, body: bytes) -> None:
-        meta = _json_body(body)
-        dest = _export_dest(meta)
-        sid = os.path.basename(dest)
-        fps = int(meta.get("fps", CANVAS_FPS))
-        # stream "h264": the browser encoded the frames and sends Annex B chunks; otherwise raw RGBA frames
         try:
-            session = (delivery.ChunkSession(dest, fps) if meta.get("stream") == "h264"
-                       else delivery.RawSession(dest, int(meta["width"]), int(meta["height"]), fps))
+            meta = _json_body(body)
+            if not isinstance(meta, dict):
+                raise ValueError("export metadata must be a JSON object")
+            codec = str(meta.get("codec") or "h264")
+            if codec not in VALID_EXPORT_CODECS:
+                raise ValueError(f"unsupported export codec: {codec}")
+            stream = str(meta.get("stream") or "raw")
+            if stream not in ("raw", "h264"):
+                raise ValueError(f"unsupported export stream: {stream}")
+            if codec != "h264" and stream == "h264":
+                raise ValueError("ProRes exports require raw RGBA frames")
+            fps = int(meta.get("fps", CANVAS_FPS))
+            if not 1 <= fps <= 120:
+                raise ValueError("export frame rate must be between 1 and 120 fps")
+            dest = _export_dest(meta)
+            sid = os.path.basename(dest)
+            # stream "h264": the browser encoded Annex B chunks; otherwise it sends raw RGBA frames.
+            if stream == "h264":
+                session = delivery.ChunkSession(dest, fps)
+            else:
+                width, height = int(meta["width"]), int(meta["height"])
+                frame_bytes = width * height * 4
+                if width <= 0 or height <= 0 or frame_bytes > RAW_FRAME_LIMIT:
+                    raise ValueError("export dimensions are invalid or exceed the raw-frame memory limit")
+                session = delivery.RawSession(dest, width, height, fps, codec=codec)
+            STATE.add_raw_session(sid, session, meta)
         except Exception as exc:
+            if "session" in locals():
+                try:
+                    session.abort()
+                except Exception:
+                    pass
             self._send_json({"ok": False, "error": f"Could not start the export: {exc}"}, status=500)
             return
-        with STATE.lock:
-            STATE.raw_sessions[sid] = (session, meta)
-        self._send_json({"ok": True, "sid": sid})
+        try:
+            self._send_json({"ok": True, "sid": sid})
+        except OSError:
+            _abort_raw(sid)
+            raise
 
     def _post_raw_frames(self, body: bytes, query: dict[str, list[str]]) -> None:
+        self._post_raw_frame_chunks((body,), query)
+
+    def _post_raw_frames_stream(self, length: int, query: dict[str, list[str]]) -> None:
+        self._post_raw_frame_chunks(_request_chunks(self.rfile, length), query)
+
+    def _post_raw_frame_chunks(self, chunks, query: dict[str, list[str]]) -> None:
         sid = query.get("sid", [""])[0]
-        entry = STATE.raw_sessions.get(sid)
-        if not entry:
-            self._send_json({"ok": False, "error": "unknown session"}, status=404)
-            return
+        lock = STATE.raw_session_lock(sid)
         try:
-            self._send_json({"ok": True, "frames": entry[0].write(body)})
-        except (BrokenPipeError, OSError) as exc:
-            _abort_raw(sid)
-            self._send_json({"ok": False, "error": f"encoder stopped: {exc}"}, status=500)
+            with lock:
+                with STATE.lock:
+                    entry = STATE.raw_sessions.get(sid)
+                if not entry:
+                    self._send_json({"ok": False, "error": "unknown session"}, status=404)
+                    return
+                session, meta = entry
+                total = 0
+                try:
+                    if meta.get("stream") == "h264":
+                        for chunk in chunks:
+                            total += session.write(chunk)
+                    else:
+                        frame_bytes = int(getattr(session, "frame_bytes", 0))
+                        if frame_bytes <= 0 or frame_bytes > RAW_FRAME_LIMIT:
+                            raise RuntimeError("raw export has an invalid frame size")
+                        pending = bytearray()
+                        for chunk in chunks:
+                            pending.extend(chunk)
+                            complete = len(pending) // frame_bytes * frame_bytes
+                            if complete:
+                                view = memoryview(pending)[:complete]
+                                try:
+                                    total += session.write(view)
+                                finally:
+                                    view.release()
+                                del pending[:complete]
+                        if pending:
+                            raise ValueError(
+                                f"raw frame request ended with {len(pending)} of {frame_bytes} bytes"
+                            )
+                    STATE.touch_raw_session(sid, entry)
+                    self._send_json({"ok": True, "frames": total})
+                except Exception as exc:
+                    STATE.pop_raw_session(sid, entry)
+                    try:
+                        session.abort()
+                    except Exception:
+                        pass
+                    self._send_json({"ok": False, "error": f"encoder stopped: {exc}"}, status=500)
+        finally:
+            STATE.drop_raw_session_lock(sid, lock)
 
     def _post_raw_abort(self, query: dict[str, list[str]]) -> None:
         _abort_raw(query.get("sid", [""])[0])
@@ -614,23 +720,37 @@ class StudioHandler(BaseHTTPRequestHandler):
 
     def _post_raw_end(self, body: bytes, query: dict[str, list[str]]) -> None:
         sid = query.get("sid", [""])[0]
-        with STATE.lock:
-            entry = STATE.raw_sessions.pop(sid, None)
-        if not entry:
-            self._send_json({"ok": False, "error": "unknown session"}, status=404)
-            return
-        session, meta = entry
+        lock = STATE.raw_session_lock(sid)
         try:
-            session.finish()
-            meta["stats"] = _json_body(body).get("stats") or meta.get("stats")
-            self._send_json({"ok": True, "render": _finish_export(session.dest, meta)})
-        except Exception as exc:
-            # The studio reports this export as failed, so it shouldn't turn up in Exports later.
-            try:
-                STATE.remove_export(os.path.basename(session.dest))
-            except OSError:
-                pass
-            self._send_json({"ok": False, "error": str(exc)}, status=500)
+            with lock:
+                with STATE.lock:
+                    entry = STATE.raw_sessions.get(sid)
+                if not entry:
+                    self._send_json({"ok": False, "error": "unknown session"}, status=404)
+                    return
+                session, meta = entry
+                try:
+                    session.finish()
+                    ending = _json_body(body)
+                    if not isinstance(ending, dict):
+                        raise ValueError("export completion metadata must be a JSON object")
+                    meta["stats"] = ending.get("stats") or meta.get("stats")
+                    self._send_json({"ok": True, "render": _finish_export(session.dest, meta)})
+                except Exception as exc:
+                    try:
+                        session.abort()
+                    except Exception:
+                        pass
+                    # A failed export must not turn up in Exports after a restart, even
+                    # when finish removed the primary before a companion failed.
+                    STATE.discard_export(os.path.basename(session.dest))
+                    self._send_json({"ok": False, "error": str(exc)}, status=500)
+                finally:
+                    # Encoding and companion delivery still consume resources after the last upload.
+                    # Keep this slot occupied until they finish, not merely until /end is received.
+                    STATE.pop_raw_session(sid, entry)
+        finally:
+            STATE.drop_raw_session_lock(sid, lock)
 
     def _post_delete_export(self, body: bytes) -> None:
         data = _json_body(body)
@@ -676,26 +796,41 @@ class StudioHandler(BaseHTTPRequestHandler):
             self._send_json({"ok": False, "path": path})
 
     def _post_shutdown(self) -> None:
-        STATE.shutdown()
-        for sid in list(STATE.raw_sessions):
+        for sid in STATE.begin_shutdown():
             _abort_raw(sid)
+        STATE.shutdown()
         self._send_json({"ok": True})
         threading.Thread(target=self.server.shutdown, daemon=True).start()
 
     def _post_upload(self, body: bytes) -> None:
+        self._post_upload_chunks((body,))
+
+    def _post_upload_stream(self, length: int) -> None:
+        self._post_upload_chunks(_request_chunks(self.rfile, length))
+
+    def _post_upload_chunks(self, chunks) -> None:
         fname = self.headers.get("X-Filename", f"upload-{int(time.time())}.mp4")
-        safe_name = os.path.basename(urllib.parse.unquote(fname))
+        safe_name = os.path.basename(urllib.parse.unquote(fname)).lstrip(".")
+        if safe_name in ("", ".", ".."):
+            safe_name = f"upload-{int(time.time())}.mp4"
+        # Leave room for a numeric collision suffix on filesystems with a 255-byte name limit.
+        stem, ext = os.path.splitext(safe_name)
+        safe_name = stem[: max(1, 230 - len(ext))] + ext[:24]
         uploads_dir = os.path.join(OUT_DIR, "uploads")
         os.makedirs(uploads_dir, exist_ok=True)
-        dest = os.path.join(uploads_dir, safe_name)
-        with open(dest, "wb") as f:
-            f.write(body)
-        ext = os.path.splitext(safe_name)[1].lower()
+        fd, tmp = tempfile.mkstemp(prefix=".upload-", suffix=".part", dir=uploads_dir)
+        dest = None
         made = None
         try:
+            with os.fdopen(fd, "wb") as f:
+                for chunk in chunks:
+                    f.write(chunk)
+            dest = _unique_upload_path(uploads_dir, safe_name)
+            os.replace(tmp, dest)
+            ext = os.path.splitext(dest)[1].lower()
             if ext in AUDIO_EXTS:
                 track = STATE.add_track_path(dest)
-                self._send_json({"ok": True, "kind": "audio", "id": track.id, "name": track.name})
+                result = {"ok": True, "kind": "audio", "id": track.id, "name": track.name, "track": track.to_dict()}
             else:
                 still = ext in IMAGE_EXTS
                 converted = not still and ext not in VIDEO_EXTS
@@ -707,18 +842,32 @@ class StudioHandler(BaseHTTPRequestHandler):
                     made = video_to_mp4(dest)
                     os.remove(dest)
                 src = STATE.add_clip_path(made or dest)
-                self._send_json({"ok": True, "kind": "video", "id": src.id, "name": src.name, "still": still, "converted": converted})
+                result = {"ok": True, "kind": "video", "id": src.id, "name": src.name, "still": still,
+                          "converted": converted, "clip": STATE.clip_payload(src)}
         except Exception as exc:
             # Files in out/uploads come back on the next start, so one that can't be used isn't kept.
-            for path in (dest, made):
+            for path in (tmp, dest, made):
                 if path and os.path.exists(path):
                     os.remove(path)
             self._send_json({"ok": False, "error": str(exc)}, status=400)
+            return
+        # The upload belongs to the library now. A disconnected client must not delete a file
+        # that the state already references or a proxy worker has started to read.
+        self._send_json(result)
 
 
 class ReusableThreadingHTTPServer(ThreadingHTTPServer):
     allow_reuse_address = True
     daemon_threads = True
+
+    def get_request(self):
+        request, client_address = super().get_request()
+        request.settimeout(SOCKET_IDLE_TIMEOUT)
+        return request, client_address
+
+    def service_actions(self) -> None:
+        super().service_actions()
+        STATE.expire_raw_sessions()
 
     def handle_error(self, request, client_address) -> None:
         # Browsers routinely abort media range requests mid-stream; that is not an error.
@@ -785,7 +934,7 @@ def serve_studio(host: str = "127.0.0.1", port: int = 8765, open_browser: bool =
     except KeyboardInterrupt:
         print("\nShutting down Downbeat Studio.")
     finally:
-        for sid in list(STATE.raw_sessions):
+        for sid in STATE.begin_shutdown():
             _abort_raw(sid)
         server.server_close()
 

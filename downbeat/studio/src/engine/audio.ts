@@ -1,5 +1,5 @@
 // Web Audio transport and audio analysis modulation sources.
-import type { LfoSpec, Look, ModValues, SamplerOptions } from './types.ts';
+import type { LfoSpec, Look, Modulation, ModValues, SamplerOptions } from './types.ts';
 
 export class Transport {
   ctx: AudioContext | null = null;
@@ -172,7 +172,7 @@ export function makeSampler({ features, loopStart, beatDur, seed, L = beatDur * 
   // just before the loop start, which arrives exactly at the start's values, and since the loop is whole
   // bars its kicks land on the same beats. A shorter fade snaps the zoom and glow back at the wrap.
   const wrapDur = Math.min(beatDur * 4, L * 0.25);
-  return (rawT: number): ModValues => {
+  const sample = (rawT: number): ModValues => {
     const t = L > 0 ? ((rawT % L) + L) % L : rawT;
     const beat = t / beatDur;
     const ph = fract(beat);
@@ -217,6 +217,112 @@ export function makeSampler({ features, loopStart, beatDur, seed, L = beatDur * 
     a.rand = hash(Math.floor(beat) + seed * 0.013);
     return a;
   };
+  // Integrate positive speed, never instantaneous energy * time: a quieter bar slows the motion
+  // instead of sending it backward. Normalizing each integral to L keeps cyclic shaders seamless.
+  // This fixed grid is shared by preview, seeking and export; it has no playback history.
+  let clocks: [Float64Array, Float64Array] | undefined;
+  const n = Math.max(2, Math.min(72000, Math.ceil(L * 120)));
+  const clockAt = (t: number): [number, number] => {
+    if (!clocks) {
+      clocks = [new Float64Array(n + 1), new Float64Array(n + 1)];
+      let prev = sample(0);
+      for (let i = 1; i <= n; i++) {
+        const next = sample(i * L / n);
+        for (const [k, band] of ['energy', 'bass'].entries()) {
+          const speed = (a: ModValues) => 0.1 + unit(a[band]);
+          clocks[k][i] = clocks[k][i - 1] + (speed(prev) + speed(next)) / 2;
+        }
+        prev = next;
+      }
+    }
+    const ratio = t / L;
+    let cycle = Math.floor(ratio), phase = ratio - cycle;
+    // Frame-time arithmetic can put an exact loop end a few ulps past the seam. Snap it so both the
+    // accumulated clock and normalized phase land on their exact endpoint.
+    if (phase < 1e-12) phase = 0;
+    else if (1 - phase < 1e-12) { cycle += 1; phase = 0; }
+    const x = phase * n, i = Math.min(n - 1, Math.floor(x)), f = x - i;
+    return clocks.map((c) => cycle * L + ((c[i] + (c[i + 1] - c[i]) * f) / c[n]) * L) as [number, number];
+  };
+  return (t: number): ModValues => {
+    const a = sample(t);
+    const [audioTime, bassTime] = L > 0 ? clockAt(t) : [t, t];
+    return { ...a, audioTime, bassTime, audioPhase: L > 0 ? fract(audioTime / L) : 0, bassPhase: L > 0 ? fract(bassTime / L) : 0 };
+  };
+}
+
+const unit = (v: number | undefined): number => Number.isFinite(v) ? Math.min(1, Math.max(0, v!)) : 0;
+
+type RouteTable = { values: Float32Array; bytes: number };
+type RouteCache = { tables: Map<string, RouteTable>; bytes: number };
+// A bounded cache belongs to a particular analysis/loop sampler. A new song or loop releases its
+// tables. A value signature also notices mutable edits to envelope, macros and LFOs immediately.
+const routeTables = new WeakMap<(t: number) => ModValues, RouteCache>();
+const MAX_ROUTE_TABLES = 128;
+const MAX_ROUTE_BYTES = 32 * 1024 * 1024;
+
+/** A stateless route reader. Attack/decay are causal envelope followers, warmed on the preceding
+ * loop before making a periodic lookup table. Calling frame 90 before frame 3 produces the same
+ * values as linear playback, including a loop's first frame and the export warm-up. */
+export function modulationAt(
+  route: Modulation, sampler: (t: number) => ModValues, look: Look,
+  t: number, L: number, beatDur: number, current: ModValues,
+): number {
+  const attack = Math.min(2000, Math.max(0, Number.isFinite(route.attack) ? route.attack! : 0)) / 1000;
+  const decay = Math.min(5000, Math.max(0, Number.isFinite(route.decay) ? route.decay! : 0)) / 1000;
+  const gate = unit(route.gate), duck = unit(route.duck?.amount);
+  const gated = (v: number) => gate >= 1 || v <= gate ? 0 : (v - gate) / (1 - gate);
+  if (!(attack || decay) || !(L > 0)) {
+    // Preserve the exact original route value when shaping is disabled.
+    const v = gate ? gated(unit(current[route.src])) : (current[route.src] ?? 0);
+    return v * (1 - duck * unit(current[route.duck?.src || '']));
+  }
+  let cache = routeTables.get(sampler);
+  if (!cache) { cache = { tables: new Map(), bytes: 0 }; routeTables.set(sampler, cache); }
+  const key = JSON.stringify([L, beatDur, route.src, attack, decay, gate, route.duck?.src, duck, look.env, look.seq, look.macro, look.lfos]);
+  let table = cache.tables.get(key);
+  if (table) {
+    // Map insertion order is the LRU queue. Refresh a hit so a rarely used preview route leaves before
+    // the active look's working set does.
+    cache.tables.delete(key);
+    cache.tables.set(key, table);
+  }
+  if (!table) {
+    // 120 Hz follows quick transients; the cap bounds memory even for a very long song.
+    const n = Math.max(2, Math.min(72000, Math.ceil(L * 120))), dt = L / n;
+    const source = new Float32Array(n), side = new Float32Array(n);
+    for (let i = 0; i < n; i++) {
+      const s = i * dt;
+      const v = withLook(sampler(s), look, s / L, s / beatDur, L / beatDur);
+      source[i] = gated(unit(v[route.src]));
+      side[i] = duck ? unit(v[route.duck?.src || '']) : 0;
+    }
+    const rising = attack ? Math.exp(-dt / attack) : 0, falling = decay ? Math.exp(-dt / decay) : 0;
+    const follow = (prev: number, v: number) => v + (prev - v) * (v > prev ? rising : falling);
+    let value = 0, sideValue = 0;
+    // Fourteen time constants leaves < 0.000001 residual, even on a constant source.
+    const warm = Math.ceil(14 * Math.max(attack, decay) / dt);
+    for (let j = -warm; j < 0; j++) {
+      const i = ((j % n) + n) % n;
+      value = follow(value, source[i]); sideValue = follow(sideValue, side[i]);
+    }
+    const values = new Float32Array(n + 1);
+    for (let i = 0; i < n; i++) {
+      value = follow(value, source[i]); sideValue = follow(sideValue, side[i]);
+      values[i] = value * (1 - duck * sideValue);
+    }
+    values[n] = values[0];
+    table = { values, bytes: values.byteLength };
+    while (cache.tables.size && (cache.tables.size >= MAX_ROUTE_TABLES || cache.bytes + table.bytes > MAX_ROUTE_BYTES)) {
+      const oldest = cache.tables.keys().next().value!;
+      cache.bytes -= cache.tables.get(oldest)!.bytes;
+      cache.tables.delete(oldest);
+    }
+    cache.tables.set(key, table);
+    cache.bytes += table.bytes;
+  }
+  const values = table.values, x = fract(t / L) * (values.length - 1), i = Math.floor(x);
+  return values[i] + (values[i + 1] - values[i]) * (x - i);
 }
 
 export const SEQ_STEPS: number = 16;

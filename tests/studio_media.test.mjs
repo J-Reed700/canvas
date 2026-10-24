@@ -265,7 +265,7 @@ test('without WebCodecs every frame streams to the server as raw RGBA after a sh
   const out = await exportLoop({ engine: eng, frames: f, ctx, width: 72, height: 128, meta: { look: 'Neon', duration: 1 }, onProgress: (p) => progress.push(p) });
 
   const begin = JSON.parse(reqs[0].body);
-  assert.deepEqual(begin, { look: 'Neon', duration: 1, width: 72, height: 128, fps: 30, codec: 'raw-rgba', stream: 'rgba' });
+  assert.deepEqual(begin, { look: 'Neon', duration: 1, width: 72, height: 128, fps: 30, codec: 'h264', stream_codec: 'raw-rgba', stream: 'raw' });
   const frames = reqs.filter((r) => r.path === '/api/export/raw/frames');
   assert.equal(frames.length, 30, 'one request per frame, none for the warm-up');
   assert.equal(frames[0].url, '/api/export/raw/frames?sid=canvas-x.mp4');
@@ -278,7 +278,8 @@ test('without WebCodecs every frame streams to the server as raw RGBA after a sh
   assert.equal(eng.dropped, 1, 'the frame textures are freed afterwards');
   const end = JSON.parse(reqs.at(-1).body);
   assert.equal(reqs.at(-1).path, '/api/export/raw/end');
-  assert.deepEqual(Object.keys(end.stats).sort(), ['footage', 'max_flashes_per_sec', 'mean_luminance', 'seam_ratio']);
+  assert.deepEqual(Object.keys(end.stats).sort(), ['footage', 'frame0_reference', 'max_flashes_per_sec', 'mean_luminance', 'seam_ratio']);
+  assert.equal(end.stats.frame0_reference.level, 'warn');
   assert.equal(end.stats.footage.level, 'ok');
   assert.match(end.stats.footage.detail, /every clip plays/);
   assert.equal(out.footage.level, 'ok');
@@ -347,12 +348,50 @@ function withEncoder(t) {
   t.after(() => { delete globalThis.window; });
 }
 
+test('a native-size GPU allocation failure aborts the server session and closes WebCodecs', async (t) => {
+  withEncoder(t);
+  const reqs = exportServer();
+  const eng = fakeEngine();
+  eng.resize = () => { throw new Error('GPU could not allocate 3840×3840'); };
+  await assert.rejects(
+    exportLoop({ engine: eng, frames: fakeFrames(), ctx: exportCtx(1), width: 3840, height: 3840, meta: { codec: 'h264' } }),
+    /could not allocate/,
+  );
+  assert.ok(reqs.some((r) => r.path === '/api/export/raw/abort'));
+  assert.equal(FakeEncoder.last.state, 'closed');
+  assert.equal(eng.dropped, 1);
+});
+
+test('a WebCodecs candidate is closed when configure throws before the next codec is tried', async (t) => {
+  withEncoder(t);
+  const originalOk = FakeEncoder.ok;
+  const originalConfigure = FakeEncoder.prototype.configure;
+  const candidates = [];
+  FakeEncoder.ok = new Set(['avc1.640034', 'avc1.640033']);
+  FakeEncoder.prototype.configure = function configure(cfg) {
+    candidates.push(this);
+    if (cfg.codec === 'avc1.640034') throw new Error('hardware rejected the supported config');
+    return originalConfigure.call(this, cfg);
+  };
+  t.after(() => {
+    FakeEncoder.ok = originalOk;
+    FakeEncoder.prototype.configure = originalConfigure;
+  });
+
+  const reqs = exportServer();
+  await exportLoop({ engine: fakeEngine(), frames: fakeFrames(), ctx: exportCtx(1), width: 72, height: 128, meta: {} });
+  assert.equal(candidates.length, 2);
+  assert.equal(candidates[0].state, 'closed', 'the failed encoder releases its hardware resources');
+  assert.equal(JSON.parse(reqs[0].body).stream_codec, 'avc1.640033');
+});
+
 test('with WebCodecs the browser encodes H.264 and uploads about a second of it at a time', async (t) => {
   withEncoder(t);
   const reqs = exportServer();
   const out = await exportLoop({ engine: fakeEngine(), frames: fakeFrames(), ctx: exportCtx(2.5), width: 72, height: 128, bitrate: 20_000_000, meta: {} });
   const begin = JSON.parse(reqs[0].body);
-  assert.equal(begin.codec, 'avc1.640033', 'falls back to the first codec the machine supports');
+  assert.equal(begin.codec, 'h264', 'the requested output codec is distinct from the browser transport codec');
+  assert.equal(begin.stream_codec, 'avc1.640033', 'falls back to the first browser codec the machine supports');
   assert.equal(begin.stream, 'h264');
   const enc = FakeEncoder.last;
   assert.equal(enc.cfg.bitrate, 20_000_000);

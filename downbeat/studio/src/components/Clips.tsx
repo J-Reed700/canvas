@@ -25,6 +25,20 @@ const clearFilter = () => setFilter({ q: '', kind: 'all' });
 const openClips = () => useStudioStore.setState({ clipsOpen: true, clipsItem: null });
 const showClip = (id: string | null) => useStudioStore.setState({ clipsItem: id });
 
+const MediaGlyph: React.FC<{ kind: 'check' | 'more' | 'frame' | 'plus' }> = ({ kind }) => {
+  const paths = {
+    check: 'm3.25 8.25 3 3 6.5-7',
+    more: 'M3 8h.01M8 8h.01M13 8h.01',
+    frame: 'M5.25 2.5H2.5v2.75M10.75 2.5h2.75v2.75M13.5 10.75v2.75h-2.75M5.25 13.5H2.5v-2.75M8 5.25v5.5M5.25 8h5.5',
+    plus: 'M8 3v10M3 8h10',
+  } as const;
+  return (
+    <svg className="stroke-ico" viewBox="0 0 16 16" aria-hidden="true">
+      <path d={paths[kind]} />
+    </svg>
+  );
+};
+
 /** Needs a second click within 3 s, like deleting an export. */
 const RemoveClipButton: React.FC<{ id: string }> = ({ id }) => {
   const [armed, setArmed] = useArmed();
@@ -32,6 +46,8 @@ const RemoveClipButton: React.FC<{ id: string }> = ({ id }) => {
     <button
       className={`rm ${armed ? 'armed' : ''}`}
       title={armed ? 'Click again to remove this clip' : 'Remove from the library'}
+      aria-label={armed ? 'Click again to remove this clip' : 'Remove from the library'}
+      type="button"
       draggable={false}
       onClick={(e) => {
         e.stopPropagation();
@@ -48,6 +64,7 @@ const RemoveClipButton: React.FC<{ id: string }> = ({ id }) => {
 export const ClipsSection: React.FC<{ onAddFiles: () => void }> = ({ onAddFiles }) => {
   const folder = useFolderPicker();
   const [dragId, setDragId] = useState<string | null>(null);
+  const arrangeRef = useRef<HTMLDetailsElement>(null);
 
   const clips = useStudioStore((s) => s.clips);
   const selected = useStudioStore((s) => s.selected);
@@ -61,6 +78,20 @@ export const ClipsSection: React.FC<{ onAddFiles: () => void }> = ({ onAddFiles 
   const reorderClips = useStudioStore((s) => s.reorderClips);
   const autoFrame = useStudioStore((s) => s.autoFrame);
 
+  useEffect(() => {
+    const close = (e: PointerEvent) => {
+      if (arrangeRef.current?.open && !arrangeRef.current.contains(e.target as Node)) arrangeRef.current.open = false;
+    };
+    document.addEventListener('pointerdown', close);
+    return () => document.removeEventListener('pointerdown', close);
+  }, []);
+
+  const arrange = (e: React.MouseEvent<HTMLButtonElement>, mode: 'all' | 'stock' | 'solo' | 'reverse' | 'shuffle') => {
+    reorderClips(mode);
+    const menu = e.currentTarget.closest('details') as HTMLDetailsElement | null;
+    if (menu) menu.open = false;
+  };
+
   // Always in the edit's order here, whatever the browser sorts by, so the numbers and dragging make sense.
   const list = filterClips(clips, selected, { ...filter, sort: 'edit' });
   const counts = useMemo(() => kindCounts(clips, selected), [clips, selected]);
@@ -71,7 +102,7 @@ export const ClipsSection: React.FC<{ onAddFiles: () => void }> = ({ onAddFiles 
       <div className="sec-h">
         <h3>Clips</h3>
         <span className="meta" id="clipCount">
-          {filtered ? `${list.length} of ${clips.length} shown` : `${selected.length} of ${clips.length} in the edit`}
+          {!clips.length ? 'Empty' : filtered ? `${list.length} of ${clips.length} shown` : `${selected.length} of ${clips.length} in the edit`}
         </span>
         {clips.length > 0 && (
           <button className="btn sm exp-open" id="btnBrowseClips" title="Browse every clip" onClick={openClips}>
@@ -80,23 +111,16 @@ export const ClipsSection: React.FC<{ onAddFiles: () => void }> = ({ onAddFiles 
         )}
       </div>
 
-      <div className="clip-tools">
+      <div className="clip-tools" aria-label="Clip library tools">
         <button
-          className="btn sm add"
-          id="btnAddMedia"
-          title="Copy video clips, album art / photos or songs into Downbeat (or drop them anywhere)"
-          onClick={onAddFiles}
-        >
-          + Add files
-        </button>
-        <button
-          className="btn sm add"
+          className="btn sm clip-folder-button"
           id="btnAddFolder"
+          aria-label="Add a folder"
           disabled={folder.waiting}
           title="List the videos and songs in a folder and its subfolders"
           onClick={folder.choose}
         >
-          + Add a folder
+          + Folder
         </button>
         {(folder.waiting || folder.typing || folder.err) && (
           <div className="clip-folder">
@@ -105,30 +129,51 @@ export const ClipsSection: React.FC<{ onAddFiles: () => void }> = ({ onAddFiles 
             {folder.err && <div className="tp-err">{folder.err}</div>}
           </div>
         )}
-        <button className="btn sm" id="btnAllClips" title="Use every loaded clip" onClick={() => reorderClips('all')}>
-          All
-        </button>
-        {clips.some((c) => c.is_stock) && (
-          <button className="btn sm" id="btnStockClips" title="Use the first 5 stock clips instead of the ones picked now" onClick={() => reorderClips('stock')}>
-            Stock
-          </button>
-        )}
-        <button className="btn sm" id="btnSoloClip" title="Use only the first clip in the sequence" onClick={() => reorderClips('solo')}>
-          Solo
-        </button>
-        <button className="btn sm" id="btnReverse" title="Reverse the sequence order" onClick={() => reorderClips('reverse')}>
-          Reverse
-        </button>
-        <button className="btn sm" id="btnShuffle" title="Shuffle the sequence order" onClick={() => reorderClips('shuffle')}>
-          Shuffle
-        </button>
+        <details
+          className="clip-arrange"
+          ref={arrangeRef}
+          onKeyDown={(e) => {
+            if (e.key !== 'Escape') return;
+            e.preventDefault();
+            e.stopPropagation();
+            e.currentTarget.open = false;
+            e.currentTarget.querySelector('summary')?.focus();
+          }}
+        >
+          <summary className="btn sm" title="Choose or reorder the clips in the edit">
+            <MediaGlyph kind="more" /> Sequence
+          </summary>
+          <div className="clip-arrange-menu" role="menu" aria-label="Sequence actions">
+            <div className="clip-arrange-label" role="presentation">Selection</div>
+            <button id="btnAllClips" role="menuitem" title="Use every loaded clip" onClick={(e) => arrange(e, 'all')}>
+              All
+            </button>
+            {clips.some((c) => c.is_stock) && (
+              <button id="btnStockClips" role="menuitem" title="Use the first 5 stock clips instead of the ones picked now" onClick={(e) => arrange(e, 'stock')}>
+                Stock
+              </button>
+            )}
+            <button id="btnSoloClip" role="menuitem" title="Use only the first clip in the sequence" onClick={(e) => arrange(e, 'solo')}>
+              Solo
+            </button>
+            <div className="clip-arrange-label" role="presentation">Order</div>
+            <button id="btnReverse" role="menuitem" title="Reverse the sequence order" onClick={(e) => arrange(e, 'reverse')}>
+              Reverse
+            </button>
+            <button id="btnShuffle" role="menuitem" title="Shuffle the sequence order" onClick={(e) => arrange(e, 'shuffle')}>
+              Shuffle
+            </button>
+          </div>
+        </details>
         <button
-          className="btn sm wide"
+          className="btn sm clip-frame"
           id="btnAutoFrame"
+          aria-label="Auto frame subjects"
           title="Find faces or the main subject in each selected clip and center the crop on it. Drag the preview to adjust; double-click it to reset."
           onClick={autoFrame}
+          disabled={!selected.length}
         >
-          ⌖ Auto-frame subjects
+          <MediaGlyph kind="frame" /><span className="sr-only">Auto frame</span>
         </button>
       </div>
 
@@ -140,6 +185,18 @@ export const ClipsSection: React.FC<{ onAddFiles: () => void }> = ({ onAddFiles 
       )}
 
       <div className="clips" id="clips">
+        {!clips.length && (
+          <div className="clip-empty">
+            <span className="clip-empty-icon" aria-hidden="true">
+              <MediaGlyph kind="plus" />
+            </span>
+            <strong>Bring in your first clip</strong>
+            <span>Import video or still images, or drop them anywhere.</span>
+            <button className="btn sm" type="button" onClick={onAddFiles}>
+              Import media
+            </button>
+          </div>
+        )}
         {clips.length > 0 && !list.length && <NoMatch what="clips" onClear={clearFilter} />}
         {list.map((c) => {
           const idx = selected.indexOf(c.id);
@@ -153,9 +210,17 @@ export const ClipsSection: React.FC<{ onAddFiles: () => void }> = ({ onAddFiles 
               key={c.id}
               className={`clip ${idx >= 0 ? 'on' : 'off'}${idle ? ' idle' : ''}`}
               draggable={idx >= 0}
+              role="group"
+              tabIndex={0}
+              aria-label={`${c.name}, ${idx >= 0 ? `clip ${idx + 1} in the edit` : 'not in the edit'}`}
               title={`${c.name}\n${c.width || 0}×${c.height || 0} · ${c.duration || 0}s${idle ? '\nNot loaded yet. Click to add it to the edit.' : ''}`}
-              style={{ backgroundImage: `url(/api/thumb/${c.id}?w=240)` }}
               onClick={() => toggleClip(c.id)}
+              onKeyDown={(e) => {
+                if (e.target !== e.currentTarget || (e.key !== 'Enter' && e.key !== ' ')) return;
+                e.preventDefault();
+                e.stopPropagation();
+                toggleClip(c.id);
+              }}
               onDragStart={(e) => {
                 setDragId(c.id);
                 e.dataTransfer.effectAllowed = 'move';
@@ -178,31 +243,43 @@ export const ClipsSection: React.FC<{ onAddFiles: () => void }> = ({ onAddFiles 
                 setDragId(null);
               }}
             >
-              {idx >= 0 && <span className="num">{idx + 1}</span>}
-              {idle && <span className="add-hint">+ Add</span>}
-              {busy && <span className="busy" title="Preparing playback proxy" />}
-              {idx >= 0 && clipMode !== 'one' && (
-                <button
-                  className={`lk ${own ? 'own' : ''} ${editClip === c.id ? 'on' : ''}`}
-                  title={`${own ? clk?.name : 'Main look'}: click to edit clip effects`}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    editClipLook(c.id);
-                  }}
-                >
-                  {own ? clk?.name : 'Main'}
-                </button>
-              )}
-              <RemoveClipButton id={c.id} />
-              <div className="cap">
-                {c.still ? `Still · ${clipName(c)}` : `${(c.duration || 0).toFixed(1)}s · ${c.name}`}
+              <div className="clip-media" style={{ backgroundImage: `url(/api/thumb/${c.id}?w=320)` }}>
+                {idx >= 0 && (
+                  <span className="num" title={`Clip ${idx + 1} in the edit`}>
+                    <MediaGlyph kind="check" />
+                    <span>{idx + 1}</span>
+                  </span>
+                )}
+                {idle && <span className="add-hint">+ Add</span>}
+                {busy && <span className="busy" title="Preparing playback proxy" />}
+                {idx >= 0 && clipMode !== 'one' && (
+                  <button
+                    className={`lk ${own ? 'own' : ''} ${editClip === c.id ? 'on' : ''}`}
+                    title={`${own ? clk?.name : 'Main look'}: click to edit clip effects`}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      editClipLook(c.id);
+                    }}
+                  >
+                    {own ? clk?.name : 'Main'}
+                  </button>
+                )}
+                <RemoveClipButton id={c.id} />
               </div>
+              <div className="cap">
+                <span className="cap-meta">
+                  {c.still ? 'Still' : `${(c.duration || 0).toFixed(1)}s`}
+                  <span className="cap-sep"> · </span>
+                </span>
+                <strong className="cap-name">{c.still ? clipName(c) : c.name}</strong>
+              </div>
+              <div className="clip-source">{folderOf(c) || shapeOf(c) || (c.still ? 'Still image' : 'Video')}</div>
             </div>
           );
         })}
       </div>
 
-      <div className="drop-hint">Drop MP4 / MOV / JPG / PNG / WAV / MP3 anywhere · drag clips to reorder</div>
+      {!!clips.length && <div className="drop-hint">Drag selected clips to reorder · drop files anywhere to import</div>}
     </section>
   );
 };
@@ -242,7 +319,7 @@ const ClipCard: React.FC<{ c: ClipMeta; n: number }> = ({ c, n }) => {
         aria-label={n ? `Take ${clipName(c)} out of the edit` : `Add ${clipName(c)} to the edit`}
         onClick={() => toggleClip(c.id)}
       >
-        {n ? '✓' : '+'}
+        <MediaGlyph kind={n ? 'check' : 'plus'} />
       </button>
     </div>
   );
@@ -408,7 +485,7 @@ export const ClipsLibrary: React.FC = () => {
           </div>
 
           {!clips.length ? (
-            <div className="exp-empty">No clips yet. Add files or a folder in the Clips panel.</div>
+            <div className="exp-empty">No clips yet. Import media from the Library panel.</div>
           ) : (
             !list.length && <NoMatch what="clips" onClear={clearFilter} />
           )}

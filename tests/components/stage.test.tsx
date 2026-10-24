@@ -112,7 +112,7 @@ describe('transport', () => {
     fireEvent.click(btn);
     expect(pop().className).toContain('on');
     expect(popButtons()).toEqual([
-      'PhoneSpotify Canvas9:16',
+      'PhoneCanvas, Reels, TikTok, Shorts9:16',
       'LandscapeYouTube visualizer16:9',
       'TabletApple Music motion art3:4',
       'SquareSocial feeds, Apple square art, cover art1:1',
@@ -139,17 +139,21 @@ describe('transport', () => {
     expect(btn.disabled, 'no switching during an export').toBe(true);
   });
 
-  test('safe zones are for the Spotify phone, so other screens turn them off', () => {
+  test('safe zones follow the export shape and can preview each vertical platform', () => {
     resetStudio({ safe: true });
     renderStudio(<StagePanel />);
     const btn = screen.getByText('Safe zones') as HTMLButtonElement;
     expect(document.getElementById('safe')!.className).toContain('on');
+    fireEvent.change(screen.getByLabelText('Preview guide'), { target: { value: 'tiktok' } });
+    expect(document.getElementById('safe')!.dataset.guide).toBe('tiktok');
+    expect(st().exportOpts.format, 'guides do not change the delivery format').toBe('spotify');
     update(() => st().setScreen('tablet'));
-    expect(document.getElementById('safe')!.className).not.toContain('on');
-    expect(btn.disabled).toBe(true);
-    expect(btn.title).toMatch(/9:16 phone/);
+    expect(document.getElementById('safe')!.className).toContain('on');
+    expect(document.getElementById('safe')!.dataset.guide).toBe('apple');
+    expect(btn.disabled).toBe(false);
+    expect(screen.getByText('Approximate · preview only')).toBeTruthy();
     update(() => st().setScreen('phone'));
-    expect(document.getElementById('safe')!.className, 'and back on the phone').toContain('on');
+    expect(document.getElementById('safe')!.dataset.guide, 'remembers the vertical preference').toBe('tiktok');
   });
 
   test('without WebGL2 the stage says why the preview is empty and what to do', () => {

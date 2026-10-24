@@ -156,12 +156,18 @@ class ProjectStore:
 
     def _export_path(self, filename: str) -> str:
         name = os.path.basename(str(filename))
-        if not name.endswith(".mp4"):
+        stem, ext = os.path.splitext(name)
+        if ext.lower() not in (".mp4", ".mov"):
             raise KeyError(filename)
-        return os.path.join(self.exports, name[:-4] + ".json")
+        # Preserve the established MP4 sidecar name.  MOV keeps its extension so
+        # equally named masters cannot overwrite one another's saved edits.
+        suffix = ".mov.json" if ext.lower() == ".mov" else ".json"
+        return os.path.join(self.exports, stem + suffix)
 
     def save_export_edit(self, filename: str, data: object) -> None:
-        _write_json(self._export_path(filename), {"export": os.path.basename(filename), "data": _check_data(data)})
+        checked = _check_data(data)
+        with _LOCK:
+            _write_json(self._export_path(filename), {"export": os.path.basename(filename), "data": checked})
 
     def export_edit(self, filename: str) -> dict:
         record = _read_json(self._export_path(filename))
@@ -180,5 +186,6 @@ class ProjectStore:
             path = self._export_path(filename)
         except KeyError:
             return
-        if os.path.isfile(path):
-            os.remove(path)
+        with _LOCK:
+            if os.path.isfile(path):
+                os.remove(path)

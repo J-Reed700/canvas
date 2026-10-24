@@ -279,15 +279,15 @@ export function mutate(base: Look, amount: number, seed: number): Look {
     if (same.length) l.layers[i] = L(pick(r, same));
   }
   if (r() < amount * 0.3 && l.layers.length < 4) {
-    const support = ids.filter((id) => ['light', 'color', 'time'].includes(MODULES[id].cat) && !l.layers.some((x) => x.m === id));
-    l.layers.splice(Math.floor(r() * (l.layers.length + 1)), 0, L(pick(r, support)));
+    const support = ids.filter((id) => ['light', 'color', 'time'].includes(MODULES[id].cat ?? '') && !l.layers.some((x) => x.m === id));
+    if (support.length) l.layers.splice(Math.floor(r() * (l.layers.length + 1)), 0, L(pick(r, support)));
   }
   if (r() < amount * 0.15 && l.layers.length > 1) l.layers.splice(Math.floor(r() * l.layers.length), 1);
   for (const layer of l.layers) {
     const def = MODULES[layer.m];
     layer.p = { ...defaults(def.params), ...layer.p };
     jitterParams(r, def.params, layer.p, amount);
-    if (r() < amount * 0.4) { const m = randomMod(r, def.params); if (m) layer.mods[m[0]] = m[1]; }
+    if (r() < amount * 0.4) { const m = randomMod(r, def.params); if (m) (layer.mods ??= {})[m[0]] = m[1]; }
   }
   jitterParams(r, FINISH_DEF.params.filter((p) => ['temp', 'tint', 'split', 'splitHue', 'saturation', 'contrast', 'fade', 'vignette', 'grain'].includes(p.id)),
     l.finish.p, amount * 0.8);

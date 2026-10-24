@@ -54,7 +54,7 @@ export const MODULES: Record<string, ModuleDef> = {
       // whole orbits per loop so the seam is invisible
       float per = p_speed < 0.5 ? 4.0 : 8.0;
       float n = p_speed > 1.5 ? 1.0 : max(1.0, floor(uLoop / max(uBeatLen, 1e-3) / per + 0.5));
-      float a = TAU * uPhase * n;
+      float a = TAU * uAudioPhase * n;
       vec2 orbit = vec2(sin(a), 0.6 * cos(a)) * p_amount * 0.045 * (1.0 + 1.5 * p_kick * uKick);
       vec2 uv = vUv;
       for (int k = 0; k < 3; k++) uv = vUv - orbit * (depthAt(uv) - p_focus);
@@ -92,8 +92,8 @@ export const MODULES: Record<string, ModuleDef> = {
       P('repeat', 'Repeat', 1, 6, 2, { step: 1 }), P('fog', 'Core fog', 0, 1, 0.6), MIX],
     glsl: `void main() {
       vec2 q = toP(vUv); float r = max(length(q), 1e-3); float a = atan(q.y, q.x);
-      float v = 0.32 / r + 2.0 * p_speed * uPhase;
-      float u = a / TAU * p_repeat + p_spin * uPhase;
+      float v = 0.32 / r + 2.0 * p_speed * uBassPhase;
+      float u = a / TAU * p_repeat + p_spin * uBassPhase;
       vec2 uv = vec2(abs(fract(u) * 2.0 - 1.0), abs(fract(v * 0.5) * 2.0 - 1.0));
       vec3 c = texture(uSrc, uv).rgb * mix(1.0, smoothstep(0.0, 0.45, r), p_fog);
       outColor = vec4(mix(texture(uSrc, vUv).rgb, c, p_mix), 1.0);
@@ -299,7 +299,7 @@ export const MODULES: Record<string, ModuleDef> = {
       n = smoothstep(0.3, 0.75, n);
       float l = luma(toSRGB(texture(uSrc, vUv).rgb));
       float sag = p_amount * env * (0.1 + 0.9 * n) * pow(1.0 - vUv.y, 1.4) * max(0.0, 1.0 + p_bright * (l - 0.45) * 2.0) * 0.32;
-      float wob = sin(vUv.y * 26.0 + TAU * uPhase) * 0.004 * p_amount;
+      float wob = sin(vUv.y * 26.0 + TAU * uAudioPhase) * 0.004 * p_amount;
       outColor = vec4(texture(uSrc, mirrorUv(vUv + vec2(wob, sag))).rgb, 1.0);
     }`,
   },
@@ -660,7 +660,7 @@ export const MODULES: Record<string, ModuleDef> = {
     glsl: YIQ + `void main() {
       float y = vUv.y;
       float wob = (loopNoise(vec2(y * 40.0, 3.0), 2.0) - 0.5) * 0.005 * p_amount;
-      float dy = y - fract(uPhase * 2.0 + 0.3); dy -= floor(dy + 0.5); dy *= 16.0;
+      float dy = y - fract(uAudioPhase * 2.0 + 0.3); dy -= floor(dy + 0.5); dy *= 16.0;
       float band = exp(-dy * dy) * p_tracking;
       wob += (hash12(vec2(floor(y * 240.0), uFrame)) - 0.5) * 0.035 * band;
       vec2 uv = vec2(vUv.x + wob, y);
@@ -749,7 +749,7 @@ export const MODULES: Record<string, ModuleDef> = {
     glsl: `float hash11(float p) { return fract(sin(p * 127.1) * 43758.5453123); }
     vec3 tex(vec2 uv) { return texture(uSrc, uv).rgb; }
     void main() {
-      float loopPhase = TAU * uTime / max(uLoop, 0.001);
+      float loopPhase = TAU * uBassTime / max(uLoop, 0.001);
       int m = int(p_mode + 0.5);
       vec3 visColor = vec3(0.0);
 
@@ -906,7 +906,7 @@ export const MODULES: Record<string, ModuleDef> = {
     params: [P('amount', 'Amount', 0, 1, 0.6), P('scale', 'Scale', 0.5, 6, 2), P('cycles', 'Shimmer / loop', 0, 3, 1, { step: 1 })],
     glsl: `void main() {
       vec3 s = toSRGB(texture(uSrc, vUv).rgb); float l = luma(s);
-      float film = l * 1.6 + loopFbm(toP(vUv) * p_scale, p_cycles) * 1.2 + uPhase * p_cycles;
+      float film = l * 1.6 + loopFbm(toP(vUv) * p_scale, p_cycles) * 1.2 + uAudioPhase * p_cycles;
       vec3 irid = cosPal(film, vec3(0.5), vec3(0.5), vec3(1.0), vec3(0.0, 0.33, 0.67));
       vec3 o = mix(s, s * 0.4 + irid * (0.3 + 0.7 * sqrt(l)), p_amount * smoothstep(0.0, 0.3, l));
       outColor = vec4(toLin(o), 1.0);
@@ -1018,7 +1018,7 @@ export const FINISH_DEF: { name: string; params: ParamDef[] } = {
   name: 'Finish', params: [P('exposure', 'Exposure', -2, 2, 0), P('contrast', 'Contrast', 0.6, 1.7, 1.1), P('saturation', 'Saturation', 0, 2, 1.05),
     P('temp', 'Temperature', -1, 1, 0), P('tint', 'Tint', -1, 1, 0), P('split', 'Split tone', 0, 1, 0.2), P('splitHue', 'Split hue', 0, 1, 0.55),
     P('fade', 'Fade', 0, 0.3, 0.02), P('halation', 'Halation', 0, 1, 0), P('vignette', 'Vignette', 0, 1, 0.35), P('grain', 'Grain', 0, 1, 0.25),
-    P('bars', 'Cinema bars', 0, 0.25, 0)],
+    P('bars', 'Cinema bars', 0, 0.25, 0), P('lutMix', 'LUT mix', 0, 1, 1, { step: 0.01 })],
 };
 
 export function moduleSource(id: string): string | null {

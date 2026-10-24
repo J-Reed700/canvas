@@ -1,9 +1,10 @@
 import type { StudioState } from '../state/store.ts';
 import { sizeCanvas, roundRect } from '../lib/utils.ts';
-import { MOD_SOURCES } from '../engine/modules.ts';
 import type { Segment } from '../engine/types.ts';
+import { ThumbnailCache } from '../lib/thumbnailCache.ts';
 
-export const thumbImgsMap = new Map<string, HTMLImageElement>();
+const timelineThumbnails = new ThumbnailCache();
+export const thumbImgsMap = timelineThumbnails.images;
 
 /** The block whose menu is open, outlined on the lane so you can see which one you're editing. */
 let menuSeg: string | null = null;
@@ -19,7 +20,7 @@ export function drawOverview(s: StudioState) {
 
   const f = s.features;
   if (!f || !f.duration) {
-    x.fillStyle = 'rgba(255,255,255,0.35)';
+    x.fillStyle = '#94969f';
     x.font = `${11 * dpr}px ${getComputedStyle(document.body).fontFamily || 'sans-serif'}`;
     x.textAlign = 'center';
     x.textBaseline = 'middle';
@@ -34,19 +35,19 @@ export function drawOverview(s: StudioState) {
 
   for (let px = 0; px < w; px += 2 * dpr) {
     const v = f.peaks ? f.peaks[Math.floor((px / w) * n)] || 0 : 0;
-    const bh = Math.max(1, v * hh * 0.82);
-    x.fillStyle = px >= x0 && px <= x1 ? 'rgba(200,255,77,0.95)' : 'rgba(255,255,255,0.24)';
+    const bh = Math.max(dpr, v * hh * 0.74);
+    x.fillStyle = px >= x0 && px <= x1 ? 'rgba(105,182,166,0.92)' : 'rgba(148,150,159,0.32)';
     x.fillRect(px, (hh - bh) / 2, 1.2 * dpr, bh);
   }
-  x.fillStyle = 'rgba(200,255,77,0.12)';
+  x.fillStyle = 'rgba(185,164,255,0.10)';
   x.fillRect(x0, 0, x1 - x0, hh);
-  x.strokeStyle = 'rgba(200,255,77,0.9)';
-  x.lineWidth = 1.5 * dpr;
-  x.strokeRect(x0, 0.75 * dpr, x1 - x0, hh - 1.5 * dpr);
+  x.strokeStyle = 'rgba(185,164,255,0.9)';
+  x.lineWidth = dpr;
+  x.strokeRect(x0, 0.5 * dpr, x1 - x0, hh - dpr);
 
   for (const l of f.loops || []) {
     const lx = (l.start / D) * w;
-    x.fillStyle = '#fff';
+    x.fillStyle = '#e8e9ed';
     x.beginPath();
     x.moveTo(lx - 4 * dpr, 0);
     x.lineTo(lx + 4 * dpr, 0);
@@ -55,7 +56,7 @@ export function drawOverview(s: StudioState) {
   }
   if (s.transport.mode === 'listen' && s.transport.playing) {
     const sx = (s.transport.songTime() / D) * w;
-    x.fillStyle = '#fff';
+    x.fillStyle = '#e8e9ed';
     x.fillRect(sx - dpr, 0, 2 * dpr, hh);
   }
 }
@@ -73,6 +74,22 @@ export function drawLane(s: StudioState, onRedraw?: () => void) {
 
   const { L, beatDur: bd, tl } = ctx;
   const X = (t: number) => (t / L) * w;
+  const rulerH = Math.min(20 * dpr, hh * 0.22);
+  const audioH = Math.min(30 * dpr, Math.max(22 * dpr, hh * 0.23));
+  const top = rulerH + 2 * dpr;
+  const bot = Math.max(top + 10 * dpr, hh - audioH - 4 * dpr);
+  const audioTop = Math.min(hh - 3 * dpr, bot + 4 * dpr);
+  const audioBot = hh - 2 * dpr;
+
+  x.fillStyle = '#121316';
+  x.fillRect(0, 0, w, rulerH);
+  x.fillStyle = '#17181c';
+  x.fillRect(0, top, w, Math.max(0, bot - top));
+  x.fillStyle = '#111817';
+  x.fillRect(0, audioTop, w, Math.max(0, hh - audioTop));
+  x.fillStyle = '#303136';
+  x.fillRect(0, rulerH - dpr, w, dpr);
+  x.fillRect(0, audioTop - 2 * dpr, w, dpr);
 
   // Long loops squeeze hundreds of bars into the lane, so beat lines drop out first, then bar
   // numbers go to every 2nd, 4th, 8th... bar.
@@ -83,17 +100,22 @@ export function drawLane(s: StudioState, onRedraw?: () => void) {
     const onBar = b % 4 === 0;
     const labelled = onBar && (b / 4) % every === 0;
     if (!labelled && !(onBar && beatPx * 4 >= 4 * dpr) && beatPx < 5 * dpr) continue;
-    x.fillStyle = onBar ? 'rgba(255,255,255,0.16)' : 'rgba(255,255,255,0.05)';
-    x.fillRect(Math.round(X(b * bd)), 0, dpr, hh);
+    x.fillStyle = onBar ? 'rgba(232,233,237,0.16)' : 'rgba(232,233,237,0.055)';
+    x.fillRect(Math.round(X(b * bd)), onBar ? 0 : rulerH, dpr, onBar ? hh : hh - rulerH);
     if (labelled) {
-      x.fillStyle = 'rgba(255,255,255,0.4)';
-      x.font = `600 ${9 * dpr}px ui-monospace, Menlo, monospace`;
-      x.fillText(String(b / 4 + 1), X(b * bd) + 3 * dpr, 10 * dpr);
+      x.fillStyle = 'rgba(232,233,237,0.55)';
+      x.font = `600 ${9 * dpr}px ui-monospace, SFMono-Regular, Menlo, monospace`;
+      x.textAlign = 'left';
+      x.fillText(String(b / 4 + 1), X(b * bd) + 4 * dpr, 13 * dpr);
     }
   }
-
-  const top = 15 * dpr;
-  const bot = hh - 26 * dpr;
+  if (w > 180 * dpr) {
+    x.fillStyle = 'rgba(148,150,159,0.58)';
+    x.font = `500 ${9 * dpr}px ui-monospace, SFMono-Regular, Menlo, monospace`;
+    x.textAlign = 'right';
+    x.fillText(`${L < 100 ? L.toFixed(1) : Math.round(L)} s`, w - 6 * dpr, 13 * dpr);
+    x.textAlign = 'left';
+  }
   // While one clip's own FX stack is open in Layers, show where that stack plays.
   const editing = !!s.editClip && s.editLook() !== s.look;
 
@@ -116,13 +138,7 @@ export function drawLane(s: StudioState, onRedraw?: () => void) {
       x.fillRect(a, top, W, bot - top);
     } else {
       const k = `${seg.clipId}@${seg.in.toFixed(1)}`;
-      let img = thumbImgsMap.get(k);
-      if (!img) {
-        img = new Image();
-        img.onload = () => onRedraw ? onRedraw() : s.drawLane();
-        img.src = `/api/thumb/${seg.clipId}?w=200&t=${seg.in.toFixed(2)}`;
-        thumbImgsMap.set(k, img);
-      }
+      const img = timelineThumbnails.get(k, `/api/thumb/${seg.clipId}?w=200&t=${seg.in.toFixed(2)}`, onRedraw || s.drawLane);
       if (img.complete && img.naturalWidth) {
         const ir = img.naturalWidth / img.naturalHeight;
         const cr = W / (bot - top);
@@ -144,13 +160,14 @@ export function drawLane(s: StudioState, onRedraw?: () => void) {
       }
 
       const grd = x.createLinearGradient(0, top, 0, bot);
-      grd.addColorStop(0, 'rgba(0,0,0,0.05)');
-      grd.addColorStop(1, 'rgba(0,0,0,0.65)');
+      grd.addColorStop(0, 'rgba(0,0,0,0.02)');
+      grd.addColorStop(0.62, 'rgba(0,0,0,0.08)');
+      grd.addColorStop(1, 'rgba(0,0,0,0.7)');
       x.fillStyle = grd;
       x.fillRect(a, top, W, bot - top);
-      x.fillStyle = '#fff';
-      x.font = `700 ${10 * dpr}px ui-monospace, Menlo, monospace`;
-      if (W > 22 * dpr) x.fillText(`#${ci}`, a + 6 * dpr, bot - 7 * dpr);
+      x.fillStyle = '#e8e9ed';
+      x.font = `700 ${10 * dpr}px ui-monospace, SFMono-Regular, Menlo, monospace`;
+      if (W > 22 * dpr) x.fillText(`#${ci}`, a + 6 * dpr, bot - 6 * dpr);
     }
     if (editing && seg.clipId !== s.editClip) {
       x.fillStyle = 'rgba(10,10,14,0.62)';
@@ -164,19 +181,19 @@ export function drawLane(s: StudioState, onRedraw?: () => void) {
     if (mirror) return;
 
     if (editing && seg.clipId === s.editClip) {
-      x.strokeStyle = '#C8FF4D';
+      x.strokeStyle = '#b9a4ff';
       x.lineWidth = 2 * dpr;
       roundRect(x, a, top, W, bot - top, r);
       x.stroke();
     }
     if (seg.id === s.selectedBlock) {
-      x.strokeStyle = '#C8FF4D';
+      x.strokeStyle = '#b9a4ff';
       x.lineWidth = 2 * dpr;
       roundRect(x, a + dpr, top + dpr, W - 2 * dpr, bot - top - 2 * dpr, r);
       x.stroke();
     }
     if (seg.id === menuSeg) {
-      x.strokeStyle = '#fff';
+      x.strokeStyle = '#e8e9ed';
       x.lineWidth = 2 * dpr;
       roundRect(x, a + 3 * dpr, top + 3 * dpr, W - 6 * dpr, bot - top - 6 * dpr, Math.max(0, r - 2 * dpr));
       x.stroke();
@@ -186,7 +203,7 @@ export function drawLane(s: StudioState, onRedraw?: () => void) {
   if (tl.rebound) {
     tl.segs.forEach((seg) => drawBlock(seg, L - seg.t1, L - seg.t0, true));
     // where the footage turns round
-    x.fillStyle = 'rgba(200,255,77,0.9)';
+    x.fillStyle = 'rgba(185,164,255,0.9)';
     for (let y = top; y < bot; y += 6 * dpr) x.fillRect(Math.round(X(tl.L)) - dpr, y, 2 * dpr, 3 * dpr);
   }
 
@@ -199,10 +216,10 @@ export function drawLane(s: StudioState, onRedraw?: () => void) {
       if (seg.t0 <= 0) return;
       const cx = X(L - seg.t0);
       const half = (seg.transDur / 2 / L) * w;
-      x.fillStyle = 'rgba(255,79,163,0.14)';
+      x.fillStyle = 'rgba(185,164,255,0.12)';
       if (half > 0) x.fillRect(cx - half, top, half * 2, bot - top);
       if (gap >= 3 * dpr) {
-        x.fillStyle = 'rgba(255,255,255,0.4)';
+        x.fillStyle = 'rgba(232,233,237,0.4)';
         x.fillRect(cx - 0.75 * dpr, top, 1.5 * dpr, bot - top);
       }
     });
@@ -211,17 +228,17 @@ export function drawLane(s: StudioState, onRedraw?: () => void) {
     const cx = X(seg.t0);
     const half = (seg.transDur / 2 / L) * w;
     if (seg.transDur > 0) {
-      x.fillStyle = 'rgba(255,79,163,0.28)';
+      x.fillStyle = 'rgba(185,164,255,0.23)';
       x.fillRect(cx - half, top, half * 2, bot - top);
       if (seg.t0 === 0) x.fillRect(w - half, top, half, bot - top);
       // the window's edges drag to set its length
       if (half >= 6 * dpr) {
-        x.fillStyle = 'rgba(255,79,163,0.75)';
+        x.fillStyle = 'rgba(185,164,255,0.76)';
         for (const ex of seg.t0 === 0 ? [half, w - half] : [cx - half, cx + half]) x.fillRect(ex - 0.5 * dpr, top, dpr, bot - top);
       }
     }
     if (gap >= 10 * dpr && !(tl.rebound && seg.t0 === 0)) {
-      x.fillStyle = seg.trans === 'cut' ? '#fff' : '#FF4FA3';
+      x.fillStyle = seg.trans === 'cut' ? '#e8e9ed' : '#b9a4ff';
       x.save();
       x.translate(cx === 0 ? 5 * dpr : cx, top);
       x.rotate(Math.PI / 4);
@@ -229,7 +246,7 @@ export function drawLane(s: StudioState, onRedraw?: () => void) {
       x.restore();
     }
     if (seg.t0 > 0 && gap >= 3 * dpr) {
-      x.fillStyle = 'rgba(255,255,255,0.85)';
+      x.fillStyle = 'rgba(232,233,237,0.82)';
       x.fillRect(cx - 0.75 * dpr, top, 1.5 * dpr, bot - top);
       // a grip, so the line reads as something to drag
       if (gap >= 24 * dpr) {
@@ -239,7 +256,9 @@ export function drawLane(s: StudioState, onRedraw?: () => void) {
     }
   });
 
-  const curveY = (v: number) => hh - 3 * dpr - v * (20 * dpr);
+  const curveTop = audioTop + 2 * dpr;
+  const curveBot = Math.max(curveTop, audioBot);
+  const curveY = (v: number) => curveBot - Math.max(0, Math.min(1, v)) * Math.max(dpr, curveBot - curveTop);
   const plot = (key: string, color: string | null, fill: string | null) => {
     x.beginPath();
     for (let px = 0; px <= w; px += 2 * dpr) {
@@ -248,8 +267,8 @@ export function drawLane(s: StudioState, onRedraw?: () => void) {
       else x.lineTo(px, curveY(v));
     }
     if (fill) {
-      x.lineTo(w, hh);
-      x.lineTo(0, hh);
+      x.lineTo(w, curveBot);
+      x.lineTo(0, curveBot);
       x.fillStyle = fill;
       x.fill();
     } else if (color) {
@@ -258,9 +277,30 @@ export function drawLane(s: StudioState, onRedraw?: () => void) {
       x.stroke();
     }
   };
-  plot('energy', null, 'rgba(124,255,155,0.10)');
-  plot('kick', MOD_SOURCES.kick?.color || '#FF5A5A', null);
-  plot('hats', 'rgba(90,216,255,0.6)', null);
+
+  const peaks = s.features?.peaks;
+  const duration = s.features?.duration || 0;
+  if (peaks?.length && duration > 0 && curveBot > curveTop) {
+    const mid = (curveTop + curveBot) / 2;
+    const amp = (curveBot - curveTop) * 0.46;
+    const peakAt = (px: number) => {
+      const sourceTime = Math.max(0, Math.min(duration, s.loopStart + (px / w) * L));
+      return Math.max(0, Math.min(1, peaks[Math.min(peaks.length - 1, Math.floor((sourceTime / duration) * peaks.length))] || 0));
+    };
+    x.beginPath();
+    for (let px = 0; px <= w; px += 2 * dpr) {
+      const y = mid - peakAt(px) * amp;
+      if (px === 0) x.moveTo(px, y);
+      else x.lineTo(px, y);
+    }
+    for (let px = w; px >= 0; px -= 2 * dpr) x.lineTo(px, mid + peakAt(px) * amp);
+    x.closePath();
+    x.fillStyle = 'rgba(105,182,166,0.30)';
+    x.fill();
+  }
+  plot('energy', null, 'rgba(124,255,155,0.12)');
+  plot('kick', 'rgba(255,90,90,0.78)', null);
+  plot('hats', 'rgba(90,216,255,0.72)', null);
 }
 
 export function drawTimeline(s: StudioState, onRedraw?: () => void) {

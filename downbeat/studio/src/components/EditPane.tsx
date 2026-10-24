@@ -3,6 +3,140 @@ import { useStudioStore, useVersion } from '../state/store.ts';
 import { BAR_CHOICES, POOLS, TRANS_BEATS, fmtLength, parseLength } from '../lib/utils.ts';
 import { RHYTHMS, DIRECTIONS, VELOCITY } from '../engine/timeline.ts';
 import { TRANSITIONS } from '../engine/shaders.ts';
+import { CAMERA, FINISH_DEF, MODULES } from '../engine/modules.ts';
+import type { BlockOverrides, ParamDef } from '../engine/types.ts';
+
+const ownValue = (values: Record<string, number> | undefined, id: string): number | undefined =>
+  Object.prototype.hasOwnProperty.call(values || {}, id) ? values?.[id] : undefined;
+
+const compactOverrides = (o: BlockOverrides): BlockOverrides | undefined => {
+  const out: BlockOverrides = {};
+  if (o.macro && Object.keys(o.macro).length) out.macro = o.macro;
+  if (o.camera && Object.keys(o.camera).length) out.camera = o.camera;
+  if (o.finish && Object.keys(o.finish).length) out.finish = o.finish;
+  if (o.layers && Object.keys(o.layers).length) out.layers = o.layers;
+  return Object.keys(out).length ? out : undefined;
+};
+
+const BlockParam: React.FC<{
+  scope: string;
+  p: ParamDef;
+  inherited: number;
+  value?: number;
+  set: (value?: number) => void;
+}> = ({ scope, p, inherited, value, set }) => {
+  const owned = value !== undefined;
+  const shown = owned ? value : inherited;
+  const text = p.opts?.[Math.round(shown)] ?? (p.step >= 1 ? String(Math.round(shown)) : Math.abs(shown) >= 10 ? shown.toFixed(1) : shown.toFixed(2));
+  return (
+    <div className={`prm block-prm ${owned ? 'modded' : ''}`}>
+      <label>
+        <input
+          type="checkbox"
+          aria-label={`Override ${scope} ${p.name}`}
+          checked={owned}
+          onChange={(e) => set(e.target.checked ? inherited : undefined)}
+        />{' '}
+        {p.name}
+      </label>
+      {p.opts ? (
+        <select aria-label={`${scope} ${p.name}`} disabled={!owned} value={Math.round(shown)} onChange={(e) => set(+e.target.value)}>
+          {p.opts.map((option, i) => <option value={i} key={option}>{option}</option>)}
+        </select>
+      ) : (
+        <input
+          aria-label={`${scope} ${p.name}`}
+          type="range"
+          min={p.min}
+          max={p.max}
+          step={p.step >= 1 ? p.step : (p.max - p.min) / 400}
+          disabled={!owned}
+          value={shown}
+          onChange={(e) => set(+e.target.value)}
+        />
+      )}
+      <output>{text}</output>
+    </div>
+  );
+};
+
+const BlockLookOverrides: React.FC = () => {
+  const selected = useStudioStore((s) => s.selectedBlock);
+  const ctx = useStudioStore((s) => s.ctx);
+  const look = useStudioStore((s) => s.look);
+  const stored = useStudioStore((s) => s.blocks);
+  if (!selected || !ctx || !look) {
+    return (
+      <div className="field">
+        <label>Block look</label>
+        <div className="note">Select a block in the timeline to give just that block its own macros, camera, finish or effect settings.</div>
+      </div>
+    );
+  }
+  const seg = ctx.tl.segs.find((x) => x.id === selected);
+  const block = (stored ?? ctx.tl.blocks).find((x) => x.id === selected);
+  if (!seg || !block) return null;
+  // Per-clip modes replace the effect stack and its macros for this segment. Camera and Finish stay
+  // global, matching compose(), while indexed layer controls describe the stack actually on this block.
+  const layerLook = ctx.clipLook?.(seg.clipId, seg) || look;
+  const overrides = block.overrides || {};
+  const apply = (next: BlockOverrides) => useStudioStore.getState().setBlock(selected, { overrides: compactOverrides(next) });
+  const group = (key: 'camera' | 'finish', id: string, value?: number) => {
+    const values = { ...(overrides[key] || {}) };
+    if (value === undefined) delete values[id]; else values[id] = value;
+    apply({ ...overrides, [key]: Object.keys(values).length ? values : undefined });
+  };
+  const macro = (key: 'a' | 'b', value?: number) => {
+    const values = { ...(overrides.macro || {}) };
+    if (value === undefined) delete values[key]; else values[key] = value;
+    apply({ ...overrides, macro: Object.keys(values).length ? values : undefined });
+  };
+  const layerParam = (index: number, module: string, id: string, value?: number) => {
+    const layers = { ...(overrides.layers || {}) };
+    const prior = layers[String(index)]?.m === module ? layers[String(index)].p : {};
+    const values = { ...prior };
+    if (value === undefined) delete values[id]; else values[id] = value;
+    if (Object.keys(values).length) layers[String(index)] = { m: module, p: values };
+    else delete layers[String(index)];
+    apply({ ...overrides, layers: Object.keys(layers).length ? layers : undefined });
+  };
+  const macroDefs: ParamDef[] = [
+    { id: 'a', name: 'Macro A', min: 0, max: 1, def: 0, step: 0.01 },
+    { id: 'b', name: 'Macro B', min: 0, max: 1, def: 0, step: 0.01 },
+  ];
+  return (
+    <div className="field block-look">
+      <label>Block {seg.i + 1} look</label>
+      <div className="row">
+        <span className="note">Checked settings belong to this block. Unchecked settings keep following the look.</span>
+        {block.overrides && <button className="btn sm" onClick={() => apply({})}>Use look for all</button>}
+      </div>
+      <details open>
+        <summary>Macros</summary>
+        {macroDefs.map((p) => <BlockParam key={p.id} scope="Block" p={p} inherited={layerLook.macro?.[p.id as 'a' | 'b'] ?? 0} value={overrides.macro?.[p.id as 'a' | 'b']} set={(v) => macro(p.id as 'a' | 'b', v)} />)}
+      </details>
+      <details>
+        <summary>Camera</summary>
+        {CAMERA.params.map((p) => <BlockParam key={p.id} scope="Camera" p={p} inherited={look.camera.p[p.id] ?? p.def} value={ownValue(overrides.camera, p.id)} set={(v) => group('camera', p.id, v)} />)}
+      </details>
+      <details>
+        <summary>Finish</summary>
+        {FINISH_DEF.params.map((p) => <BlockParam key={p.id} scope="Finish" p={p} inherited={look.finish.p[p.id] ?? p.def} value={ownValue(overrides.finish, p.id)} set={(v) => group('finish', p.id, v)} />)}
+      </details>
+      {layerLook.layers.map((layer, index) => {
+        const def = MODULES[layer.m];
+        if (!def) return null;
+        const own = overrides.layers?.[String(index)]?.m === layer.m ? overrides.layers[String(index)].p : undefined;
+        return (
+          <details key={`${index}:${layer.m}`}>
+            <summary>Layer {index + 1} · {def.name}</summary>
+            {def.params.map((p) => <BlockParam key={p.id} scope={`Layer ${index + 1}`} p={p} inherited={layer.p[p.id] ?? p.def} value={ownValue(own, p.id)} set={(v) => layerParam(index, layer.m, p.id, v)} />)}
+          </details>
+        );
+      })}
+    </div>
+  );
+};
 
 const LoopLength: React.FC = () => {
   const bpm = useStudioStore((s) => s.bpm());
@@ -114,6 +248,8 @@ export const EditPane: React.FC = () => {
     <div className="pane on" id="pane-edit">
       <div style={{ padding: '14px' }}>
         <LoopLength />
+
+        <BlockLookOverrides />
 
         <div className="field">
           <label>Loop</label>

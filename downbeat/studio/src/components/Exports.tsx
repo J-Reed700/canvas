@@ -260,7 +260,7 @@ const ExportViewer: React.FC<{ r: RenderRecord; index: number; count: number; on
 
       <div className="actions">
         <a className="btn primary" href={r.url} download={r.filename}>
-          <Icon d={ICONS.download} /> MP4
+          <Icon d={ICONS.download} /> {r.filename.toLowerCase().endsWith('.mov') ? 'MOV' : 'MP4'}
         </a>
         {r.audio_url && (
           <a className="btn" href={r.audio_url} download="">

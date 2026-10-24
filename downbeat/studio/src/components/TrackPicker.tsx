@@ -13,6 +13,21 @@ type Row = { kind: 'none' } | { kind: 'track'; t: TrackMeta };
 // Enough to scroll through comfortably; search narrows the rest.
 const MAX_ROWS = 250;
 
+const PickerGlyph: React.FC<{ kind: 'audio' | 'clock' | 'check' | 'chevron' | 'close' }> = ({ kind }) => {
+  const paths = {
+    audio: 'M3 9.5V6.5M6.25 12V4M9.75 10.75v-7.5M13 9V7',
+    clock: 'M8 13.25A5.25 5.25 0 1 0 8 2.75a5.25 5.25 0 0 0 0 10.5ZM8 5.25V8l1.9 1.15',
+    check: 'm3.25 8.25 3 3 6.5-7',
+    chevron: 'm4.25 6.25 3.75 3.5 3.75-3.5',
+    close: 'm4.25 4.25 7.5 7.5m0-7.5-7.5 7.5',
+  } as const;
+  return (
+    <svg className="stroke-ico" viewBox="0 0 16 16" aria-hidden="true">
+      <path d={paths[kind]} />
+    </svg>
+  );
+};
+
 const TrackPickerMenu: React.FC<{ onAddSong: () => void }> = ({ onAddSong }) => {
   const trackId = useStudioStore((s) => s.trackId);
   const tracks = useStudioStore((s) => s.tracks);
@@ -119,12 +134,21 @@ const TrackPickerMenu: React.FC<{ onAddSong: () => void }> = ({ onAddSong }) => 
         ref={btnRef}
         className="select tp-btn"
         id="trackSelect"
+        type="button"
         aria-haspopup="listbox"
         aria-expanded={open}
+        aria-controls={open ? 'trackPickerList' : undefined}
+        aria-label={current ? `Audio source: ${songTitle(current)}` : 'Audio source: No track, BPM clock'}
         title={current?.path || 'Pick the song the canvas follows'}
         onClick={() => setOpen((o) => !o)}
       >
-        {current ? songTitle(current) : '⏱  No track (BPM clock)'}
+        <span className="tp-btn-icon">
+          <PickerGlyph kind={current ? 'audio' : 'clock'} />
+        </span>
+        {current ? <span className="tp-current">{songTitle(current)}</span> : <span className="tp-current tp-no-track-main">⏱  No track (BPM clock)</span>}
+        <span className="tp-btn-chevron">
+          <PickerGlyph kind="chevron" />
+        </span>
       </button>
 
       {open &&
@@ -139,24 +163,40 @@ const TrackPickerMenu: React.FC<{ onAddSong: () => void }> = ({ onAddSong }) => 
               onKeyDown={onKey}
             />
 
-            <div className="tp-list" ref={listRef} role="listbox">
+            <div className="tp-list" id="trackPickerList" ref={listRef} role="listbox" aria-label="Audio sources">
               {!q && (
-                <button className={`tp-row ${hi === 0 ? 'hi' : ''} ${!trackId ? 'on' : ''}`} onClick={() => pick('')} onPointerEnter={() => setHi(0)}>
-                  <span className="tp-name">⏱ No track</span>
+                <button
+                  className={`tp-row tp-row-none ${hi === 0 ? 'hi' : ''} ${!trackId ? 'on' : ''}`}
+                  type="button"
+                  role="option"
+                  aria-label="No track. Use the BPM clock"
+                  aria-selected={!trackId}
+                  onClick={() => pick('')}
+                  onPointerEnter={() => setHi(0)}
+                >
+                  <span className="tp-row-icon" aria-hidden="true"><PickerGlyph kind="clock" /></span>
+                  <span className="tp-name tp-no-track">⏱ No track</span>
                   <span className="tp-sub">Visuals follow a steady beat at the tempo set in Edit</span>
+                  {!trackId && <span className="tp-row-check"><PickerGlyph kind="check" /></span>}
                 </button>
               )}
               {shown.map((g) => {
                 const isFolder = g.key !== 'added';
                 const all = groups.find((x) => x.key === g.key)?.items.length || 0;
                 return (
-                  <div key={g.key} className="tp-group">
+                  <div key={g.key} className="tp-group" role="group" aria-label={sourceLabel(g.key)}>
                     <div className="tp-gh" title={isFolder ? g.key : undefined}>
                       <span>{sourceLabel(g.key)}</span>
                       <small>{all}</small>
                       {isFolder && (
-                        <button className="tp-x" title={`Stop listing videos and songs from ${homeShort(g.key)} (the files stay where they are)`} onClick={() => removeFolder(g.key)}>
-                          ✕
+                        <button
+                          className="tp-x"
+                          type="button"
+                          aria-label={`Stop listing videos and songs from ${homeShort(g.key)}`}
+                          title={`Stop listing videos and songs from ${homeShort(g.key)} (the files stay where they are)`}
+                          onClick={() => removeFolder(g.key)}
+                        >
+                          <PickerGlyph kind="close" />
                         </button>
                       )}
                     </div>
@@ -168,6 +208,7 @@ const TrackPickerMenu: React.FC<{ onAddSong: () => void }> = ({ onAddSong }) => 
                         <button
                           key={t.id}
                           className={`tp-row ${hi === i ? 'hi' : ''} ${t.id === trackId ? 'on' : ''}`}
+                          type="button"
                           title={t.path}
                           role="option"
                           aria-selected={t.id === trackId}
@@ -179,6 +220,7 @@ const TrackPickerMenu: React.FC<{ onAddSong: () => void }> = ({ onAddSong }) => 
                             {ext} · {timeAgo(t.mtime)}
                           </span>
                           {t.dir && <span className="tp-sub">{t.dir}</span>}
+                          {t.id === trackId && <span className="tp-row-check"><PickerGlyph kind="check" /></span>}
                         </button>
                       );
                     })}

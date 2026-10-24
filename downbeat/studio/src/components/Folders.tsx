@@ -87,11 +87,11 @@ export const Welcome: React.FC = () => {
     <div className="welcome" role="dialog" aria-modal="true" aria-labelledby="welcomeTitle">
       <div className="welcome-in">
         <div className="brand">
-          <span className="logo" />
-          Downbeat
+          <span className="studio-logo" aria-hidden="true"><i /><i /><i /><i /></span>
+          <span>downbeat<small>STUDIO</small></span>
         </div>
-        <h1 id="welcomeTitle">Where are your videos?</h1>
-        <p>Pick the folder they're in. Downbeat lists the videos and songs in it and its subfolders, and leaves the files where they are.</p>
+        <h1 id="welcomeTitle">Your studio starts here.</h1>
+        <p>Choose a folder of footage and music to build your library. Downbeat includes its subfolders and keeps your files where they are.</p>
         <button className="btn primary welcome-pick" id="btnPickFolder" disabled={f.waiting} onClick={f.choose}>
           Pick a folder
         </button>

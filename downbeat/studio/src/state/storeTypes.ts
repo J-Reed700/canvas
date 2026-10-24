@@ -15,8 +15,11 @@ import type {
   Segment,
   ProjectRef,
   ProjectSummary,
+  ParamDef,
 } from '../engine/types.ts';
 import type { Transport } from '../engine/audio.ts';
+import type { Engine } from '../engine/engine.ts';
+import type { VideoBank } from '../engine/composer.ts';
 import type { SnapDiv } from '../engine/blocks.ts';
 import type { ScreenId } from '../lib/screens.ts';
 
@@ -30,7 +33,7 @@ export interface LookJob {
 
 export interface GhostItem {
   el: HTMLElement;
-  def: any;
+  def: ParamDef;
   read: (fr: ComposedFrame) => number | undefined;
 }
 
@@ -110,8 +113,8 @@ export interface StudioState {
   /** Why the GPU engine couldn't start, shown on the stage instead of a blank preview. */
   glError: string | null;
 
-  engine: any;
-  bank: any;
+  engine: Engine | null;
+  bank: VideoBank | null;
   transport: Transport;
   ctx: ComposeContext | null;
   version: number;
@@ -119,7 +122,7 @@ export interface StudioState {
   lookJobs: LookJob[];
   varJobs: LookJob[];
   ghosts: GhostItem[];
-  modUI: any;
+  modUI: { drawEnv: (position: number) => void; grid: HTMLElement | null } | null;
 
   initStudio: (viewCanvas: HTMLCanvasElement, bankContainer: HTMLElement, ambientCanvas?: HTMLCanvasElement) => Promise<void>;
   save: () => void;

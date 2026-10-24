@@ -6,6 +6,7 @@ import os
 
 import numpy as np
 
+from .._cache import BoundedCache, file_version
 from .audio import (
     BANDS,
     SR,
@@ -27,7 +28,7 @@ N_FFT = 2048
 MAX_LOOP_SECONDS = 8.0
 MIN_LOOP_SECONDS = 3.0
 
-_CACHE: dict[str, dict] = {}
+_CACHE = BoundedCache(16)
 _norm = _normalize_curve
 
 
@@ -55,10 +56,13 @@ def _default_bars(bar_seconds: float) -> int:
 def track_features(path: str, bpm_override: float | None = None) -> dict:
     """Compute full-track audio features (beat grid, loop suggestions, 30fps band curves)."""
     path = os.path.abspath(os.path.expanduser(path))
-    key = f"{path}|{bpm_override or ''}"
-    if key in _CACHE:
-        return _CACHE[key]
+    if bpm_override is not None and not math.isfinite(bpm_override):
+        raise ValueError("tempo must be a finite number")
+    key = (*file_version(path), bpm_override)
+    return _CACHE.get_or_create(key, lambda: _track_features(path, bpm_override))
 
+
+def _track_features(path: str, bpm_override: float | None) -> dict:
     prof = analyze_track(path)
     y = _decode_pcm(path)
     duration = float(y.size / SR)
@@ -112,7 +116,7 @@ def track_features(path: str, bpm_override: float | None = None) -> dict:
     mixed, kick_env, rate = _beat_envelope(y)
     t_env = np.arange(mixed.size) / rate
     named_bpm = _bpm_from_name(prof.name)
-    if bpm_override:
+    if bpm_override is not None:
         bpm = float(min(220.0, max(40.0, bpm_override)))
     else:
         bpm = float(named_bpm) if named_bpm else estimate_bpm(y)
@@ -172,6 +176,5 @@ def track_features(path: str, bpm_override: float | None = None) -> dict:
         "curves": {k: [round(float(v), 3) for v in arr] for k, arr in curves.items()},
         "peaks": [round(float(p), 3) for p in peaks],
     }
-    feats["bpm_source"] = "manual" if bpm_override else ("filename" if named_bpm else "detected")
-    _CACHE[key] = feats
+    feats["bpm_source"] = "manual" if bpm_override is not None else ("filename" if named_bpm else "detected")
     return feats

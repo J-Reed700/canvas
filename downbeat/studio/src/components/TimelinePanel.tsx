@@ -7,12 +7,26 @@ import { RHYTHMS } from '../engine/timeline.ts';
 import { SNAPS, snapBeat } from '../engine/blocks.ts';
 import type { Segment } from '../engine/types.ts';
 import { openSegmentMenu, clipPicker } from './segmentMenu.ts';
+import './timeline-polish.css';
 
 export { openSegmentMenu } from './segmentMenu.ts';
 
 // How close, in CSS pixels, a press has to land to a cut line or a transition's edge to grab it.
 const grabPx = (e: PointerEvent | MouseEvent, mouse: number, touch: number) => ((e as PointerEvent).pointerType === 'touch' ? touch : mouse);
 const LONG_PRESS = 450;
+
+type ToolIconName = 'edit' | 'split' | 'repeat' | 'insert' | 'delete';
+
+const ToolIcon: React.FC<{ name: ToolIconName }> = ({ name }) => {
+  const paths: Record<ToolIconName, React.ReactNode> = {
+    edit: <><path d="M4 20h4l11-11-4-4L4 16v4Z" /><path d="m13.5 6.5 4 4" /></>,
+    split: <><path d="M12 3v3m0 3v3m0 3v3m0 3v0" /><path d="M9 7H5v4M15 17h4v-4" /></>,
+    repeat: <><path d="M7 7h9a4 4 0 0 1 4 4v1" /><path d="m17 9 3 3 3-3" /><path d="M17 17H8a4 4 0 0 1-4-4v-1" /><path d="m7 15-3-3-3 3" /></>,
+    insert: <><rect x="3.5" y="5" width="17" height="14" rx="2" /><path d="M12 8v8M8 12h8" /></>,
+    delete: <><path d="M5 7h14M9 7V4h6v3M7 7l1 13h8l1-13" /><path d="M10 10v7M14 10v7" /></>,
+  };
+  return <svg className="tl-tool-icon" viewBox="0 0 24 24" aria-hidden="true">{paths[name]}</svg>;
+};
 
 export const TimelinePanel: React.FC = () => {
   const overviewRef = useRef<HTMLCanvasElement>(null);
@@ -293,140 +307,180 @@ export const TimelinePanel: React.FC = () => {
   const st = useStudioStore.getState;
 
   return (
-    <section className="panel timeline">
+    <section className="panel timeline tl-panel" aria-label="Timeline editor">
       <div className="tl-head">
-        <div className="loopchips" id="loopChips">
-          {features?.loops?.map((l) => (
-            <button
-              key={l.start}
-              className={Math.abs(l.start - loopStart) < 0.05 ? 'on' : ''}
-              title={`Starts at ${fmt(l.start)}`}
-              onClick={() => {
-                useStudioStore.setState({ loopStart: l.start, blocks: null });
-                rebuild();
-              }}
-            >
-              {l.label}
-            </button>
-          ))}
+        <div className="tl-summary">
+          <span className="tl-title">Timeline</span>
+          <div className="info" id="tlInfo">
+            {ctx ? (
+              <>
+                <b>{ctx.tl.segs.length}</b> cuts
+                {features ? (
+                  <>
+                    {' '}
+                    · from <b>{fmt(loopStart)}</b>
+                  </>
+                ) : (
+                  ''
+                )}
+                {selNo > 0 && <> · segment <b>{selNo}</b> selected</>}
+                {editClip && clipLooks[editClip] && selected.includes(editClip) && (
+                  <span className="muted"> · highlighted: #{selected.indexOf(editClip) + 1}, whose own FX you're editing</span>
+                )}
+              </>
+            ) : (
+              <span className="muted">Select clips to build the edit</span>
+            )}
+          </div>
         </div>
 
-        <div className="info" id="tlInfo">
-          {ctx ? (
-            <>
-              <b>{ctx.tl.segs.length}</b> cuts
-              {features ? (
-                <>
-                  {' '}
-                  · from <b>{fmt(loopStart)}</b>
-                </>
-              ) : (
-                ''
-              )}
-              {selNo > 0 && <> · segment <b>{selNo}</b> selected</>}
-              {editClip && clipLooks[editClip] && selected.includes(editClip) && (
-                <span className="muted"> · highlighted: #{selected.indexOf(editClip) + 1}, whose own FX you're editing</span>
-              )}
-            </>
-          ) : (
-            <span className="muted">Select clips to build the edit</span>
-          )}
+        <div className="tl-loop-control">
+          <span className="tl-control-label">Loop</span>
+          <div className="loopchips" id="loopChips" role="group" aria-label="Suggested loops">
+            {features?.loops?.map((l) => (
+              <button
+                key={l.start}
+                className={Math.abs(l.start - loopStart) < 0.05 ? 'on' : ''}
+                aria-pressed={Math.abs(l.start - loopStart) < 0.05}
+                title={`Starts at ${fmt(l.start)}`}
+                onClick={() => {
+                  useStudioStore.setState({ loopStart: l.start, blocks: null });
+                  rebuild();
+                }}
+              >
+                {l.label}
+              </button>
+            ))}
+          </div>
         </div>
 
-        <div className="spacer" />
-
-        <div className="seg" id="rhythmSeg">
-          {Object.entries(RHYTHMS).map(([k, r]) => (
-            <button
-              key={k}
-              className={k === curRhythm ? 'on' : ''}
-              title={r.name}
-              onClick={() => {
-                if (!look) return;
-                look.cut.rhythm = k;
-                useStudioStore.setState({ blocks: null });
-                rebuild();
-              }}
-            >
-              {r.short}
-            </button>
-          ))}
-          {handCut && (
-            <button className="on" title="Cut by hand. Pick a rhythm to start the cuts over.">
-              Custom
-            </button>
-          )}
+        <div className="tl-rhythm-control">
+          <span className="tl-control-label">Cut rhythm</span>
+          <div className="seg" id="rhythmSeg" role="group" aria-label="Cut rhythm">
+            {Object.entries(RHYTHMS).map(([k, r]) => (
+              <button
+                key={k}
+                className={k === curRhythm ? 'on' : ''}
+                aria-pressed={k === curRhythm}
+                title={r.name}
+                onClick={() => {
+                  if (!look) return;
+                  look.cut.rhythm = k;
+                  useStudioStore.setState({ blocks: null });
+                  rebuild();
+                }}
+              >
+                {r.short}
+              </button>
+            ))}
+            {handCut && (
+              <button className="on" aria-pressed="true" title="Cut by hand. Pick a rhythm to start the cuts over.">
+                Custom
+              </button>
+            )}
+          </div>
         </div>
       </div>
 
       <div className="tl-tools" id="blockTools">
-        <button
-          className="btn tl-edit"
-          data-pop
-          disabled={!ctx}
-          title="Open the menu for the selected segment, or the one under the playhead: its timing, clip, transition and framing (Enter)"
-          onClick={(e) => {
-            const id = targetBlock();
-            if (id) openSegmentMenu(id, e.currentTarget);
-          }}
-        >
-          ✎ {selNo ? `Edit segment ${selNo}` : 'Edit segment'}
-        </button>
-        <div className="seg">
-          <button disabled={!ctx} title="Split the segment at the playhead, on the snap grid (B)" onClick={() => st().splitAtPlayhead()}>
-            ✂ Split
+        <div className="tl-primary-tools" role="group" aria-label="Segment editing tools">
+          <button
+            className="tl-tool tl-edit"
+            data-label={selNo ? `Edit segment ${selNo}` : 'Edit segment'}
+            data-pop
+            disabled={!ctx}
+            title="Open the menu for the selected segment, or the one under the playhead: its timing, clip, transition and framing (Enter)"
+            onClick={(e) => {
+              const id = targetBlock();
+              if (id) openSegmentMenu(id, e.currentTarget);
+            }}
+          >
+            ✎ {selNo ? `Edit segment ${selNo}` : 'Edit segment'}
+            <ToolIcon name="edit" />
           </button>
-          <button disabled={!ctx} title="Split the selected segment in half and play its first half twice (⌘D)" onClick={() => st().repeatSegment()}>
+          <div className="tl-tool-divider" aria-hidden="true" />
+          <button className="tl-tool tl-tool-key" data-label="Split" data-key="B" disabled={!ctx} title="Split the segment at the playhead, on the snap grid (B)" onClick={() => st().splitAtPlayhead()}>
+            ✂ Split
+            <ToolIcon name="split" />
+            <span className="tl-shortcut" data-key="B" aria-hidden="true" />
+          </button>
+          <button className="tl-tool tl-tool-key" data-label="Repeat" data-key="⌘D" disabled={!ctx} title="Split the selected segment in half and play its first half twice (⌘D)" onClick={() => st().repeatSegment()}>
             Repeat
+            <ToolIcon name="repeat" />
+            <span className="tl-shortcut" data-key="⌘D" aria-hidden="true" />
           </button>
           <button
+            className="tl-tool"
+            data-label="Put a clip in"
             data-pop
             disabled={!ctx}
             title="Put a clip in from the playhead to the next cut"
             onClick={(e) => openPop(e.currentTarget, clipPicker, 'clip-pick')}
           >
             Put a clip in
+            <ToolIcon name="insert" />
           </button>
           <button
+            className="tl-tool tl-tool-key tl-delete"
+            data-label="Delete"
+            data-key="⌫"
             disabled={!ctx || ctx.tl.segs.length < 2}
             title={ctx && ctx.tl.segs.length < 2 ? 'The loop needs at least one segment' : 'Delete the selected segment. The one before it plays on (Delete)'}
             onClick={() => st().deleteBlock()}
           >
             Delete
+            <ToolIcon name="delete" />
+            <span className="tl-shortcut" data-key="⌫" aria-hidden="true" />
           </button>
         </div>
-        <div className="seg snap" title="What a dragged cut snaps to (N). Hold Shift while dragging to place it anywhere.">
+        <div className="seg snap" role="group" aria-label="Cut snap interval" title="What a dragged cut snaps to (N). Hold Shift while dragging to place it anywhere.">
           <span className="lbl">Snap</span>
           {SNAPS.map(([d, label]) => (
-            <button key={d} className={snap === d ? 'on' : ''} onClick={() => st().setSnap(d)}>
+            <button key={d} className={snap === d ? 'on' : ''} aria-pressed={snap === d} onClick={() => st().setSnap(d)}>
               {label}
             </button>
           ))}
         </div>
       </div>
 
-      <div className="tl-canvas" id="overviewWrap">
-        <canvas id="overview" ref={overviewRef} />
+      <div className="tl-track-row tl-overview-row">
+        <div className="tl-track-label">
+          <span>Song</span>
+          <small>Source</small>
+        </div>
+        <div className="tl-canvas" id="overviewWrap">
+          <canvas id="overview" ref={overviewRef} aria-label="Song overview and selected loop" />
+        </div>
       </div>
 
-      <div className="tl-canvas" id="laneWrap" ref={laneWrapRef}>
-        <canvas
-          id="lane"
-          ref={laneRef}
-          title={'The loop, left to right. Each block is one cut: #n is clip n from the Clips list (thumbnail = the moment it starts on).\nDiamonds are transitions (pink = animated, white = hard cut), and the pink band is how long each one lasts. Curves: kick (red), hats (blue), energy (green).\nClick: select and seek · drag a cut line: move it (Shift: off the grid) · drag a band edge: transition length · double-click, right-click or long-press a block, or press Enter: its menu · ⌥-drag: slip the clip · B: split at the playhead'}
-        />
-        <div className="playhead" id="playhead" />
-        {selSeg && ctx && (
-          <button
-            className="lane-edit"
-            data-pop
-            title="Open this segment's menu (Enter)"
-            style={{ left: `${((selSeg.t0 + selSeg.dur / 2) / ctx.L) * 100}%` }}
-            onClick={(e) => openSegmentMenu(selSeg.id, e.currentTarget)}
-          >
-            ✎ Edit
-          </button>
-        )}
+      <div className="tl-track-row tl-lane-row">
+        <div className="tl-lane-labels" aria-hidden="true">
+          <span className="tl-ruler-label">Time</span>
+          <span className="tl-video-label">Video</span>
+          <span className="tl-audio-label">Audio</span>
+        </div>
+        <div className="tl-canvas" id="laneWrap" ref={laneWrapRef}>
+          <canvas
+            id="lane"
+            ref={laneRef}
+            aria-label="Editable video timeline with audio waveform"
+            title={'The loop, left to right. Each block is one cut: #n is clip n from the Clips list (thumbnail = the moment it starts on).\nViolet diamonds are animated transitions, white diamonds are hard cuts, and the violet band is the transition duration. Audio: source waveform plus kick (red), hats (blue), and energy (green).\nClick: select and seek · drag a cut line: move it (Shift: off the grid) · drag a band edge: transition length · double-click, right-click or long-press a block, or press Enter: its menu · ⌥-drag: slip the clip · B: split at the playhead'}
+          />
+          <div className="playhead" id="playhead" />
+          {selSeg && ctx && (
+            <button
+              className="lane-edit"
+              data-label="Edit"
+              data-pop
+              title="Open this segment's menu (Enter)"
+              style={{ left: `${((selSeg.t0 + selSeg.dur / 2) / ctx.L) * 100}%` }}
+              onClick={(e) => openSegmentMenu(selSeg.id, e.currentTarget)}
+            >
+              ✎ Edit
+              <ToolIcon name="edit" />
+            </button>
+          )}
+        </div>
       </div>
     </section>
   );

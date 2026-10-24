@@ -137,6 +137,37 @@ class TestByteRanges(unittest.TestCase):
         self.assertEqual(parse("bytes=0-499", 1000, max_open=100), (0, 499, True), "a range with an end is served whole")
         self.assertEqual(parse(None, 1000, max_open=100), (0, 999, False), "so is a request with no range")
 
+    def test_request_streaming_never_reads_the_whole_body_at_once(self) -> None:
+        class Reader(io.BytesIO):
+            reads: list[int]
+
+            def __init__(self, data: bytes) -> None:
+                super().__init__(data)
+                self.reads = []
+
+            def read(self, size: int = -1) -> bytes:
+                self.reads.append(size)
+                return super().read(size)
+
+        body = b"x" * (server_mod.REQUEST_CHUNK * 3 + 17)
+        reader = Reader(body)
+        self.assertEqual(b"".join(server_mod._request_chunks(reader, len(body))), body)
+        self.assertLessEqual(max(reader.reads), server_mod.REQUEST_CHUNK)
+
+    def test_server_bounds_socket_idle_time_and_runs_session_maintenance(self) -> None:
+        server = object.__new__(server_mod.ReusableThreadingHTTPServer)
+        accepted = mock.Mock()
+        address = ("127.0.0.1", 1234)
+        with mock.patch.object(server_mod.ThreadingHTTPServer, "get_request", return_value=(accepted, address)):
+            self.assertEqual(server.get_request(), (accepted, address))
+        accepted.settimeout.assert_called_once_with(server_mod.SOCKET_IDLE_TIMEOUT)
+
+        with mock.patch.object(server_mod.ThreadingHTTPServer, "service_actions") as parent_actions, \
+             mock.patch.object(server_mod.STATE, "expire_raw_sessions") as expire:
+            server.service_actions()
+        parent_actions.assert_called_once_with()
+        expire.assert_called_once_with()
+
 
 class TestServerRouting(_ServerCase):
     """Routing and request checks; nothing here needs ffmpeg."""
@@ -294,6 +325,73 @@ class TestServerRouting(_ServerCase):
         self.assertEqual(self.post_json("/api/export/raw/end?sid=nope"), (404, {"ok": False, "error": "unknown session"}))
         self.assertEqual(self.post_json("/api/export/raw/abort?sid=nope"), (200, {"ok": True}))
 
+    def test_frame_write_finishes_before_end_or_abort_can_close_the_session(self) -> None:
+        for action in ("end", "abort"):
+            with self.subTest(action=action):
+                writing = threading.Event()
+                release = threading.Event()
+                closed = threading.Event()
+                case = self
+
+                class Session:
+                    dest = os.path.join(self.out, f"race-{action}.mp4")
+
+                    def write(self, data: bytes) -> int:
+                        writing.set()
+                        case.assertTrue(release.wait(2))
+                        return len(data)
+
+                    def finish(self) -> None:
+                        closed.set()
+
+                    def abort(self) -> None:
+                        closed.set()
+
+                sid = f"race-{action}.mp4"
+                self.state.add_raw_session(sid, Session(), {"stream": "h264"})
+                results = {}
+                writer = threading.Thread(target=lambda: results.setdefault("write", self.request(
+                    "POST", f"/api/export/raw/frames?sid={sid}", b"frame-data")[0]))
+                endpoint = f"/api/export/raw/{action}?sid={sid}"
+                closer = threading.Thread(target=lambda: results.setdefault(action, self.post_json(endpoint)[0]))
+                with mock.patch.object(server_mod, "_finish_export", return_value={"filename": sid}):
+                    writer.start()
+                    self.assertTrue(writing.wait(2))
+                    closer.start()
+                    self.assertFalse(closed.wait(0.1), "finish/abort must wait for the in-flight write")
+                    release.set()
+                    writer.join(2)
+                    closer.join(2)
+                self.assertFalse(writer.is_alive() or closer.is_alive())
+                self.assertEqual(results, {"write": 200, action: 200})
+                self.assertTrue(closed.is_set())
+                self.assertNotIn(sid, self.state.raw_sessions)
+
+    def test_oversized_json_is_rejected_before_it_is_buffered(self) -> None:
+        status, _, raw = self.request(
+            "POST", "/api/projects/create", b"", {"Content-Length": str(server_mod.JSON_BODY_LIMIT + 1)}
+        )
+        self.assertEqual((status, json.loads(raw)["error"]), (413, "JSON request body is too large"))
+
+    def test_export_capacity_includes_encoder_finish_and_companion_delivery(self) -> None:
+        session = mock.Mock(dest=os.path.join(self.out, "finishing.mp4"))
+        for i in range(state_mod.MAX_RAW_SESSIONS):
+            self.state.add_raw_session(f"job-{i}", session, {})
+            self.addCleanup(server_mod._abort_raw, f"job-{i}")
+
+        def still_full(*args):
+            with self.assertRaisesRegex(RuntimeError, "exports can run at once"):
+                self.state.add_raw_session("too-early", mock.Mock(), {})
+            return {"filename": "finishing.mp4"}
+
+        session.finish.side_effect = still_full
+        with mock.patch.object(server_mod, "_finish_export", side_effect=still_full):
+            status, result = self.post_json("/api/export/raw/end?sid=job-0")
+        self.assertEqual((status, result["ok"]), (200, True))
+        self.state.add_raw_session("after-finish", mock.Mock(), {})
+        self.addCleanup(server_mod._abort_raw, "after-finish")
+        self.assertNotIn("job-0", self.state.raw_sessions)
+
     def test_companion_export_rejects_bad_requests(self) -> None:
         status, _, raw = self.request("POST", "/api/export/companion", b"{not json", {"Content-Type": "application/json"})
         self.assertEqual(status, 400)
@@ -391,6 +489,31 @@ class TestServerRouting(_ServerCase):
         self.assertEqual(status, 500)
         self.assertFalse(data["ok"])
         self.assertTrue(data["error"].startswith("Could not start the export"), data["error"])
+
+    def test_prores_begin_uses_a_mov_raw_session_and_rejects_h264_chunks(self) -> None:
+        made = []
+
+        class Session:
+            def __init__(self, dest: str, width: int, height: int, fps: int, codec: str) -> None:
+                self.dest = dest
+                self.frame_bytes = width * height * 4
+                made.append((dest, width, height, fps, codec))
+
+            def abort(self) -> None:
+                pass
+
+        meta = {"look": "Master", "duration": 8, "width": 320, "height": 180, "fps": 30,
+                "codec": "prores_422_hq"}
+        with mock.patch.object(server_mod.delivery, "RawSession", Session):
+            status, begun = self.post_json("/api/export/raw/begin", meta)
+        self.assertEqual(status, 200)
+        self.assertTrue(begun["sid"].endswith(".mov"))
+        self.assertEqual(made[0][1:], (320, 180, 30, "prores_422_hq"))
+        self.assertEqual(self.post_json(f"/api/export/raw/abort?sid={begun['sid']}")[0], 200)
+
+        status, bad = self.post_json("/api/export/raw/begin", {**meta, "stream": "h264"})
+        self.assertEqual(status, 500)
+        self.assertIn("require raw RGBA", bad["error"])
 
     def test_an_export_that_fails_to_finish_leaves_nothing_behind(self) -> None:
         dest = os.path.join(self.out, "canvas-broken-120bpm-4.0s-720x1280-20261024-120000.mp4")
@@ -729,6 +852,8 @@ class TestServerMedia(_ServerCase):
         self.assertTrue(os.path.isfile(os.path.join(self.out, "uploads", "my clip.mp4")), "the name is reduced to its last part")
         listed = next(c for c in self.get_json("/api/state")[1]["clips"] if c["id"] == video["id"])
         self.assertEqual((listed["source"], listed["dir"]), ("added", ""))
+        self.assertEqual({k: v for k, v in video["clip"].items() if k != "proxy"},
+                         {k: v for k, v in listed.items() if k != "proxy"})
 
         png = cv2.imencode(".png", np.full((90, 60, 3), 200, np.uint8))[1].tobytes()
         status, _, raw = self.request("POST", "/api/upload", png, {"X-Filename": "cover.png"})
@@ -736,6 +861,7 @@ class TestServerMedia(_ServerCase):
         self.assertEqual((status, still["kind"], still["still"], still["name"]), (200, "video", True, "cover.still.mp4"))
         clips = {c["id"]: c for c in self.get_json("/api/state")[1]["clips"]}
         self.assertTrue(clips[still["id"]]["still"])
+        self.assertTrue(still["clip"]["still"])
 
         song = _write_wav(os.path.join(self.tmp, "src", "short.wav"), 0.5)
         with open(song, "rb") as f:
@@ -744,11 +870,36 @@ class TestServerMedia(_ServerCase):
         self.assertEqual((status, audio["kind"], audio["name"]), (200, "audio", "short.wav"))
         added = next(t for t in self.get_json("/api/state")[1]["tracks"] if t["id"] == audio["id"])
         self.assertEqual(added["source"], "added", "a song added on purpose is listed however short it is")
+        self.assertEqual(audio["track"], added)
 
         # Removing an uploaded clip deletes its copy; a second remove is still fine.
         self.assertEqual(self.post_json("/api/clip/remove", {"id": still["id"]}), (200, {"ok": True, "deleted": True}))
         self.assertFalse(os.path.exists(os.path.join(self.out, "uploads", "cover.png")))
         self.assertEqual(self.post_json("/api/clip/remove", {"id": still["id"]}), (200, {"ok": True, "deleted": False}))
+
+    def test_a_disconnect_after_upload_commit_does_not_remove_the_registered_file(self) -> None:
+        clip = _lavfi_clip(os.path.join(self.tmp, "src", "disconnect-source.mp4"), seconds=0.3)
+        with open(clip, "rb") as stream:
+            body = stream.read()
+        handler = server_mod.StudioHandler.__new__(server_mod.StudioHandler)
+        handler.headers = {"X-Filename": "survives-client-close.mp4"}
+        handler._send_json = mock.Mock(side_effect=BrokenPipeError("client closed"))
+        with self.assertRaises(BrokenPipeError):
+            handler._post_upload_chunks((body,))
+        uploaded = os.path.join(self.out, "uploads", "survives-client-close.mp4")
+        self.assertTrue(os.path.isfile(uploaded))
+        self.assertTrue(any(src.path == uploaded for src in self.state.clips.values()))
+        self.assertEqual(handler._send_json.call_count, 1)
+
+    def test_same_named_video_uploads_do_not_overwrite_each_other(self) -> None:
+        clip = _lavfi_clip(os.path.join(self.tmp, "src", "duplicate-source.mp4"), seconds=0.5)
+        with open(clip, "rb") as f:
+            body = f.read()
+        first = json.loads(self.request("POST", "/api/upload", body, {"X-Filename": "duplicate.mp4"})[2])
+        second = json.loads(self.request("POST", "/api/upload", body, {"X-Filename": "duplicate.mp4"})[2])
+        self.assertEqual((first["name"], second["name"]), ("duplicate.mp4", "duplicate-2.mp4"))
+        self.assertTrue(os.path.isfile(os.path.join(self.out, "uploads", first["name"])))
+        self.assertTrue(os.path.isfile(os.path.join(self.out, "uploads", second["name"])))
 
     def test_uploads_that_cannot_be_used_are_refused(self) -> None:
         status, _, raw = self.request("POST", "/api/upload", b"not a video", {"X-Filename": "..%2F..%2Fnotes.mp4"})
@@ -852,8 +1003,8 @@ class TestServerMedia(_ServerCase):
         frames = np.zeros((30, 112, 64, 4), np.uint8)
         frames[..., 1] = 255
         raw = frames.tobytes()
-        status, _, out = self.request("POST", f"/api/export/raw/frames?sid={sid}", raw[: frame * 20 + 100])
-        self.assertEqual((status, json.loads(out)["frames"]), (200, 20), "a partial frame at the end is dropped")
+        status, _, out = self.request("POST", f"/api/export/raw/frames?sid={sid}", raw[: frame * 20])
+        self.assertEqual((status, json.loads(out)["frames"]), (200, 20))
         status, _, out = self.request("POST", f"/api/export/raw/frames?sid={sid}", raw[frame * 20 :])
         self.assertEqual(json.loads(out)["frames"], 10)
         status, done = self.post_json(f"/api/export/raw/end?sid={sid}", {})
@@ -864,6 +1015,15 @@ class TestServerMedia(_ServerCase):
         self.assertEqual((levels["codec"], levels["height"], levels["length"]), ("ok", "fail", "fail"))
         info = _ffprobe(os.path.join(self.out, sid))
         self.assertEqual(int(info["streams"][0]["nb_frames"]), 30)
+
+    def test_a_partial_raw_frame_aborts_the_export(self) -> None:
+        meta = {"look": "Truncated", "bpm": 128, "duration": 1.0, "width": 64, "height": 112, "fps": 30}
+        sid = self.post_json("/api/export/raw/begin", meta)[1]["sid"]
+        status, _, raw = self.request("POST", f"/api/export/raw/frames?sid={sid}", b"x" * 100)
+        self.assertEqual((status, json.loads(raw)["ok"]), (500, False))
+        self.assertIn("raw frame request ended", json.loads(raw)["error"])
+        self.assertNotIn(sid, self.state.raw_sessions)
+        self.assertFalse(os.path.exists(os.path.join(self.out, sid)))
 
     def test_an_export_keeps_its_edit_until_it_is_deleted(self) -> None:
         edit = {"selected": ["a"], "look": {"name": "Raw Edit", "layers": []}, "bars": 1}

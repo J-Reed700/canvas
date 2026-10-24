@@ -18,6 +18,9 @@ dependencies = [
     "opencv-python-headless>=4.8.0",
 ]
 
+[project.optional-dependencies]
+dev = ["coverage>=7.17,<8"]
+
 [project.scripts]
 downbeat = "downbeat.cli:main"
 

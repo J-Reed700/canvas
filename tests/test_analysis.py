@@ -4,6 +4,7 @@ from __future__ import annotations
 import os
 import subprocess
 import unittest
+from unittest import mock
 
 import cv2
 import numpy as np
@@ -71,6 +72,18 @@ class TestAudioAnalysis(TempDirCase):
             self.assertEqual((arr.shape, arr.dtype), ((60,), np.float32))
             self.assertTrue(np.all((arr >= 0.0) & (arr <= 0.85 + 1e-6)))
         self.assertEqual(audio.extract_frame_curves(path, 30).start_sec, audio.analyze_track(path).best_start_sec)
+
+    def test_long_frame_analysis_bounds_fft_memory_and_preserves_circular_audio(self) -> None:
+        path = self.wav("long-curves.wav", 6.0)
+        audio.analyze_track(path)
+        with mock.patch.object(np.fft, "rfft", wraps=np.fft.rfft) as fft:
+            curves = audio.extract_frame_curves(path, 2500, start_sec=5.5)
+        batches = [call.args[0].shape[0] for call in fft.call_args_list]
+        self.assertEqual(sum(batches), 2500)
+        self.assertLessEqual(max(batches), 1024, "FFT working memory is independent of export length")
+        repeated = audio.extract_frame_curves(path, 2500, start_sec=17.5)
+        for name in ("sub_bass", "transient", "high_air", "rms"):
+            np.testing.assert_allclose(getattr(curves, name), getattr(repeated, name), atol=1e-6)
 
 
 @unittest.skipUnless(HAS_FFMPEG, "ffmpeg/ffprobe required")

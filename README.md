@@ -4,11 +4,7 @@ Downbeat makes Spotify Canvas loops from your video clips, photos or cover art, 
 
 It runs on your own computer. A small Python server reads the song and handles files, and the editor (the studio) runs in Chrome and renders on your graphics card. The same project also exports Apple Music motion art, a 16:9 YouTube visualizer, square social clips, 3000 × 3000 cover art and artist banners.
 
-![The Downbeat studio on the Landscape 16:9 screen: the song at 130 BPM with a 4-bar loop and the 1-Bit Signal look, the Clips panel with its search box and three clips in the edit, the video playing under the player overlay, the cut timeline with segment 1 selected, and the Looks gallery on the right](docs/studio.jpg)
-
-![The Layers tab with the Modulators card open: LFO A and LFO B with their shapes and rates, the macros, the drawn envelope and the step sequencer, next to the landscape preview and the timeline with segment 2 selected](docs/studio-layers.jpg)
-
-![The phone screen while clip 3's own effects are edited: the Looks tab says a look you click now applies to clip 3, with Back to main, and the timeline highlights clip 3's segment](docs/studio-phone.jpg)
+![Downbeat's graphite studio workspace with a media library, clean canvas viewer, expanded timeline, and color inspector with live scopes. Shown with generated test footage.](docs/studio-workspace.png)
 
 Version 4.0. MIT license. Runs on macOS, Linux and Windows.
 
@@ -29,7 +25,7 @@ Version 4.0. MIT license. Runs on macOS, Linux and Windows.
 - [Development](#development)
 - [Command-line renderer](#command-line-renderer)
 
-The full guide to every panel and control is in [docs/STUDIO_GUIDE.md](docs/STUDIO_GUIDE.md).
+The full guide to every panel and control is in [docs/STUDIO_GUIDE.md](docs/STUDIO_GUIDE.md). The professional-studio implementation and engineering decisions are tracked in [industry_titan_blueprint.md](industry_titan_blueprint.md).
 
 ## What it does
 
@@ -39,9 +35,9 @@ The full guide to every panel and control is in [docs/STUDIO_GUIDE.md](docs/STUD
 - Moves any slider with the music. A slider can follow one of eight bands of the song (kick, snare, hats, bass, energy, brightness, vocals, presence), a clock synced to the tempo, two LFOs, a 16-step sequencer, an envelope you draw, or one of two macro knobs.
 - Animates still images and cover art with a fake-depth parallax effect. One look adds a spectrum visualizer on top.
 - Frames each clip on its subject. You can drag the preview to reframe, or pick a different moment of a clip for one segment.
-- Makes random versions to start from. Roll (`D`) changes the look, a 4 to 6 layer effect stack, the edit and the per-clip effects in one go. Variations (`M`) shows six altered copies of the current look.
+- Makes random versions to start from. Remix (`D`) changes the look, a 4 to 6 layer effect stack, the edit and the per-clip effects in one go. Variations (`M`) shows six altered copies of the current look.
 - Pulls a five-color palette from your cover art and applies it to a look.
-- Previews the video on a screen of the export's shape while the song plays: a phone with Spotify's player drawn over it for a Canvas, or a landscape, tablet or square screen for the other formats.
+- Previews the video in the export's shape while the song plays. Optional player overlays and platform guides help check composition. Resizable panels, viewer focus, command search and frame stepping keep editing fast.
 - Exports through the same renderer as the preview, so the file matches what you saw frame for frame. Each export is checked with ffprobe, and video loops also get a loop-seam check, a flash count and a check that every clip actually plays rather than freezing on one frame.
 
 Downbeat does not upload anything for you, and it has no accounts. You upload the file yourself in Spotify for Artists.
@@ -333,7 +329,7 @@ This walk-through takes about ten minutes. You need a song file (WAV, MP3, FLAC,
 
 1. Start Downbeat with `./run.sh`. The first time, the studio opens on a Pick a folder button. Click it and choose the folder your clips are in. Downbeat lists the videos and songs in that folder and its subfolders, puts up to five clips in the edit and picks the newest song. The song plays while it's being analyzed, and the loop moves to a suggested section when the analysis is done.
 
-2. The studio has three columns: your song and clips on the left, the preview in the middle, and the Looks, Layers and Edit tabs on the right. To add files from somewhere else, drag them onto the window or click + Add files. Each clip in the edit gets a playback copy built in the background. Until that's done the clip shows a spinning ring. The other videos in the folder are dimmed with a dashed border. Hover over one and click + Add to put it in the edit.
+2. The studio has three columns: your song and clips on the left, the preview in the middle, and the Looks, Layers and Edit tabs on the right. To add files from somewhere else, drag them onto the window or click Import. Each clip in the edit gets a playback copy built in the background. Until that's done the clip shows a spinning ring. The other videos in the folder are dimmed with a dashed border. Hover over one and click + Add to put it in the edit.
 
 3. Pick the song from the Track menu at the top of the left column if it isn't the one you want. Downbeat analyzes it and shows the tempo. If the tempo is half or double what it should be, click ½× or 2×, or click the number and type the right one.
 
@@ -382,11 +378,9 @@ The guidelines also suggest avoiding rapid cuts and intense flashing, keeping im
 
 ### Apple Music motion art
 
-You can't upload motion art to Apple Music yourself. Apple [takes it through your distributor](https://artists.apple.com/support/5544-create-motion-artwork), so check your distributor's requirements before you export. Downbeat makes both sizes that distributors list: 3:4 at 2048 × 2732 and 1:1 at 3840 × 3840. Both are silent H.264 MP4s, with the loop repeated until the video is at least 15 seconds long, up to 35. The 3:4 file is encoded at 50 Mbps. The 1:1 file is rendered at 2048 × 2048 and scaled up by ffmpeg (x264, CRF 18), because the browser's encoder can't produce video that large. Some distributors want both sizes, and some only take ProRes `.mov` files, which Downbeat doesn't make. ffmpeg can convert one:
+You deliver motion art through your distributor. Downbeat renders both required shapes at their native output dimensions: 3:4 at 2048 × 2732 and 1:1 at 3840 × 3840. Choose H.264 MP4, ProRes 422 HQ MOV, or ProRes 4444 MOV in the export sheet. ProRes receives the rendered frames directly, without an H.264 intermediate. Short loops repeat to meet the 8-second minimum; the maximum is 35 seconds. [Apple's asset specifications](https://help.apple.com/itc/videoaudioassetguide/en.lproj/static.html)
 
-```bash
-ffmpeg -i canvas-apple.mp4 -c:v prores_ks -profile:v 3 -an canvas-apple.mov
-```
+The studio renders opaque 8-bit RGB frames from its playback copies (up to 2560 pixels on the long edge; still imports are capped at 2160). ProRes preserves those rendered frames in its delivery format; choosing 4444 does not recover source detail, create additional precision, or add transparency. Select a local still as a cover reference to compare the opening frame with your artwork. That comparison is a visual QA aid, not distributor approval. [Apple's motion-art guidelines](https://help.apple.com/itc/albummotionguide/en.lproj/static.html)
 
 ## Using the studio
 
@@ -394,16 +388,16 @@ This section gives an overview. [docs/STUDIO_GUIDE.md](docs/STUDIO_GUIDE.md) cov
 
 ### The screen
 
-The left column holds the track, its tempo and beat grid, the level meters, your clips and your past exports. The middle shows the preview, the transport bar and the timeline. The bar along the top shows the open project, then the track, tempo, loop length, look and clip count. On its right are Undo and Redo (the ↶ and ↷ arrows), the keyboard shortcuts button, Roll and Export. The arrow next to Roll chooses what a roll changes.
+The Library holds the track, tempo and beat grid, level meters, clips and past exports. The center holds the viewer and transport, with a wide timeline below the Library and viewer. Drag the panel dividers to resize the workspace, or use Shift+F for viewer focus. The top bar holds the project, command search (⌘K / Ctrl+K), Undo and Redo, shortcuts, Remix and Export. The arrow next to Remix chooses what a roll changes. The footer shows the current format and output dimensions.
 
-The right column has three tabs. Looks is the gallery of 44 looks. Layers holds the effect stack, the Camera and Finish settings, the color palette and the modulators. Edit sets the cut rhythm, transitions, clip direction, speed ramps and loop length.
+The Inspector has three tabs. Looks is a searchable gallery of 44 looks with collection filters. Layers holds the effect stack, Camera, Finish, color palette and modulators; its Effects and Color sections narrow the controls you see. Edit sets the cut rhythm, transitions, clip direction, speed ramps and loop length. The transport shows frame timecode, and comma / period step one frame at a time.
 
 ### Adding clips, images and songs
 
 Downbeat lists the videos and songs in the folders you pick, and the files you add.
 
-- + Add a folder (in Clips and in the Track menu) lists a folder's videos and songs, including its subfolders, and leaves the files where they are. On a Mac it opens the system folder chooser. On Linux and Windows you type the folder's path. The folders are saved in `out/.library.json`, and ✕ next to a folder in the Track menu stops listing it.
-- + Add files, or dragging files onto the window, copies them into Downbeat.
+- + Folder in Clips, or + Add a folder in the Track menu, lists a folder's videos and songs, including its subfolders, and leaves the files where they are. On a Mac it opens the system folder chooser. On Linux and Windows you type the folder's path. The folders are saved in `out/.library.json`, and ✕ next to a folder in the Track menu stops listing it.
+- Import, or dragging files onto the window, copies them into Downbeat.
 
 | Kind | Formats |
 | :--- | :--- |
@@ -441,7 +435,7 @@ In the Edit tab, choose the cut rhythm, which transitions to use, the clip direc
 
 - Split a segment at the playhead (`B`), repeat its first half (`⌘D`), put another clip in from the playhead, or delete it (`Delete`) and let the segment before play on. The buttons above the timeline do the same on a touch screen.
 - Drag a cut to move it along the beat grid, or to half or quarter beats with Snap (`N`). Hold `Shift` to put it anywhere.
-- Drag the edge of a transition's pink band to set how long that one lasts.
+- Drag the edge of a transition's violet band to set how long that one lasts.
 - `Alt`-drag (Option on a Mac) a segment to use a different part of its clip.
 - Double-click a segment, right-click it, press Enter, or long-press it on a touch screen to change just that one: where its cuts sit (on or off the beat), its transition and how long it lasts, and the in-point, the moment of the clip it starts on.
 
@@ -562,13 +556,14 @@ Press `E`, or click Export, to open the export sheet. Pick a format and size, th
 | Spotify Canvas, Master | 1080 × 1920 | The size most people upload. Silent, 3 to 8 s |
 | Spotify Canvas, Lite | 720 × 1280 | A smaller file |
 | Spotify Canvas, Spec-literal | 608 × 1080 | Exactly inside the 720 to 1080 px height Spotify lists. Use it if an upload is rejected |
-| Apple Music, 3:4 | 2048 × 2732 | Portrait motion art. Silent, repeated to 15 to 35 s |
-| Apple Music, 1:1 | 3840 × 3840 | Square motion art, rendered at 2048 and scaled up. Silent, repeated to 15 to 35 s |
+| Apple Music, 3:4 | 2048 × 2732 | Native portrait motion art. Silent, 8 to 35 s; H.264 or ProRes |
+| Apple Music, 1:1 | 3840 × 3840 | Native square motion art. Silent, 8 to 35 s; H.264 or ProRes |
 | YouTube Visualizer | 1920 × 1080 | A 16:9 video. Any length. Check Also save a copy with the song for one with sound |
 | Social Feed | 1080 × 1080 | A square loop, with the song if you want it. Any length |
+| Social Video | 1080 × 1920 | Vertical social video for Reels, TikTok and Shorts, with an optional song copy |
 | Album Cover Art | 3000 × 3000 | An sRGB JPEG cover, plus a square motion preview |
 
-Spotify exports are encoded at 16 Mbps (9 Mbps for the smaller sizes). The other formats use 50 Mbps, or 20 Mbps for videos longer than a minute, which is about 150 MB a minute. The Apple 1:1 file is the exception: ffmpeg re-encodes it when it scales it up to 3840 × 3840. Every export streams to disk as it renders, so long videos aren't limited by memory.
+Spotify exports are encoded at 16 Mbps (9 Mbps for the smaller sizes). Other H.264 formats target 50 Mbps, or 20 Mbps for videos longer than a minute. When the browser cannot encode a size, raw frames stream to ffmpeg. ProRes uses its selected profile and produces much larger files. Export requests and caches are bounded, and encoded output streams to disk; high-resolution rendering still requires enough GPU memory and free disk space.
 
 ### Options
 
@@ -597,12 +592,12 @@ After an export, ffprobe reads the file and the studio lists the results.
 | Check | Passes when |
 | :--- | :--- |
 | Length | 3 to 8 s for a Canvas, 8 to 35 s for Apple Music. YouTube and Social can be any length |
-| Aspect | 9:16 for a Canvas, 3:4 or 1:1 for Apple Music, 16:9 for YouTube, 1:1 for Social |
+| Aspect | 9:16 for a Canvas, 3:4 or 1:1 for Apple Music, 16:9 for YouTube, 1:1 or 9:16 for Social |
 | Size | At least 720 px tall for a Canvas, and at least the format's size for the others |
-| Codec | H.264, yuv420p |
+| Codec | H.264/yuv420p, or the selected Apple ProRes profile and pixel format in MOV |
 | Frame rate | Constant 30 fps (23.976 to 30 fps for Apple Music) |
 | Audio | None in Canvas and Apple Music files. Only promos and the `-audio` copy have sound |
-| Fast start | The MP4's index (`moov`) comes before the video data (`mdat`), so playback can begin before the whole file arrives |
+| Fast start | The MP4/MOV index (`moov`) comes before the video data (`mdat`), so playback can begin before the whole file arrives |
 | Loop seam | The jump from the last frame back to the first is no bigger than 1.25 times the loop's normal frame-to-frame change |
 | Flashes | No more than 3 flashes a second, over the whole frame or in any quarter of it |
 | Clips play, not stills | Every cut's footage changes from frame to frame. While it renders, the studio records which clip frame each cut asked for, the frame the server sent and the picture that reached the GPU. A cut that shows one picture for 1.5 s or more fails |
@@ -736,7 +731,8 @@ downbeat/
 ├── package.json                # studio dependencies and build scripts
 ├── docs/
 │   ├── STUDIO_GUIDE.md         # every panel and control in the studio
-│   ├── studio.jpg              # the screenshots at the top: the Landscape screen,
+│   ├── studio-workspace.png    # the current studio screenshot at the top
+│   ├── studio.jpg              # previous studio screenshots: the Landscape screen,
 │   ├── studio-layers.jpg       #   the Layers tab's modulators
 │   └── studio-phone.jpg        #   and the phone screen editing one clip's effects
 ├── downbeat/
@@ -774,6 +770,12 @@ downbeat/
 
 ## Development
 
+The engineering release gate is `npm run quality`: strict TypeScript, measured coverage minimums,
+the production build, required browser regressions and CPU performance budgets. Install the Python
+development dependency with `.venv/bin/python -m pip install -e '.[dev]'` first.
+See [engineering quality and performance](docs/QUALITY.md) for coverage scopes, CI and reproducible
+preview/export/soak benchmarks. These checks preserve the existing editing and delivery workflows.
+
 ```bash
 make test                                # Python suite, then the Node and Vitest suites when Node is installed
 ./.venv/bin/python -m unittest discover -s tests -v   # only the Python tests
@@ -789,7 +791,7 @@ On Windows, the Python is `.venv\Scripts\python.exe`, and `make test` and `make 
 
 Notes for working on the studio, such as why `compose()` must stay the only place frames are built and how looks are edited in place, are in [the guide's developer notes](docs/STUDIO_GUIDE.md#20-notes-for-developers).
 
-To report a bug or suggest a change, [open an issue](https://github.com/J-Reed700/downbeat/issues). Pull requests should pass `make test`.
+To report a bug or suggest a change, [open an issue](https://github.com/J-Reed700/downbeat/issues). Pull requests should pass `npm run quality`.
 
 ## Command-line renderer
 

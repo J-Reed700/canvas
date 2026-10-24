@@ -1,8 +1,8 @@
 // compose(): (look, edit, audio, t) -> one engine frame. Used identically by preview and export.
 import { CAMERA, FINISH_DEF, MODULES } from './modules.ts';
-import { withLook } from './audio.ts';
+import { modulationAt, withLook } from './audio.ts';
 import { cameraFor, clipTime, sampleTimeline, velocityAt } from './timeline.ts';
-import type { ComposedFrame, ComposedLayer, ComposeContext, Look, Modulation, ModValues, ParamDef, TimelineSamplePart, VideoNeed } from './types.ts';
+import type { BlockOverrides, ComposedFrame, ComposedLayer, ComposeContext, Look, Modulation, ModValues, ParamDef, TimelineSamplePart, VideoNeed } from './types.ts';
 
 const isStepped = (p: ParamDef): boolean => !!(p.opts || p.step >= 1);
 
@@ -12,12 +12,14 @@ export function resolveParams(
   mods?: Record<string, Modulation>,
   mv: ModValues = {},
   depth: number = 1,
+  readMod?: (route: Modulation) => number | undefined,
 ): Record<string, number> {
   const out: Record<string, number> = {};
   for (const p of defs) {
     let v = values?.[p.id] ?? p.def;
     const m = mods?.[p.id];
-    if (m && !isStepped(p) && mv[m.src] !== undefined) v += m.amt * depth * mv[m.src] * (p.max - p.min);
+    const source = m ? (readMod ? readMod(m) : mv[m.src]) : undefined;
+    if (m && !isStepped(p) && source !== undefined) v += m.amt * depth * source * (p.max - p.min);
     out[`p_${p.id}`] = Math.min(p.max, Math.max(p.min, v));
   }
   return out;
@@ -66,15 +68,38 @@ export function layerStack(
   mv: ModValues,
   { wet, depth, boost = 1 }: { wet: number; depth: number; boost?: number },
   prefix: string = '',
+  readMod?: (route: Modulation) => number | undefined,
 ): ComposedLayer[] {
   const out: ComposedLayer[] = [];
   look.layers.forEach((l, i) => {
     if (l.on === false || !MODULES[l.m]) return;
-    const params = resolveParams(MODULES[l.m].params, boosted(l.m, l.p, boost), l.mods, mv, depth);
+    const params = resolveParams(MODULES[l.m].params, boosted(l.m, l.p, boost), l.mods, mv, depth, readMod);
     out.push({ m: l.m, key: `${prefix}${i}:${l.m}`, src: l, params: { ...params, uWet: wet } });
   });
   return out;
 }
+
+/** Applies the sparse visual settings owned by one block. Layer overrides carry the module id as
+ * well as the index, so a saved block remains safe when another look has a different layer there. */
+export function lookWithOverrides(look: Look, overrides?: BlockOverrides): Look {
+  if (!overrides) return look;
+  const layers = overrides.layers
+    ? look.layers.map((layer, i) => {
+        const own = overrides.layers?.[String(i)];
+        return own?.m === layer.m ? { ...layer, p: { ...layer.p, ...own.p } } : layer;
+      })
+    : look.layers;
+  return {
+    ...look,
+    layers,
+    macro: overrides.macro ? { a: look.macro?.a ?? 0, b: look.macro?.b ?? 0, ...overrides.macro } : look.macro,
+    camera: overrides.camera ? { ...look.camera, p: { ...look.camera.p, ...overrides.camera } } : look.camera,
+    finish: overrides.finish ? { ...look.finish, p: { ...look.finish.p, ...overrides.finish } } : look.finish,
+  };
+}
+
+const mixParams = (a: Record<string, number>, b: Record<string, number>, p: number): Record<string, number> =>
+  Object.fromEntries(Object.keys(a).map((key) => [key, a[key] + ((b[key] ?? a[key]) - a[key]) * p]));
 
 // Optional ctx.clipLook(clipId, seg) applies a per-clip (or per-cut) stack before transitions.
 // Thumbnails and variation tiles always render a single look.
@@ -82,13 +107,24 @@ export function compose(ctx: ComposeContext, t: number, look: Look = ctx.look): 
   const { tl, sampler, clipDur, L, beatDur, seed } = ctx;
   const beat = t / beatDur;
   const base = sampler(t);
-  const forLook = (l: Look): ModValues => withLook(base, l, t / L, beat, L / beatDur);
-  const mv = forLook(look);
   const s = sampleTimeline(tl, t);
+  const parts = s.b ? [s.a, s.b] : [s.a];
+  const useBlockOverrides = look === ctx.look;
+  const effective = (l: Look, part: TimelineSamplePart): Look => lookWithOverrides(l, useBlockOverrides ? part.seg.overrides : undefined);
+  const forLook = (l: Look): ModValues => withLook(base, l, t / L, beat, L / beatDur);
+  const modReader = (l: Look, values: ModValues) => (route: Modulation): number | undefined =>
+    values[route.src] === undefined ? undefined : modulationAt(route, sampler, l, t, L, beatDur, values);
+  // The incoming block owns the cut from its midpoint onward. Finish settings are blended through the
+  // transition below; this dominant look supplies inspector values and post-cut global uniforms.
+  const active = s.b && s.p >= 0.5 ? s.b : s.a;
+  const activeLook = effective(look, active);
+  const mv = forLook(activeLook);
   const k = intensityOf(ctx);
-  const cp = resolveParams(CAMERA.params, look.camera.p, look.camera.mods, mv, k.depth);
-  const cam = { zoom: cp.p_zoom, drift: cp.p_drift, shake: cp.p_shake, sway: cp.p_sway };
   const need = (x: TimelineSamplePart, back: boolean | undefined, aux?: string): VideoNeed => {
+    const cameraLook = effective(look, x);
+    const cameraMv = forLook(cameraLook);
+    const cp = resolveParams(CAMERA.params, cameraLook.camera.p, cameraLook.camera.mods, cameraMv, k.depth, modReader(cameraLook, cameraMv));
+    const cam = { zoom: cp.p_zoom, drift: cp.p_drift, shake: cp.p_shake, sway: cp.p_sway };
     const rate = x.seg.speed * velocityAt(x.seg, x.local);
     const n: VideoNeed = {
       vkey: `${x.seg.clipId}#${x.key}`,
@@ -123,29 +159,46 @@ export function compose(ctx: ComposeContext, t: number, look: Look = ctx.look): 
 
   if (hasBroll && broll) needs.push(broll);
 
-  // feedback histories are per clip; the same clip on both sides of a cut gets its own for side B
-  const parts = s.b ? [s.a, s.b] : [s.a];
-  const pre: ComposedLayer[][] | null = perClip
+  // Block layer and macro settings, like per-clip looks, run on each side before the transition. Feedback
+  // histories are per clip; the same clip on both sides of a cut gets its own for side B.
+  const perBlock = useBlockOverrides && parts.some((part) => !!(part.seg.overrides?.layers || part.seg.overrides?.macro));
+  const beforeTransition = !!perClip || perBlock;
+  const pre: ComposedLayer[][] | null = beforeTransition
     ? needs.filter((n) => !n.aux).map((n, i) => {
-        const clk = ctx.clipLook?.(n.clipId, parts[i]?.seg) || look;
-        return layerStack(clk, forLook(clk), k, `c:${n.clipId}${i && n.clipId === needs[0].clipId ? 'b' : ''}:`);
+        const part = parts[i] || s.a;
+        const baseLook = (perClip && ctx.clipLook?.(n.clipId, part.seg)) || look;
+        const blockLook = effective(baseLook, part);
+        const values = forLook(blockLook);
+        return layerStack(blockLook, values, k, `c:${n.clipId}${i && n.clipId === needs[0].clipId ? 'b' : ''}:`, modReader(blockLook, values));
       })
     : null;
+  const finishFor = (part: TimelineSamplePart): Record<string, number> => {
+    const l = effective(look, part);
+    const values = forLook(l);
+    return resolveParams(FINISH_DEF.params, l.finish.p, l.finish.mods, values, k.depth, modReader(l, values));
+  };
+  const finishA = finishFor(s.a);
+  const finish = s.b ? mixParams(finishA, finishFor(s.b), s.p) : finishA;
+  const cp = resolveParams(CAMERA.params, activeLook.camera.p, activeLook.camera.mods, mv, k.depth, modReader(activeLook, mv));
   return {
     needs,
     broll,
     trans: s.b && s.trans ? { name: s.trans, p: s.p } : null,
     seg: s,
-    layers: perClip ? [] : layerStack(look, mv, k),
+    layers: beforeTransition ? [] : layerStack(activeLook, mv, k, '', modReader(activeLook, mv)),
     pre,
-    finish: resolveParams(FINISH_DEF.params, look.finish.p, look.finish.mods, mv, k.depth),
+    finish,
     camera: cp,
     mv,
     globals: {
       uTime: t, uLoop: L, uPhase: t / L, uBeat: beat, uBeatLen: beatDur, uSeed: seed % 997, uFrame: Math.round(t * 30) % Math.max(1, Math.round(L * 30)),
       uKick: mv.kick, uSnare: mv.snare, uHats: mv.hats, uBass: mv.bass, uEnergy: mv.energy, uBright: mv.bright,
       uVocals: mv.vocals ?? 0, uPresence: mv.presence ?? 0,
+      uAudioTime: base.audioTime ?? t, uBassTime: base.bassTime ?? t,
+      uAudioPhase: base.audioPhase ?? (((t / L) % 1) + 1) % 1,
+      uBassPhase: base.bassPhase ?? (((t / L) % 1) + 1) % 1,
     },
+    lut: look.finish.lut,
   };
 }
 
