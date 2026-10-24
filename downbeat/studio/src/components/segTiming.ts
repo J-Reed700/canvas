@@ -4,6 +4,7 @@ import { useStudioStore } from '../state/store.ts';
 import { h } from '../lib/utils.ts';
 import { clamp } from '../engine/looks.ts';
 import { MIN_BEATS, SNAPS, moveCut, segAt, snapBeat } from '../engine/blocks.ts';
+import { editTime } from '../engine/timeline.ts';
 import type { SnapDiv } from '../engine/blocks.ts';
 import type { Segment } from '../engine/types.ts';
 
@@ -48,6 +49,8 @@ export function timingSection(id: string, render: () => void, length: HTMLElemen
   const tileEls = new Map<string, HTMLElement>();
 
   const ctx = () => st().ctx!;
+  // the strip works in edit time, so its length is the plan's: half the loop in a Rebound loop
+  const span = () => ctx().tl.L;
   const now = () => ctx().tl.segs.find((x) => x.id === id)!;
   const blocks = () => st().blocks ?? ctx().tl.blocks;
 
@@ -55,7 +58,8 @@ export function timingSection(id: string, render: () => void, length: HTMLElemen
   // the cut under the pointer stays under it.
   let view = { lo: 0, hi: 1 };
   const frame = () => {
-    const { L, beatDur: bd, tl } = ctx();
+    const { beatDur: bd, tl } = ctx();
+    const L = span();
     const seg = now();
     const n = tl.segs.length;
     if (n < 2) return { lo: 0, hi: L };
@@ -72,9 +76,11 @@ export function timingSection(id: string, render: () => void, length: HTMLElemen
 
   // the segments in sight, with the copies a loop either side
   const shown = (): Shown[] => {
-    const { L, tl } = ctx();
+    const { tl } = ctx();
+    const L = span();
     const out: Shown[] = [];
-    for (const off of [-L, 0, L]) for (const seg of tl.segs) if (seg.t1 + off > view.lo && seg.t0 + off < view.hi) out.push({ seg, off });
+    // a Rebound loop turns round at its ends instead of starting over, so there's nothing to show past them
+    for (const off of tl.rebound ? [0] : [-L, 0, L]) for (const seg of tl.segs) if (seg.t1 + off > view.lo && seg.t0 + off < view.hi) out.push({ seg, off });
     return out;
   };
   // the cut at the end of the segment, unless that's the loop seam
@@ -86,7 +92,8 @@ export function timingSection(id: string, render: () => void, length: HTMLElemen
   const move = (e: PointerEvent) => {
     if (!drag) return;
     const s = st();
-    const { L, beatDur: bd } = ctx();
+    const { beatDur: bd } = ctx();
+    const L = span();
     const t = timeAt(e.clientX);
     if (drag.kind === 'cut') s.trimCut(drag.block, t / bd, e.shiftKey ? 0 : s.snap);
     else if (drag.kind === 'len') {
@@ -124,7 +131,8 @@ export function timingSection(id: string, render: () => void, length: HTMLElemen
   // a double-click splits the segment under it, on the snap grid
   zoom.ondblclick = (e: MouseEvent) => {
     const s = st();
-    const { L, beatDur: bd, tl } = ctx();
+    const { beatDur: bd, tl } = ctx();
+    const L = span();
     const t = timeAt(e.clientX);
     const seg = segAt(tl, t);
     if (!seg) return;
@@ -136,7 +144,8 @@ export function timingSection(id: string, render: () => void, length: HTMLElemen
   // ---- the steppers under the strip ----
   const nudge = (block: string, cut: () => number, dir: 1 | -1) => {
     const s = st();
-    const { L, beatDur: bd } = ctx();
+    const { beatDur: bd } = ctx();
+    const L = span();
     const to = stepBeat(cut() / bd, dir, s.snap);
     const cur = blocks();
     const next = moveCut(cur, block, to, s.snap, L / bd);
@@ -169,7 +178,8 @@ export function timingSection(id: string, render: () => void, length: HTMLElemen
   // ---- drawing ----
   function layout() {
     const s = st();
-    const { L, beatDur: bd } = ctx();
+    const { beatDur: bd } = ctx();
+    const L = span();
     const seg = now();
     if (!seg) return;
     if (!drag) view = frame();
@@ -247,8 +257,8 @@ export function timingSection(id: string, render: () => void, length: HTMLElemen
   const segOf = (bid: string) => ctx().tl.segs.find((x) => x.id === bid);
 
   function playhead() {
-    const { L } = ctx();
-    const t = st().transport.loopTime();
+    const L = span();
+    const t = editTime(ctx().tl, st().transport.loopTime()).t;
     const x = [t, t - L, t + L].find((v) => v >= view.lo && v <= view.hi);
     head.hidden = x == null;
     if (x != null) head.style.left = `${at(x)}%`;
