@@ -19,6 +19,7 @@ from ..analysis import framing
 from ..analysis.features import track_features
 from .library import AUDIO_EXTS, pick_folder_dialog, playable_path
 from ..media.encoder import CANVAS_FPS
+from ..media.proxy import MAX_SECONDS as PROXY_SECONDS
 from ..media.source import IMAGE_EXTS, extract_thumbnail_jpeg, still_to_clip
 from .state import (
     OUT_DIR,
@@ -308,7 +309,11 @@ class StudioHandler(BaseHTTPRequestHandler):
         try:
             width = max(32, min(720, int(query.get("w", ["360"])[0])))
             at_sec = float(query.get("t", ["1.5"])[0])
-            jpg = extract_thumbnail_jpeg(src.path, width=width, at_sec=at_sec)
+            # The playback copy has a keyframe every 8 frames, so a frame from it comes 3 to 5 times faster
+            # than from a long-GOP original. It holds the first PROXY_SECONDS of the clip.
+            proxy = STATE.proxies.path_for(src)
+            use_proxy = at_sec < PROXY_SECONDS - 0.1 and STATE.proxies.ready(src) and os.path.isfile(proxy)
+            jpg = extract_thumbnail_jpeg(proxy if use_proxy else src.path, width=width, at_sec=at_sec)
             self.send_response(HTTPStatus.OK)
             self.send_header("Content-Type", "image/jpeg")
             self.send_header("Content-Length", str(len(jpg)))

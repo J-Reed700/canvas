@@ -119,10 +119,10 @@ describe('lane', () => {
     const tile = (title: string) => pop().querySelector<HTMLButtonElement>(`.seg-clip[title="${title}"]`)!;
     expect(open()).toBe(true);
     expect(pop().className).toContain('seg-menu');
-    expect(pop().querySelector('h4')!.textContent).toBe('Segment 2');
+    expect(pop().querySelector('h4')!.textContent).toBe('Segment 2 of 4');
     expect(pop().querySelector('.seg-head .meta')!.textContent).toMatch(/^Bar 2 · \d+\.\d\d s long$/);
     const labels = Array.from(pop().querySelectorAll('.seg-l > span:first-child')).map((l) => l.textContent);
-    expect(labels).toEqual(['Clip', 'In-point', 'Speed ramp', 'Transition in']);
+    expect(labels).toEqual(['Clip', 'In-point', 'Direction', 'Speed ramp', 'Transition in']);
     expect(Array.from(pop().querySelectorAll('.seg-group small')).map((g) => g.textContent)).toEqual(['Smooth', 'Kinetic', 'Glitch', 'Other']);
 
     expect(tile('#2 city.mp4').className).toContain('on');
@@ -152,6 +152,74 @@ describe('lane', () => {
 
     fireEvent.doubleClick(lane(), { clientX: 10, clientY: 30 });
     expect(pop().querySelector('.seg-note')!.textContent).toContain('loop seam');
+  });
+
+  test('the segment menu steps between segments with its arrows or the arrow keys, and outlines nothing once closed', () => {
+    barEdit();
+    fireEvent.doubleClick(lane(), { clientX: 125, clientY: 30 });
+    const head = () => pop().querySelector('h4')!.textContent;
+    const later = vi.fn(); // stands in for the studio's own ← → (stepping looks), which listens after the menu
+    window.addEventListener('keydown', later);
+    fireEvent.click(pop().querySelector('[aria-label="Next segment"]')!);
+    expect(head()).toBe('Segment 3 of 4');
+    expect(st().transport.loopTime(), 'the playhead moves onto it').toBeCloseTo(4.25, 9);
+    fireEvent.keyDown(window, { key: 'ArrowRight' });
+    fireEvent.keyDown(window, { key: 'ArrowRight' });
+    expect(head(), 'wraps around').toBe('Segment 1 of 4');
+    fireEvent.keyDown(window, { key: 'ArrowLeft' });
+    expect(head()).toBe('Segment 4 of 4');
+    expect(later).not.toHaveBeenCalled();
+    fireEvent.click(pop().querySelector('.seg-x')!);
+    fireEvent.keyDown(window, { key: 'ArrowRight' });
+    expect(later, 'closed, the arrow keys go back to the studio').toHaveBeenCalledTimes(1);
+    window.removeEventListener('keydown', later);
+  });
+
+  test('the in-point filmstrip, direction, the marks on what you set and Back to auto', () => {
+    barEdit();
+    fireEvent.doubleClick(lane(), { clientX: 125, clientY: 30 });
+    const marks = () => Array.from(pop().querySelectorAll('.seg-l > span:first-child')).filter((l) => l.querySelector('.seg-mine')).map((l) => l.textContent);
+    const auto = () => pop().querySelector('.seg-auto') as HTMLButtonElement;
+    expect(marks()).toEqual([]);
+    expect(auto().disabled).toBe(true);
+    expect(pop().querySelector('.seg-foot')!.textContent).toContain('Everything here is automatic');
+
+    const frames = Array.from(pop().querySelectorAll<HTMLButtonElement>('.seg-strip button'));
+    expect(frames).toHaveLength(8);
+    const max = +(pop().querySelector('input[type=range]') as HTMLInputElement).max;
+    const t = +((max * 4.5) / 8).toFixed(2);
+    expect(frames[4].style.backgroundImage).toBe(`url("/api/thumb/b?w=120&t=${t.toFixed(2)}")`);
+    fireEvent.click(frames[4]);
+    expect(st().ctx!.tl.segs[1].in).toBeCloseTo(t, 9);
+    expect(pop().querySelector('.seg-val')!.textContent).toBe(`${t.toFixed(2)} s`);
+    expect(parseFloat((pop().querySelector('.seg-mark') as HTMLElement).style.left)).toBeCloseTo((t / max) * 100, 6);
+
+    fireEvent.click(popButton('Reverse'));
+    expect([st().ctx!.tl.segs[1].rev, st().ctx!.tl.segs[1].pp]).toEqual([true, false]);
+    fireEvent.click(popButton('Ping-pong'));
+    expect([st().ctx!.tl.segs[1].rev, st().ctx!.tl.segs[1].pp]).toEqual([false, true]);
+    expect(popButton('Ping-pong').className).toBe('on');
+    expect(marks()).toEqual(['In-point', 'Direction']);
+    expect(pop().querySelector('.seg-foot')!.textContent).toContain('Dots mark what you set');
+
+    fireEvent.click(auto());
+    expect(st().segOverrides[1]).toBeUndefined();
+    expect([st().ctx!.tl.segs[1].rev, st().ctx!.tl.segs[1].pp]).toEqual([false, false]);
+    expect(marks()).toEqual([]);
+    expect(auto().disabled).toBe(true);
+  });
+
+  test('Play the cut starts a beat and half a transition before the segment', () => {
+    barEdit();
+    fireEvent.doubleClick(lane(), { clientX: 125, clientY: 30 });
+    fireEvent.click(popButton('▶ Play the cut'));
+    expect(st().transport.playing).toBe(true);
+    expect(st().transport.loopTime()).toBeCloseTo(2 - st().ctx!.tl.transDur / 2 - 0.5, 1);
+    st().transport.pause();
+    fireEvent.doubleClick(lane(), { clientX: 10, clientY: 30 });
+    fireEvent.click(popButton('▶ Play the cut'));
+    expect(st().transport.loopTime(), 'the seam starts from the end of the loop').toBeCloseTo(8 - st().ctx!.tl.transDur / 2 - 0.5, 1);
+    st().transport.pause();
   });
 });
 

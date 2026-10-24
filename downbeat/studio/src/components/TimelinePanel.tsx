@@ -2,6 +2,7 @@ import React, { useRef, useEffect, useLayoutEffect } from 'react';
 import { useStudioStore } from '../state/store.ts';
 import { fmt, openPop, closePop, h, POOLS } from '../lib/utils.ts';
 import { clamp } from '../engine/looks.ts';
+import { setMenuSeg } from '../canvas/timelineCanvas.ts';
 import { RHYTHMS, VELOCITY } from '../engine/timeline.ts';
 import { TRANSITIONS } from '../engine/shaders.ts';
 import type { SegmentOverride } from '../engine/types.ts';
@@ -20,26 +21,87 @@ const TRANS_GROUPS: [string, string[]][] = (() => {
   return [...groups, ['Other', Object.keys(TRANSITIONS).filter((k) => !grouped.has(k))]];
 })();
 
-/** The menu a double-click on a segment opens. Picks apply straight away and the menu stays open, so a
- * segment's clip, in-point, speed ramp and transition can all be set in one go. */
-function segmentMenu(box: HTMLElement, si: number) {
+const FRAMES = 8;
+const DIRS: [NonNullable<SegmentOverride['dir']>, string][] = [['forward', 'Forward'], ['reverse', 'Reverse'], ['pingpong', 'Ping-pong']];
+const MINE = 'You set this. It goes back to automatic when you change the clips, rhythm or transitions.';
+
+// Unhooks the open segment menu's arrow keys and lane outline.
+let detachMenu: (() => void) | null = null;
+
+/** The menu a double-click on a segment opens. Picks apply straight away and the menu stays open, and ‹ › or
+ * the arrow keys move it to the next segment, so a whole edit can be gone through in one sitting. */
+function segmentMenu(box: HTMLElement, start: number) {
+  detachMenu?.();
+  let si = start;
+
+  const outline = () => {
+    setMenuSeg(si);
+    useStudioStore.getState().drawLane();
+  };
+  const go = (d: number) => {
+    const s = useStudioStore.getState();
+    const n = s.ctx?.tl.segs.length || 1;
+    si = (si + d + n) % n;
+    const seg = s.ctx?.tl.segs[si];
+    if (seg) s.transport.seek(seg.t0 + Math.min(seg.dur / 2, 0.25));
+    outline();
+    render();
+  };
+
+  const open = () => box.classList.contains('on') && box.classList.contains('seg-menu');
+  const onKey = (e: KeyboardEvent) => {
+    if (!open()) return detachMenu?.();
+    if ((e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') || e.metaKey || e.ctrlKey || e.altKey) return;
+    if ((e.target as HTMLElement | null)?.closest?.('input, select, textarea, [contenteditable]')) return;
+    e.preventDefault();
+    e.stopPropagation(); // everywhere else ← → step through the looks
+    go(e.key === 'ArrowRight' ? 1 : -1);
+  };
+  const watch = new MutationObserver(() => {
+    if (!open()) detachMenu?.();
+  });
+  window.addEventListener('keydown', onKey, true);
+  watch.observe(box, { attributes: true, attributeFilter: ['class'] });
+  detachMenu = () => {
+    window.removeEventListener('keydown', onKey, true);
+    watch.disconnect();
+    detachMenu = null;
+    setMenuSeg(null);
+    useStudioStore.getState().drawLane();
+  };
+
   const render = () => {
     const s = useStudioStore.getState();
     const seg = s.ctx?.tl.segs[si];
     if (!s.ctx || !seg) return closePop();
+    const { L, beatDur } = s.ctx;
+    const n = s.ctx.tl.segs.length;
+    const mine = s.segOverrides[si] || {};
     const pick = (patch: SegmentOverride) => {
       patchSegment(si, patch);
       s.rebuild();
       render();
     };
-    const field = (label: string, aside: any, ...kids: any[]) =>
-      h('div', { class: 'seg-f' }, h('div', { class: 'seg-l' }, h('span', {}, label), aside), ...kids);
+    const field = (label: string, key: keyof SegmentOverride, aside: any, ...kids: any[]) =>
+      h(
+        'div',
+        { class: 'seg-f' },
+        h('div', { class: 'seg-l' }, h('span', {}, label, mine[key] != null && h('i', { class: 'seg-mine', title: MINE })), aside),
+        ...kids,
+      );
     const chip = (on: boolean, text: string, onclick: () => void, title?: string) =>
       h('button', { class: on ? 'on' : '', title, onclick: () => !on && onclick() }, text);
+    const chips = (...kids: HTMLElement[]) => h('div', { class: 'seg-chips' }, ...kids);
 
-    const b = seg.t0 / s.ctx.beatDur + 1e-6;
+    const b = seg.t0 / beatDur + 1e-6;
     const beat = Math.floor(b % 4) + 1;
     const where = `Bar ${Math.floor(b / 4) + 1}${beat > 1 ? `, beat ${beat}` : ''} · ${seg.dur.toFixed(2)} s long`;
+    // a beat of the segment before, then the transition
+    const lead = s.ctx.tl.transDur / 2 + beatDur;
+    const playCut = () => {
+      s.transport.seek((((seg.t0 - lead) % L) + L) % L);
+      if (!s.transport.playing) s.transport.play();
+    };
 
     const name = (id: string) => {
       const c = s.clips.find((x) => x.id === id);
@@ -62,9 +124,41 @@ function segmentMenu(box: HTMLElement, si: number) {
       ),
     );
 
+    // In-point: a filmstrip of the moments the segment can start on, with the slider under it.
+    const clip = s.clips.find((c) => c.id === seg.clipId);
     const dur = s.clipDur.get(seg.clipId) || 10;
     const maxIn = Math.max(0, dur - seg.dur * seg.speed - 0.1);
-    const inVal = h('b', { class: 'seg-val' }, `${seg.in.toFixed(2)} s`);
+    const inVal = h('b', { class: 'seg-val' });
+    const mark = h('i', { class: 'seg-mark' });
+    const place = (v: number) => {
+      inVal.textContent = `${v.toFixed(2)} s`;
+      mark.style.left = `${maxIn > 0 ? Math.min(1, v / maxIn) * 100 : 0}%`;
+    };
+    const setIn = (v: number) => {
+      patchSegment(si, { in: v });
+      place(v);
+      s.transport.seek(seg.t0 + Math.min(seg.dur / 2, 0.25));
+      s.rebuild();
+    };
+    const strip =
+      maxIn > 0 &&
+      !clip?.still &&
+      h(
+        'div',
+        { class: 'seg-strip' },
+        ...Array.from({ length: FRAMES }, (_, k) => {
+          const t = (maxIn * (k + 0.5)) / FRAMES;
+          return h('button', {
+            title: `Start at ${t.toFixed(1)} s`,
+            style: `background-image:url(/api/thumb/${seg.clipId}?w=120&t=${t.toFixed(2)})`,
+            onclick: () => {
+              setIn(+t.toFixed(2));
+              render();
+            },
+          });
+        }),
+        mark,
+      );
     const slider = h('input', {
       type: 'range',
       min: 0,
@@ -72,21 +166,24 @@ function segmentMenu(box: HTMLElement, si: number) {
       step: 0.01,
       value: Math.min(seg.in, maxIn),
       disabled: maxIn <= 0,
-      oninput: (ev: Event) => {
-        const v = +(ev.target as HTMLInputElement).value;
-        patchSegment(si, { in: v });
-        inVal.textContent = `${v.toFixed(2)} s`;
-        s.transport.seek(seg.t0 + Math.min(seg.dur / 2, 0.25));
-        s.rebuild();
-      },
+      'aria-label': 'In-point',
+      oninput: (ev: Event) => setIn(+(ev.target as HTMLInputElement).value),
+      onchange: () => render(), // shows the you-set-this mark once the slider is let go
     });
+    place(seg.in);
+
+    const dirNow = seg.pp ? 'pingpong' : seg.rev ? 'reverse' : 'forward';
+    const any = Object.keys(mine).length > 0;
 
     box.replaceChildren(
       h(
         'div',
         { class: 'seg-head' },
-        h('h4', {}, `Segment ${si + 1}`),
+        h('button', { class: 'seg-step', title: 'Previous segment (←)', 'aria-label': 'Previous segment', disabled: n < 2, onclick: () => go(-1) }, '‹'),
+        h('h4', {}, `Segment ${si + 1}`, h('small', {}, ` of ${n}`)),
+        h('button', { class: 'seg-step', title: 'Next segment (→)', 'aria-label': 'Next segment', disabled: n < 2, onclick: () => go(1) }, '›'),
         h('span', { class: 'meta' }, where),
+        h('button', { class: 'seg-play', title: 'Play from a beat before the cut into this segment', onclick: playCut }, '▶ Play the cut'),
         h('button', { class: 'seg-x', title: 'Close (Esc)', 'aria-label': 'Close', onclick: closePop }, '✕'),
       ),
       h(
@@ -95,17 +192,21 @@ function segmentMenu(box: HTMLElement, si: number) {
         h(
           'div',
           { class: 'seg-col' },
-          field('Clip', null, clips, h('div', { class: 'seg-name' }, name(seg.clipId))),
+          field('Clip', 'clipId', null, clips, h('div', { class: 'seg-name' }, name(seg.clipId))),
           field(
             'In-point',
+            'in',
             h('span', {}, inVal, h('small', {}, ` of ${dur.toFixed(1)} s`)),
+            strip,
             slider,
             maxIn <= 0 && h('div', { class: 'seg-note' }, 'This clip is only just long enough to fill the segment.'),
           ),
+          field('Direction', 'dir', null, chips(...DIRS.map(([k, label]) => chip(dirNow === k, label, () => pick({ dir: k }))))),
           field(
             'Speed ramp',
+            'vel',
             null,
-            h('div', { class: 'seg-chips' }, ...Object.entries(VELOCITY).map(([k, v]) => chip(seg.vel === k, v.name, () => pick({ vel: k }), v.desc || 'Constant clip speed'))),
+            chips(...Object.entries(VELOCITY).map(([k, v]) => chip(seg.vel === k, v.name, () => pick({ vel: k }), v.desc || 'Constant clip speed'))),
           ),
         ),
         h(
@@ -113,21 +214,40 @@ function segmentMenu(box: HTMLElement, si: number) {
           { class: 'seg-col' },
           field(
             'Transition in',
+            'trans',
             null,
             si === 0 && h('div', { class: 'seg-note' }, 'This cut is the loop seam, where the end of the loop joins the start.'),
             ...TRANS_GROUPS.map(([group, ids]) =>
-              h(
-                'div',
-                { class: 'seg-group' },
-                h('small', {}, group),
-                h('div', { class: 'seg-chips' }, ...ids.map((k) => chip(seg.trans === k, TRANSITIONS[k].name, () => pick({ trans: k })))),
-              ),
+              h('div', { class: 'seg-group' }, h('small', {}, group), chips(...ids.map((k) => chip(seg.trans === k, TRANSITIONS[k].name, () => pick({ trans: k }))))),
             ),
           ),
         ),
       ),
+      h(
+        'div',
+        { class: 'seg-foot' },
+        h('span', {}, any ? 'Dots mark what you set. Changing the clips, rhythm or transitions sets them back to automatic.' : 'Everything here is automatic, picked from the edit seed.'),
+        h(
+          'button',
+          {
+            class: 'seg-auto',
+            disabled: !any,
+            title: 'Forget what you set for this segment',
+            onclick: () => {
+              const all = { ...s.segOverrides };
+              delete all[si];
+              useStudioStore.setState({ segOverrides: all });
+              s.rebuild();
+              render();
+            },
+          },
+          '↺ Back to auto',
+        ),
+      ),
     );
   };
+
+  outline();
   render();
 }
 

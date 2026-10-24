@@ -205,6 +205,8 @@ export interface SegmentOverride {
   trans?: string;
   vel?: string;
   in?: number;
+  /** Plays this segment forward, reversed or ping-pong, whatever the edit's direction. */
+  dir?: 'forward' | 'reverse' | 'pingpong';
 }
 
 export interface Segment {
