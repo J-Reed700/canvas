@@ -149,8 +149,8 @@ export function compose(ctx: ComposeContext, t: number, look: Look = ctx.look): 
   };
 }
 
-// Pool of hidden <video> elements, one per (clip, timeline slot). Preview keeps them playing in
-// sync with the transport; export seeks each one frame-exactly.
+// Pool of hidden <video> elements, one per (clip, timeline slot), that the preview keeps playing in
+// sync with the transport. Exports don't use them: see clipFrames.ts.
 export class VideoBank {
   root: HTMLElement;
   /** The clip's playback copy, or null while it's still being made. */
@@ -224,12 +224,6 @@ export class VideoBank {
     }
   }
 
-  async exact(needs: VideoNeed[]): Promise<void> {
-    const els = needs.map((n) => this.get(n.vkey, n.clipId));
-    await Promise.all(needs.map((n, i) => seekExact(els[i], n.time)));
-    this._gc(new Set(els)); // exports walk every cut, so prune here too
-  }
-
   _gc(active: Set<HTMLVideoElement>): void {
     if (this.els.size <= 20) return;
     const old = [...this.els.entries()].filter(([, e]) => !active.has(e)).sort((a, b) => (a[1] as any)._used - (b[1] as any)._used);
@@ -247,38 +241,4 @@ export class VideoBank {
     for (const [k, e] of this.els) { e.pause(); e.removeAttribute('src'); e.load(); e.remove(); this.onDrop?.(k); }
     this.els.clear();
   }
-}
-
-// Resolves on `ev`; rejects on media errors or timeout to avoid black frames.
-function once(el: HTMLElement, ev: string | string[], ms: number, what: string): Promise<void> {
-  const events = Array.isArray(ev) ? ev : [ev];
-  return new Promise((res, rej) => {
-    const off = () => {
-      for (const name of events) el.removeEventListener(name, ok);
-      el.removeEventListener('error', bad);
-      clearTimeout(to);
-    };
-    const ok = () => { off(); res(); };
-    const bad = () => { off(); rej(new Error(`${what}: the clip could not be decoded`)); };
-    const to = setTimeout(() => { off(); rej(new Error(`${what}: timed out`)); }, ms);
-    for (const name of events) el.addEventListener(name, ok);
-    el.addEventListener('error', bad);
-  });
-}
-
-export async function waitReady(e: HTMLVideoElement, ms: number = 240000): Promise<void> {
-  if (e.readyState >= 2) return;
-  await once(e, ['loadeddata', 'canplay', 'seeked'], ms, 'Loading clip');
-}
-
-async function seekExact(e: HTMLVideoElement, t: number): Promise<void> {
-  if (!e.paused) e.pause();
-  if (e.seeking) await once(e, 'seeked', 5000, 'Seeking clip');
-  await waitReady(e);
-  if (Math.abs(e.currentTime - t) >= 1e-4) {
-    const p = once(e, 'seeked', 5000, 'Seeking clip');
-    e.currentTime = t;
-    await p;
-  }
-  if (e.readyState < 2 || Math.abs(e.currentTime - t) > 0.02) throw new Error(`Seeking clip: landed at ${e.currentTime.toFixed(3)}s instead of ${t.toFixed(3)}s`);
 }

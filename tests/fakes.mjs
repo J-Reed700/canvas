@@ -172,15 +172,24 @@ export function stubFetch(routes) {
 
 export const tick = (ms = 0) => new Promise((r) => setTimeout(r, ms));
 
-// GPU engine whose stats frames have the luminance luma(frameIndex).
-export function fakeEngine(luma = () => 0.5) {
+// GPU engine whose stats frames have the luminance luma(frameIndex). Its "GPU" holds the hash of the
+// last frame uploaded to each cut; with `stale`, uploads after a cut's first one are lost.
+export function fakeEngine(luma = () => 0.5, { stale = false } = {}) {
   const eng = {
     canvas: {},
     renders: 0,
     resets: 0,
+    uploads: {},
+    dropped: 0,
     resize(w, h) { eng.size = [w, h]; },
     main: { reset() { eng.resets++; } },
     video: (vkey) => ({ vkey }),
+    frame(vkey, f) {
+      if (!(stale && vkey in eng.uploads)) eng.uploads[vkey] = f.sig;
+      return { vkey };
+    },
+    sourcePrints: (keys) => keys.map((k) => eng.uploads[k] ?? 0),
+    dropFrames() { eng.dropped++; },
     renderMain() { return eng.renders++; },
     readFull: () => new Uint8Array(16),
     readStats: (i) => new Uint8Array(36 * 64 * 4).fill(Math.round(luma(i) * 255)),
@@ -188,7 +197,41 @@ export function fakeEngine(luma = () => 0.5) {
   return eng;
 }
 
-export const fakeBank = (calls = []) => ({ calls, exact: async (needs) => { calls.push(needs); }, get: () => ({}) });
+// Clip frames for exportLoop: every frame of every clip is a different picture, unless `still` names
+// clips whose frames all look the same. `fail` makes the clip check throw that message.
+export function fakeFrames({ fail, still = [] } = {}) {
+  const f = {
+    checks: [],
+    gets: [],
+    async check(clipId) {
+      f.checks.push(clipId);
+      if (fail) throw new Error(fail);
+    },
+    async get(clipId, time, lane) {
+      f.gets.push([clipId, lane]);
+      const idx = Math.max(0, Math.floor(time * 30 + 1e-4));
+      return { clipId, idx, w: 2, h: 2, data: new Uint8Array(6), sig: still.includes(clipId) ? 1 : idx * 31 + clipId.charCodeAt(0) };
+    },
+    last: () => undefined,
+  };
+  return f;
+}
+
+// GET /api/frames/<clip> for tests: 2×2 frames whose bytes encode the clip and the frame number, so every
+// frame of a clip differs. Each clip has `total` frames.
+export function framesReply({ total = 360, w = 2, h = 2 } = {}) {
+  return (url) => {
+    const u = new URL(url, 'http://studio');
+    const clip = decodeURIComponent(u.pathname.split('/').pop());
+    const start = Math.min(Number(u.searchParams.get('start')), total - 1);
+    const count = Math.max(1, Math.min(Number(u.searchParams.get('count')), total - start));
+    const size = (w * h * 3) / 2;
+    const body = new Uint8Array(count * size);
+    for (let k = 0; k < count; k++) body.fill((start + k) * 7 + clip.charCodeAt(0), k * size, (k + 1) * size);
+    const head = { Start: start, Count: count, Total: total, Width: w, Height: h };
+    return new Response(body, { headers: Object.fromEntries(Object.entries(head).map(([k, v]) => [`X-Frame-${k}`, String(v)])) });
+  };
+}
 
 export function exportServer(o = {}) {
   return stubFetch({

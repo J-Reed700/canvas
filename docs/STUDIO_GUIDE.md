@@ -563,6 +563,12 @@ Render & verify renders every frame on the GPU, encodes H.264 in hardware, and c
 format's spec. While it runs, the preview shows the size being rendered and how far along it is. The result
 appears in the Exports list with a pass or fail badge.
 
+Exports take each clip frame from the server, which decodes it with ffmpeg, rather than from the browser's
+video player, so every browser renders the same frames. The studio also checks that each cut's footage keeps
+moving. If a cut shows one picture for 1.5 s or more, the sheet reads "Export failed: the clips froze", the
+file isn't downloaded, and the clips check says which cut, which clip and why: a start point past the first
+60 s of the clip, a speed setting that stops the footage, or frames that never reached the GPU.
+
 The Stills and teasers row makes stills from clip 1 (a 3000² cover, a 2660×1140 Spotify header, a 2560×1440 YouTube
 banner, a 2480×520 SoundCloud header) and GIF or WebP loops from your latest render.
 

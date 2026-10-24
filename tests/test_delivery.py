@@ -49,6 +49,19 @@ class TestDeliveryHelpers(TempDirCase):
         self.assertEqual(levels({"seam_ratio": 2.0, "max_flashes_per_sec": 4}), {"seam": "warn", "flash": "fail"})
         self.assertEqual(levels({"seam_ratio": 3.0}), {"seam": "fail"})
 
+    def test_the_studios_footage_check_is_listed_as_it_graded_it(self) -> None:
+        out: list[dict] = []
+        detail = "0:01.6 for 1.6 s: 48 different frames of a.mov were decoded, but the browser kept drawing the same picture"
+        delivery._motion_checks(out, None, {"footage": {"level": "fail", "detail": detail}})
+        self.assertEqual(out, [{"id": "footage", "label": "Clips play, not stills", "level": "fail", "detail": detail}])
+        for bad in ({"level": "great"}, "fail", {"detail": "x"}):
+            out = []
+            delivery._motion_checks(out, None, {"footage": bad})
+            self.assertEqual(out, [], bad)
+        out = []
+        delivery._motion_checks(out, None, {"footage": {"level": "ok", "detail": "x" * 2000}})
+        self.assertEqual(len(out[0]["detail"]), 800)
+
     def test_raw_session_closes_on_with(self) -> None:
         if not HAS_FFMPEG:
             self.skipTest("ffmpeg required")

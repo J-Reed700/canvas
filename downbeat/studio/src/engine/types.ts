@@ -1,4 +1,5 @@
 // Downbeat Studio type definitions.
+import type { FrameSource } from './clipFrames.ts';
 
 export type CategoryId = 'space' | 'warp' | 'time' | 'light' | 'stylize' | 'color';
 
@@ -425,7 +426,10 @@ export interface ExportProgress {
 
 export interface ExportLoopOptions {
   engine: any;
-  bank: any;
+  /** Where clip frames come from: the server's decoder (ClipFrames) or a test double. */
+  frames: FrameSource;
+  /** Names and kinds of the clips, for the footage check's messages. */
+  clips?: (clipId: string) => { name: string; still?: boolean } | undefined;
   ctx: ComposeContext;
   width: number;
   height: number;

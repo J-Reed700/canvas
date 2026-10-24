@@ -279,10 +279,9 @@ test('the studio works end to end in a real browser', { skip: missing.length ? `
     if (auto.checked) await tap(auto);
     await tap(byText('#exportForm button', 'Render & verify'));
     try {
-      await until(() => /^(Ready for Spotify|Exported, but some checks failed|Export failed|Export cancelled)$/.test($('#exportStatus h2')?.textContent || ''), 120000, 'the export');
+      await until(() => /^(Ready for Spotify|Exported, but some checks failed|Export failed.*|Export cancelled)$/.test($('#exportStatus h2')?.textContent || ''), 120000, 'the export');
     } catch (e) {
-      const videos = $$('#videoBank video').map((v) => v.src.split('/api/proxy/')[1] + ' ready=' + v.readyState + ' net=' + v.networkState + ' err=' + (v.error?.code ?? '-') + ' t=' + v.currentTime.toFixed(2) + (v.seeking ? ' seeking' : '') + (v.paused ? '' : ' playing'));
-      throw new Error(e.message + ': ' + ($('#exportStatus')?.textContent || 'no status') + ' | videos: ' + videos.join('; '));
+      throw new Error(e.message + ': ' + ($('#exportStatus')?.textContent || 'no status'));
     }
     const h2 = $('#exportStatus h2').textContent;
     const r = S.getState().renders[0];
@@ -291,6 +290,8 @@ test('the studio works end to end in a real browser', { skip: missing.length ? `
     if (getComputedStyle($('#exportForm')).display !== 'none') throw new Error('the export form still shows above the result');
     if (r.resolution !== '720x1280') throw new Error('size ' + r.resolution);
     if (!(r.stats.mean_luminance > 0.02)) throw new Error('the render is black: ' + JSON.stringify(r.stats));
+    const foot = r.checks.find((c) => c.id === 'footage');
+    if (foot?.level !== 'ok') throw new Error('the footage check: ' + JSON.stringify(foot));
     window.__render = r.filename;
   `);
 
@@ -324,6 +325,43 @@ test('the studio works end to end in a real browser', { skip: missing.length ? `
     if (r.resolution !== '1080x1080') throw new Error('size ' + r.resolution);
     if (!(r.stats.mean_luminance > 0.02)) throw new Error('the render is black: ' + JSON.stringify(r.stats));
   `);
+
+  await step('a plain hard-cut edit exports footage that moves, not stills', `
+    key('Escape');
+    const W = window.__studio;
+    W.store.setState({ exportOpts: { ...S.getState().exportOpts, format: 'spotify', size: 'lite', autoSave: false } });
+    W.setLook({ id: 'plain', name: 'Plain', vibe: '', layers: [], camera: { p: { zoom: 1, drift: 0, shake: 0, sway: 0, speed: 1 } },
+      finish: { p: { contrast: 1, saturation: 1, split: 0, fade: 0, vignette: 0, grain: 0 } },
+      cut: { rhythm: 'bar', transitions: ['cut'], beats: 0, order: 'cycle', velocity: 'none' } });
+    await until(() => W.ctx?.look?.id === 'plain', 3000, 'the plain look');
+    window.__cuts = W.ctx.tl.segs.map((g) => g.t0);
+    key('e');
+    await until(() => S.getState().exportOpen, 2000, 'the export sheet');
+    await tap(byText('#exportForm button', 'Render & verify'));
+    await until(() => /^(Ready for Spotify|Exported, but some checks failed|Export failed.*|Export cancelled)$/.test($('#exportStatus h2')?.textContent || ''), 120000, 'the plain export');
+    const r = S.getState().renders[0];
+    const foot = r.checks.find((c) => c.id === 'footage');
+    if (foot?.level !== 'ok') throw new Error($('#exportStatus h2').textContent + ': ' + JSON.stringify(foot));
+    window.__plain = r.filename;
+  `);
+
+  await t.test('in the plain export every cut moves from frame to frame', { skip: broken ? 'no export' : false }, async () => {
+    const { name, cuts } = await browser.run('return { name: window.__plain, cuts: window.__cuts };');
+    const [w, h] = [36, 64];
+    const raw = spawnSync('ffmpeg', ['-v', 'error', '-i', join(out, name), '-vf', `scale=${w}:${h}`, '-f', 'rawvideo', '-pix_fmt', 'gray', '-'], { maxBuffer: 1 << 28 }).stdout;
+    const n = raw.length / (w * h);
+    assert.ok(n >= 60, `${n} frames`);
+    const near = (f) => cuts.some((t0) => Math.abs(f - t0 * 30) < 1.5);
+    let steps = 0, still = [];
+    for (let f = 1; f < n; f++) {
+      if (near(f)) continue; // a cut changes the picture; only steps inside a cut count
+      let d = 0;
+      for (let i = 0; i < w * h; i++) d += Math.abs(raw[f * w * h + i] - raw[(f - 1) * w * h + i]);
+      steps++;
+      if (d / (w * h) < 0.3) still.push(f);
+    }
+    assert.ok(still.length <= steps * 0.05, `${still.length} of ${steps} steps inside cuts show no change: frames ${still.slice(0, 20).join(', ')}`);
+  });
 
   await t.test('no errors in the page', () => {
     assert.deepEqual(browser.problems, []);

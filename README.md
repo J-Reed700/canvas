@@ -40,7 +40,7 @@ The full guide to every panel and control is in [docs/STUDIO_GUIDE.md](docs/STUD
 - Makes random versions to start from. Roll (`D`) changes the look, a 4 to 6 layer effect stack, the edit and the per-clip effects in one go. Variations (`M`) shows six altered copies of the current look.
 - Pulls a five-color palette from your cover art and applies it to a look.
 - Previews the video on a screen of the export's shape while the song plays: a phone with Spotify's player drawn over it for a Canvas, or a landscape, tablet or square screen for the other formats.
-- Exports through the same renderer as the preview, so the file matches what you saw frame for frame. Each export is checked with ffprobe, and video loops also get a loop-seam check and a flash count.
+- Exports through the same renderer as the preview, so the file matches what you saw frame for frame. Each export is checked with ffprobe, and video loops also get a loop-seam check, a flash count and a check that every clip actually plays rather than freezing on one frame.
 
 Downbeat does not upload anything for you, and it has no accounts. You upload the file yourself in Spotify for Artists.
 
@@ -580,6 +580,10 @@ The Stills and teasers row makes stills from clip 1, framed on its subject: a 30
 
 Batch has two buttons. Export 4 rolls renders four random rolls of the current edit, then puts your edit back. "This look on N songs" renders the current look and edit on the 12 newest songs in the same folder as the current one, each at its top loop suggestion, so every song on a release shares one style. A batch ends with a list of what it exported and a download link for each file.
 
+### How exports read your clips
+
+The preview plays your clips in the browser's own video player. Exports don't: a video player that is told to jump to a frame doesn't promise to show that frame, and some browsers (Safari especially) keep showing the old one, which turns a clip into a still. Instead the server decodes every frame an export needs from the clip's playback copy with ffmpeg and sends it to the studio. Every browser gets the same frames.
+
 ### What each export is checked for
 
 After an export, ffprobe reads the file and the studio lists the results.
@@ -595,6 +599,15 @@ After an export, ffprobe reads the file and the studio lists the results.
 | Fast start | The MP4's index (`moov`) comes before the video data (`mdat`), so playback can begin before the whole file arrives |
 | Loop seam | The jump from the last frame back to the first is no bigger than 1.25 times the loop's normal frame-to-frame change |
 | Flashes | No more than 3 flashes a second, over the whole frame or in any quarter of it |
+| Clips play, not stills | Every cut's footage changes from frame to frame. While it renders, the studio records which clip frame each cut asked for, the frame the server sent and the picture that reached the GPU. A cut that shows one picture for 1.5 s or more fails |
+
+When the clips check fails, the sheet's heading reads "Export failed: the clips froze", the file isn't saved to your Downloads folder, and the check names the cut, the clip and the reason. For example:
+
+- `0:04.8 for 1.6 s: starts or runs past the end of IMG_4492.MOV's footage (1:00.0) and holds its last frame` means the cut's start point is past the part of the clip the studio uses (the first 60 s). Pick an earlier start point in the cut's menu.
+- `0:01.6 for 1.6 s: holds frame 0:10.0 of IMG_4496.MOV: the speed settings for this cut stop the footage` means a speed or velocity setting holds the frame.
+- `0:00.0 for 1.6 s: 48 different frames of IMG_4496.MOV were decoded, but the browser kept drawing the same picture` points at the browser or graphics driver. Try again in Chrome with graphics acceleration on, and please [open an issue](https://github.com/J-Reed700/downbeat/issues) with the browser and the clip.
+
+Photos added as clips are meant to stand still, so they're skipped. Footage that doesn't change in the clip itself, like a static screen recording, gets a warning rather than a failure.
 
 Apple Music files also get a bitrate warning below 25 Mbps, since distributors often ask for 45 to 100 Mbps. A Canvas taller than 1080 px gets a note about Spotify's listed height range.
 
@@ -626,6 +639,7 @@ On a Mac, the Reveal in Finder button shows the file in Finder. On Linux and Win
 | On WSL, the Track menu has no songs | Add your Windows music folder with + Add a folder, for example `/mnt/c/Users/<your-windows-name>/Music`, or drag songs onto the studio. |
 | Exports fail or come out broken on Ubuntu 22.04 or Debian 12 | Their ffmpeg (4.4 and 5.1) is too old. Use Ubuntu 24.04 or Debian 13 or newer, or install ffmpeg 6.1 or newer and make sure it's first on your PATH. |
 | The preview says it can't start, or stays black | In Chrome, open Settings, then System, turn on "Use graphics acceleration when available" and relaunch. `chrome://gpu` should list WebGL2 as hardware accelerated. On Windows, update your graphics driver. |
+| The export sheet says "Export failed: the clips froze" | The clips check names each frozen cut and the reason. See [What each export is checked for](#what-each-export-is-checked-for). |
 | Export fails with an error about `VideoEncoder` or WebCodecs | Update Chrome or Edge. Without hardware H.264, the studio sends raw frames to ffmpeg instead. That's slower, but it works. |
 | The FPS counter is well under 60 | Try a lighter look (Clean Cut, or fewer layers), close other GPU-heavy tabs, and check `chrome://gpu`. Exports aren't affected: they render every frame however long it takes. |
 | A clip keeps spinning, or the preview says "Preparing clip…" | The playback copies are still being built, and 4K files take longer. They're stored in `out/.proxies/` and are safe to delete. |

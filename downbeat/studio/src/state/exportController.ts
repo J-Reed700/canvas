@@ -1,5 +1,6 @@
 import { useStudioStore } from './store.ts';
 import { exportLoop } from '../engine/exporter.ts';
+import { ClipFrames } from '../engine/clipFrames.ts';
 import { cloneLook } from '../engine/looks.ts';
 import { FORMATS, SIZES, toast, h, postJSON, saveToDownloads, siblingTracks, fmt as fmtTime } from '../lib/utils.ts';
 import type { RenderRecord, ComposeContext } from '../engine/types.ts';
@@ -7,9 +8,12 @@ import { CHECK_ICONS } from '../lib/exportsView.ts';
 
 let exportAbortCtrl: AbortController | null = null;
 
+/** The footage check failed: the clips came out as stills. */
+export const froze = (r: RenderRecord): boolean => (r.checks || []).some((c) => c.id === 'footage' && c.level === 'fail');
+
 export function autoSave(res: RenderRecord) {
   const s = useStudioStore.getState();
-  if (s.exportOpts.autoSave === false) return;
+  if (s.exportOpts.autoSave === false || froze(res)) return;
   saveToDownloads(res.url, res.filename);
   if (res.promo_url) setTimeout(() => saveToDownloads(res.promo_url!, ''), 400);
   if (res.cover_url) setTimeout(() => saveToDownloads(res.cover_url!, ''), 800);
@@ -45,7 +49,7 @@ export function showResult(r: RenderRecord) {
     h(
       'div',
       { class: 'row', style: 'justify-content:space-between' },
-      h('h2', {}, fails ? 'Exported, but some checks failed' : headerText),
+      h('h2', {}, froze(r) ? 'Export failed: the clips froze' : fails ? 'Exported, but some checks failed' : headerText),
       h(
         'button',
         { class: 'btn icon', onclick: closeSheet },
@@ -112,10 +116,14 @@ export async function renderOnce(onProgress?: (progress: any) => void): Promise<
     look: cloneLook(s.ctx.look),
   };
 
+  const clipMeta = new Map(s.clips.map((c) => [c.id, c]));
+  const clipName = (id: string) => clipMeta.get(id)?.name?.replace(/\.still\.mp4$/, '') || 'a clip';
+
   try {
     return await exportLoop({
       engine: s.engine,
-      bank: s.bank,
+      frames: new ClipFrames(clipName),
+      clips: (id) => ({ name: clipName(id), still: !!clipMeta.get(id)?.still }),
       ctx: snapshotCtx,
       width: W,
       height: H,
@@ -205,7 +213,7 @@ export async function runExport(): Promise<void> {
     addRender(res);
     autoSave(res);
     showResult(res);
-    toast(`Exported ${res.filename}`);
+    toast(froze(res) ? 'Export failed: the clips froze. The reason is in the export sheet.' : `Exported ${res.filename}`, froze(res) ? 6000 : undefined);
   } catch (e: any) {
     console.error(e);
     sheetStatus(

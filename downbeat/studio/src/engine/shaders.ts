@@ -75,6 +75,16 @@ void main() {
 
 export const BLIT: string = PRELUDE + `void main() { outColor = vec4(texture(uSrc, vUv).rgb, 1.0); }`;
 
+// Export frames arrive as 8-bit 4:2:0 planes, BT.709 full range, top row first (clipFrames.ts). Flip them
+// so the result is laid out like an uploaded <video> frame.
+export const YUV: string = PRELUDE + `
+uniform sampler2D uY, uU, uV;
+void main() {
+  vec2 uv = vec2(vUv.x, 1.0 - vUv.y);
+  float y = texture(uY, uv).r, u = texture(uU, uv).r - 0.5, v = texture(uV, uv).r - 0.5;
+  outColor = vec4(y + 1.5748 * v, y - 0.1873 * u - 0.4681 * v, y + 1.8556 * u, 1.0);
+}`;
+
 // Finish: grade, tone, texture
 export const FINISH: string = PRELUDE + `
 uniform float p_exposure, p_contrast, p_saturation, p_temp, p_tint, p_fade, p_split, p_splitHue,

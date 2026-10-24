@@ -1,10 +1,10 @@
 import test, { after } from 'node:test';
 import assert from 'node:assert/strict';
-import { installDom, FakeElement, fakeCanvas, recordingContext, stubFetch, tick, fakeEngine, fakeBank, exportServer, FakeEncoder, FakeFrame } from './fakes.mjs';
+import { installDom, FakeElement, fakeCanvas, recordingContext, stubFetch, tick, fakeEngine, fakeFrames, exportServer, FakeEncoder, FakeFrame } from './fakes.mjs';
 
 const dom = installDom();
 const { Transport, makeSampler, envAt, ENV_POINTS } = await import('../downbeat/studio/src/engine/audio.ts');
-const { VideoBank, waitReady, resolveParams, layerStack } = await import('../downbeat/studio/src/engine/composer.ts');
+const { VideoBank, resolveParams, layerStack } = await import('../downbeat/studio/src/engine/composer.ts');
 const { exportLoop } = await import('../downbeat/studio/src/engine/exporter.ts');
 const { planTimeline, sampleTimeline } = await import('../downbeat/studio/src/engine/timeline.ts');
 const { LOOKS, cloneLook, insertAtStage, STAGE } = await import('../downbeat/studio/src/engine/looks.ts');
@@ -222,52 +222,6 @@ test('priming parks upcoming clips on their first frame', async () => {
   assert.deepEqual(e.seeks, [4]);
 });
 
-test('export seeks land exactly or fail with a reason', async () => {
-  const { b } = bank();
-  await b.exact([need('a#0', 2.5), need('b#1', 1)]);
-  assert.equal(b.get('a#0').currentTime, 2.5);
-  assert.equal(b.get('b#1').currentTime, 1);
-
-  const e = b.get('a#0');
-  e.readyState = 1;
-  e.seeking = true;
-  setTimeout(() => {
-    e._t = 0.31;
-    e.readyState = 4;
-    e.seeking = false;
-    e.dispatch('seeked');
-  }, 0);
-  await b.exact([need('a#0', 0.25)]);
-  assert.equal(e.currentTime, 0.25);
-
-  const off = b.get('c#2');
-  off.land = (t) => t + 0.5;
-  await assert.rejects(b.exact([need('c#2', 3)]), /landed at 3.500s instead of 3.000s/);
-
-  const loading = b.get('c#3');
-  loading.readyState = 0;
-  const done = waitReady(loading);
-  loading.readyState = 2;
-  loading.dispatch('loadeddata');
-  await done;
-
-  const broken = document.createElement('video'); // outside the bank, which would schedule a retry
-  broken.readyState = 0;
-  const failed = waitReady(broken);
-  broken.dispatch('error');
-  await assert.rejects(failed, /Loading clip: the clip could not be decoded/);
-});
-
-test('waiting for a clip gives up after its time limit', async (t) => {
-  t.mock.timers.enable({ apis: ['setTimeout'] });
-  const { b } = bank();
-  const e = b.get('a#0');
-  e.readyState = 0;
-  const p = waitReady(e, 1000);
-  t.mock.timers.tick(1000);
-  await assert.rejects(p, /Loading clip: timed out/);
-});
-
 test('the bank keeps at most twenty elements, dropping the least recently used ones that are not on screen', async () => {
   const dropped = [];
   const { root, b } = bank((k) => dropped.push(k));
@@ -277,7 +231,7 @@ test('the bank keeps at most twenty elements, dropping the least recently used o
   try {
     for (let i = 0; i < 25; i++) b.get(`a#${i}`);
     b.get('a#0'); // used again: now the newest
-    await b.exact([need('a#1', 0), need('a#2', 0)]);
+    b.sync([need('a#1', 0), need('a#2', 0)], false);
   } finally {
     performance.now = real;
   }
@@ -306,9 +260,9 @@ test('without WebCodecs every frame streams to the server as raw RGBA after a sh
   const reqs = exportServer();
   const ctx = exportCtx(1);
   const eng = fakeEngine();
-  const b = fakeBank();
+  const f = fakeFrames();
   const progress = [];
-  const out = await exportLoop({ engine: eng, bank: b, ctx, width: 72, height: 128, meta: { look: 'Neon', duration: 1 }, onProgress: (p) => progress.push(p) });
+  const out = await exportLoop({ engine: eng, frames: f, ctx, width: 72, height: 128, meta: { look: 'Neon', duration: 1 }, onProgress: (p) => progress.push(p) });
 
   const begin = JSON.parse(reqs[0].body);
   assert.deepEqual(begin, { look: 'Neon', duration: 1, width: 72, height: 128, fps: 30, codec: 'raw-rgba', stream: 'rgba' });
@@ -318,12 +272,16 @@ test('without WebCodecs every frame streams to the server as raw RGBA after a sh
   assert.equal(eng.renders, 30 + 12);
   assert.deepEqual(eng.size, [72, 128]);
   assert.equal(eng.resets, 1);
-  // every clip is checked once before any frame is sent
-  const firstChecks = b.calls.slice(0, 3).map((n) => n[0].clipId).sort();
-  assert.deepEqual(firstChecks, ['a', 'b', 'c']);
+  // every clip is checked once before any frame is sent, and each cut reads its own lane
+  assert.deepEqual([...f.checks].sort(), ['a', 'b', 'c']);
+  assert.ok(f.gets.every(([clip, lane]) => lane.startsWith(`${clip}#`)));
+  assert.equal(eng.dropped, 1, 'the frame textures are freed afterwards');
   const end = JSON.parse(reqs.at(-1).body);
   assert.equal(reqs.at(-1).path, '/api/export/raw/end');
-  assert.deepEqual(Object.keys(end.stats).sort(), ['max_flashes_per_sec', 'mean_luminance', 'seam_ratio']);
+  assert.deepEqual(Object.keys(end.stats).sort(), ['footage', 'max_flashes_per_sec', 'mean_luminance', 'seam_ratio']);
+  assert.equal(end.stats.footage.level, 'ok');
+  assert.match(end.stats.footage.detail, /every clip plays/);
+  assert.equal(out.footage.level, 'ok');
   assert.equal(out.filename, 'canvas-x.mp4');
   assert.equal(out.codec, 'raw-rgba');
   assert.deepEqual(progress.at(-1).frame, 30);
@@ -336,23 +294,23 @@ test('looks with feedback warm up on the end of the loop so the first frame matc
   fb.layers.push({ m: 'trails', on: true, p: {}, mods: {} });
   assert.ok(MODULES.trails.feedback);
   const eng = fakeEngine();
-  await exportLoop({ engine: eng, bank: fakeBank(), ctx: exportCtx(1, fb), width: 8, height: 8, meta: {} });
+  await exportLoop({ engine: eng, frames: fakeFrames(), ctx: exportCtx(1, fb), width: 8, height: 8, meta: {} });
   assert.equal(eng.renders, 60, 'a one-second loop warms up for the whole loop');
   const long = fakeEngine();
-  await exportLoop({ engine: long, bank: fakeBank(), ctx: exportCtx(12, fb), width: 8, height: 8, meta: {} });
+  await exportLoop({ engine: long, frames: fakeFrames(), ctx: exportCtx(12, fb), width: 8, height: 8, meta: {} });
   assert.equal(long.renders, 360 + 300, 'long loops warm up for ten seconds, not the whole video');
 });
 
 test('the export stats measure luminance, flashes and the loop seam', async () => {
   let reqs = exportServer();
-  await exportLoop({ engine: fakeEngine(), bank: fakeBank(), ctx: exportCtx(1), width: 8, height: 8, meta: {} });
+  await exportLoop({ engine: fakeEngine(), frames: fakeFrames(), ctx: exportCtx(1), width: 8, height: 8, meta: {} });
   let stats = JSON.parse(reqs.at(-1).body).stats;
   assert.equal(stats.seam_ratio, 0);
   assert.equal(stats.max_flashes_per_sec, 0);
   assert.ok(Math.abs(stats.mean_luminance - 0.216) < 0.002, `${stats.mean_luminance}`);
 
   reqs = exportServer();
-  await exportLoop({ engine: fakeEngine((i) => (Math.floor(i / 3) % 2 ? 1 : 0)), bank: fakeBank(), ctx: exportCtx(1), width: 8, height: 8, meta: {} });
+  await exportLoop({ engine: fakeEngine((i) => (Math.floor(i / 3) % 2 ? 1 : 0)), frames: fakeFrames(), ctx: exportCtx(1), width: 8, height: 8, meta: {} });
   stats = JSON.parse(reqs.at(-1).body).stats;
   assert.ok(stats.max_flashes_per_sec >= 4, `${stats.max_flashes_per_sec} flashes a second`);
   assert.equal(stats.mean_luminance, 0.5);
@@ -362,7 +320,7 @@ test('cancelling or a server error stops the export and tells the server to thro
   let reqs = exportServer();
   const ac = new AbortController();
   await assert.rejects(
-    exportLoop({ engine: fakeEngine(), bank: fakeBank(), ctx: exportCtx(1), width: 8, height: 8, meta: {}, signal: ac.signal, onProgress: (p) => { if (p.frame === 5) ac.abort(); } }),
+    exportLoop({ engine: fakeEngine(), frames: fakeFrames(), ctx: exportCtx(1), width: 8, height: 8, meta: {}, signal: ac.signal, onProgress: (p) => { if (p.frame === 5) ac.abort(); } }),
     (e) => e.name === 'AbortError',
   );
   await tick();
@@ -370,17 +328,16 @@ test('cancelling or a server error stops the export and tells the server to thro
   assert.equal(reqs.filter((r) => r.path === '/api/export/raw/frames').length, 5);
 
   reqs = exportServer({ frames: () => new Response(JSON.stringify({ ok: false, error: 'encoder stopped: disk full' }), { status: 500 }) });
-  await assert.rejects(exportLoop({ engine: fakeEngine(), bank: fakeBank(), ctx: exportCtx(1), width: 8, height: 8, meta: {} }), /disk full/);
+  await assert.rejects(exportLoop({ engine: fakeEngine(), frames: fakeFrames(), ctx: exportCtx(1), width: 8, height: 8, meta: {} }), /disk full/);
   await tick();
   assert.equal(reqs.at(-1).path, '/api/export/raw/abort');
 
   exportServer({ end: () => ({ ok: false, error: 'checks failed' }) });
-  await assert.rejects(exportLoop({ engine: fakeEngine(), bank: fakeBank(), ctx: exportCtx(1), width: 8, height: 8, meta: {} }), /checks failed/);
+  await assert.rejects(exportLoop({ engine: fakeEngine(), frames: fakeFrames(), ctx: exportCtx(1), width: 8, height: 8, meta: {} }), /checks failed/);
 
-  const bad = fakeBank();
-  bad.exact = async () => { throw new Error('Seeking clip: timed out'); };
   reqs = exportServer();
-  await assert.rejects(exportLoop({ engine: fakeEngine(), bank: bad, ctx: exportCtx(1), width: 8, height: 8, meta: {} }), /Seeking clip/);
+  const bad = fakeFrames({ fail: 'a.mp4: ffmpeg could not decode frames 0-29' });
+  await assert.rejects(exportLoop({ engine: fakeEngine(), frames: bad, ctx: exportCtx(1), width: 8, height: 8, meta: {} }), /a\.mp4: ffmpeg could not decode/);
   assert.equal(reqs.filter((r) => r.path === '/api/export/raw/frames').length, 0, 'a broken clip fails before any frame is sent');
 });
 
@@ -393,7 +350,7 @@ function withEncoder(t) {
 test('with WebCodecs the browser encodes H.264 and uploads about a second of it at a time', async (t) => {
   withEncoder(t);
   const reqs = exportServer();
-  const out = await exportLoop({ engine: fakeEngine(), bank: fakeBank(), ctx: exportCtx(2.5), width: 72, height: 128, bitrate: 20_000_000, meta: {} });
+  const out = await exportLoop({ engine: fakeEngine(), frames: fakeFrames(), ctx: exportCtx(2.5), width: 72, height: 128, bitrate: 20_000_000, meta: {} });
   const begin = JSON.parse(reqs[0].body);
   assert.equal(begin.codec, 'avc1.640033', 'falls back to the first codec the machine supports');
   assert.equal(begin.stream, 'h264');
@@ -413,14 +370,14 @@ test('with WebCodecs the browser encodes H.264 and uploads about a second of it 
 test('the default bitrate depends on the frame size, and an encoder error aborts the export', async (t) => {
   withEncoder(t);
   exportServer();
-  await exportLoop({ engine: fakeEngine(), bank: fakeBank(), ctx: exportCtx(1), width: 1080, height: 1920, meta: {} });
+  await exportLoop({ engine: fakeEngine(), frames: fakeFrames(), ctx: exportCtx(1), width: 1080, height: 1920, meta: {} });
   assert.equal(FakeEncoder.last.cfg.bitrate, 16_000_000);
-  await exportLoop({ engine: fakeEngine(), bank: fakeBank(), ctx: exportCtx(1), width: 720, height: 1280, meta: {} });
+  await exportLoop({ engine: fakeEngine(), frames: fakeFrames(), ctx: exportCtx(1), width: 720, height: 1280, meta: {} });
   assert.equal(FakeEncoder.last.cfg.bitrate, 9_000_000);
 
   FakeEncoder.failAt = 10;
   const reqs = exportServer();
-  await assert.rejects(exportLoop({ engine: fakeEngine(), bank: fakeBank(), ctx: exportCtx(1), width: 8, height: 8, meta: {} }), /encoder crashed/);
+  await assert.rejects(exportLoop({ engine: fakeEngine(), frames: fakeFrames(), ctx: exportCtx(1), width: 8, height: 8, meta: {} }), /encoder crashed/);
   await tick();
   assert.equal(FakeEncoder.last.state, 'closed');
   assert.equal(reqs.at(-1).path, '/api/export/raw/abort');
