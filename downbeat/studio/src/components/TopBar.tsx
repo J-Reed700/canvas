@@ -1,6 +1,6 @@
 import React from 'react';
-import { useStudioStore } from '../store.ts';
-import { openPop, closePop, h, ROLL_OPTS, fmtLength } from '../utils.ts';
+import { useStudioStore } from '../state/store.ts';
+import { openPop, closePop, h, ROLL_OPTS, fmtLength } from '../lib/utils.ts';
 
 export const TopBar: React.FC = () => {
   const trackId = useStudioStore((s) => s.trackId);

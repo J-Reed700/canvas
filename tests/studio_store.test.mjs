@@ -3,14 +3,14 @@ import assert from 'node:assert/strict';
 import { installDom, stubFetch, tick } from './fakes.mjs';
 
 const dom = installDom();
-const { useStudioStore: S } = await import('../downbeat/studio/src/store.ts');
-const history = await import('../downbeat/studio/src/historyController.ts');
-const media = await import('../downbeat/studio/src/mediaActions.ts');
-const { LOOKS, cloneLook } = await import('../downbeat/studio/looks.ts');
-const { MODULES } = await import('../downbeat/studio/modules.ts');
-const { RHYTHMS } = await import('../downbeat/studio/timeline.ts');
-const { TRANSITIONS } = await import('../downbeat/studio/shaders.ts');
-const { toast } = await import('../downbeat/studio/src/utils.ts');
+const { useStudioStore: S } = await import('../downbeat/studio/src/state/store.ts');
+const history = await import('../downbeat/studio/src/state/historyController.ts');
+const media = await import('../downbeat/studio/src/state/mediaActions.ts');
+const { LOOKS, cloneLook } = await import('../downbeat/studio/src/engine/looks.ts');
+const { MODULES } = await import('../downbeat/studio/src/engine/modules.ts');
+const { RHYTHMS } = await import('../downbeat/studio/src/engine/timeline.ts');
+const { TRANSITIONS } = await import('../downbeat/studio/src/engine/shaders.ts');
+const { toast } = await import('../downbeat/studio/src/lib/utils.ts');
 
 // The last toast's hide timer would keep Node running for up to four seconds.
 after(() => toast('', 0));

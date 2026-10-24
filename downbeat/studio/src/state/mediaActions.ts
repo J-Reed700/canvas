@@ -1,7 +1,7 @@
 import { useStudioStore } from './store.ts';
-import { fetchJSON, postJSON, shuffle, toast, detectSubject } from './utils.ts';
-import { LOOKS } from '../looks.ts';
-import type { ClipMeta, TrackMeta, RenderRecord, ClipPalette } from '../types.ts';
+import { fetchJSON, postJSON, shuffle, toast, detectSubject } from '../lib/utils.ts';
+import { LOOKS } from '../engine/looks.ts';
+import type { ClipMeta, TrackMeta, RenderRecord, ClipPalette } from '../engine/types.ts';
 
 export async function uploadFiles(files: File[]) {
   let n = 0;

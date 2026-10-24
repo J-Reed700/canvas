@@ -1,10 +1,10 @@
 import React, { useRef, useEffect } from 'react';
-import { useStudioStore, useVersion } from '../store.ts';
-import { toast, SEQ_PRESETS, ENV_PRESETS } from '../utils.ts';
-import { clamp } from '../../looks.ts';
-import { CAMERA, FINISH_DEF, MODULES, MOD_SOURCES } from '../../modules.ts';
-import { defaultEnv, defaultLfos, defaultSeq, envAt, lfoAt, lfoCycles, LFO_RATES, LFO_SHAPES } from '../../audio.ts';
-import type { ClipPalette, LfoSpec, Look, ParamDef } from '../../types.ts';
+import { useStudioStore, useVersion } from '../state/store.ts';
+import { toast, SEQ_PRESETS, ENV_PRESETS } from '../lib/utils.ts';
+import { clamp } from '../engine/looks.ts';
+import { CAMERA, FINISH_DEF, MODULES, MOD_SOURCES } from '../engine/modules.ts';
+import { defaultEnv, defaultLfos, defaultSeq, envAt, lfoAt, lfoCycles, LFO_RATES, LFO_SHAPES } from '../engine/audio.ts';
+import type { ClipPalette, LfoSpec, Look, ParamDef } from '../engine/types.ts';
 import { Card, SliderRow } from './ui.tsx';
 
 const USER_SOURCES = ['lfoA', 'lfoB', 'macroA', 'macroB', 'env', 'seq'];

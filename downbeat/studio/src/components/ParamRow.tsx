@@ -1,8 +1,8 @@
 import React from 'react';
-import { useStudioStore } from '../store.ts';
-import { h, openPop, closePop } from '../utils.ts';
-import { MOD_SOURCES } from '../../modules.ts';
-import type { ParamDef } from '../../types.ts';
+import { useStudioStore } from '../state/store.ts';
+import { h, openPop, closePop } from '../lib/utils.ts';
+import { MOD_SOURCES } from '../engine/modules.ts';
+import type { ParamDef } from '../engine/types.ts';
 import { Slider } from './ui.tsx';
 
 export function openModPopover(

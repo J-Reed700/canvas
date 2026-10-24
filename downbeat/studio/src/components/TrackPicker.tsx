@@ -1,9 +1,9 @@
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { useStudioStore } from '../store.ts';
-import { fetchJSON, postJSON, songTitle, sourceLabel, toast } from '../utils.ts';
-import { timeAgo } from '../exportsView.ts';
-import type { TrackMeta } from '../../types.ts';
+import { useStudioStore } from '../state/store.ts';
+import { fetchJSON, postJSON, songTitle, sourceLabel, toast } from '../lib/utils.ts';
+import { timeAgo } from '../lib/exportsView.ts';
+import type { TrackMeta } from '../engine/types.ts';
 import { SearchField } from './ui.tsx';
 
 interface LibraryInfo {

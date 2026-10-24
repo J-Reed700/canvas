@@ -1,8 +1,8 @@
 import React, { useRef, useEffect, useSyncExternalStore } from 'react';
-import { useStudioStore, useVersion } from '../store.ts';
-import { clamp } from '../../looks.ts';
-import { room, toast, BAR_CHOICES, fmtLength } from '../utils.ts';
-import { getLastFrame } from '../renderLoop.ts';
+import { useStudioStore, useVersion } from '../state/store.ts';
+import { clamp } from '../engine/looks.ts';
+import { room, toast, BAR_CHOICES, fmtLength } from '../lib/utils.ts';
+import { getLastFrame } from '../canvas/renderLoop.ts';
 
 const PlayIcon: React.FC<{ playing: boolean }> = ({ playing }) => (
   <svg viewBox="0 0 24 24">

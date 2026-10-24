@@ -11,10 +11,11 @@ import wave
 import cv2
 import numpy as np
 
-from downbeat import delivery, framing
-from downbeat.features import _default_bars, track_features
-from downbeat.proxy import ProxyManager
-from downbeat.source import probe
+from downbeat import delivery
+from downbeat.analysis import framing
+from downbeat.analysis.features import _default_bars, track_features
+from downbeat.media.proxy import ProxyManager
+from downbeat.media.source import probe
 
 HAS_FFMPEG = shutil.which("ffmpeg") is not None and shutil.which("ffprobe") is not None
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -292,7 +293,7 @@ class TestStudioBackend(unittest.TestCase):
         self.assertTrue(pal_still["css_gradient"].startswith("linear-gradient(180deg, #"))
 
     def test_state_export_dest_and_cover_url(self) -> None:
-        from downbeat.state import StudioState, _export_dest
+        from downbeat.server.state import StudioState, _export_dest
         st = StudioState()
         st._initialized = True
         self.assertEqual(st.palettes, {})
@@ -324,7 +325,7 @@ class TestStudioBackend(unittest.TestCase):
         self.assertEqual(entry["cover_url"], "/out/album-cover-3000x3000.jpg")
 
     def test_export_names_round_trip_for_rediscovered_renders(self) -> None:
-        from downbeat.state import _export_dest, parse_export_name
+        from downbeat.server.state import _export_dest, parse_export_name
         meta = {"format": "youtube_16_9", "duration": 6.4, "width": 1920, "height": 1080, "look": "Neon Tide", "bpm": 151}
         info = parse_export_name(os.path.basename(_export_dest(meta)))
         self.assertEqual(info["format"], "youtube_16_9")
@@ -368,8 +369,8 @@ class TestLibraryCleanup(unittest.TestCase):
     def test_removing_a_clip_deletes_uploads_but_only_hides_other_files(self) -> None:
         from unittest import mock
 
-        from downbeat import state as state_mod
-        from downbeat.source import Source
+        from downbeat.server import state as state_mod
+        from downbeat.media.source import Source
 
         out = tempfile.mkdtemp(prefix="db-out-")
         dl = tempfile.mkdtemp(prefix="db-dl-")
@@ -419,7 +420,7 @@ class TestLibraryCleanup(unittest.TestCase):
     def test_delete_removes_the_export_and_its_companions_only(self) -> None:
         from unittest import mock
 
-        from downbeat import state as state_mod
+        from downbeat.server import state as state_mod
 
         out = tempfile.mkdtemp(prefix="db-out-")
         self.addCleanup(shutil.rmtree, out, True)
@@ -446,7 +447,7 @@ class TestLibraryCleanup(unittest.TestCase):
 
 @unittest.skipUnless(
     shutil.which("node") and (
-        os.path.isfile(os.path.join(ROOT, "downbeat", "studio", "timeline.ts"))
+        os.path.isfile(os.path.join(ROOT, "downbeat", "studio", "src", "engine", "timeline.ts"))
         or os.path.isfile(os.path.join(ROOT, "downbeat", "studio", "timeline.js"))
     ),
     "node and studio TS/JS modules required for the studio tests",
@@ -473,8 +474,8 @@ class TestSongLibrary(unittest.TestCase):
         return path
 
     def test_lists_every_song_without_analysing_and_keeps_added_ones(self) -> None:
-        from downbeat.audio import analyze_track
-        from downbeat.library import Library
+        from downbeat.analysis.audio import analyze_track
+        from downbeat.server.library import Library
 
         for i in range(12):  # more than the old limit of 8
             self._wav(os.path.join(self.downloads, f"song-{i}.wav"), 3.0)
@@ -495,7 +496,7 @@ class TestSongLibrary(unittest.TestCase):
         self.assertEqual(next(t for t in tracks.values() if t.path == added).source, "added")
 
     def test_music_folders_are_scanned_with_subfolders_and_remembered(self) -> None:
-        from downbeat.library import Library
+        from downbeat.server.library import Library
 
         self._wav(os.path.join(self.music, "Artist", "Album", "01 Intro.wav"), 3.0)
         self._wav(os.path.join(self.music, "Library.musiclibrary", "inside.wav"), 3.0)
@@ -514,7 +515,7 @@ class TestSongLibrary(unittest.TestCase):
         self.assertEqual(Library(self.out, downloads=self.downloads).scan(), {})
 
     def test_formats_browsers_cannot_decode_are_converted_once(self) -> None:
-        from downbeat.library import Library, playable_path
+        from downbeat.server.library import Library, playable_path
 
         wav = self._wav(os.path.join(self.downloads, "plain.wav"), 3.0)
         aiff = os.path.join(self.downloads, "studio.aiff")

@@ -636,7 +636,7 @@ Its playback proxy is still being built. Big 4K files take a while.
 
 ## 19. Notes for developers
 
-- `compose(ctx, t)` in `downbeat/studio/composer.ts` turns the look, the edit, the audio and a time into
+- `compose(ctx, t)` in `downbeat/studio/src/engine/composer.ts` turns the look, the edit, the audio and a time into
   one frame for the engine. Preview, look thumbnails, variations and export all call it, which is why export
   matches the preview. Keep it the only place frames are built.
 - Animated shader terms have to complete whole cycles per loop or follow the beat, and stepped (integer)

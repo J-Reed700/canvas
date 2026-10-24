@@ -3,13 +3,13 @@ import assert from 'node:assert/strict';
 import { installDom, FakeElement, fakeCanvas, recordingContext, stubFetch, tick, fakeEngine, fakeBank, exportServer, FakeEncoder, FakeFrame } from './fakes.mjs';
 
 const dom = installDom();
-const { Transport, makeSampler, envAt, ENV_POINTS } = await import('../downbeat/studio/audio.ts');
-const { VideoBank, waitReady, resolveParams, layerStack } = await import('../downbeat/studio/composer.ts');
-const { exportLoop } = await import('../downbeat/studio/exporter.ts');
-const { planTimeline, sampleTimeline } = await import('../downbeat/studio/timeline.ts');
-const { LOOKS, cloneLook, insertAtStage, STAGE } = await import('../downbeat/studio/looks.ts');
-const { MODULES } = await import('../downbeat/studio/modules.ts');
-const { drawLane, drawOverview } = await import('../downbeat/studio/src/timelineCanvas.ts');
+const { Transport, makeSampler, envAt, ENV_POINTS } = await import('../downbeat/studio/src/engine/audio.ts');
+const { VideoBank, waitReady, resolveParams, layerStack } = await import('../downbeat/studio/src/engine/composer.ts');
+const { exportLoop } = await import('../downbeat/studio/src/engine/exporter.ts');
+const { planTimeline, sampleTimeline } = await import('../downbeat/studio/src/engine/timeline.ts');
+const { LOOKS, cloneLook, insertAtStage, STAGE } = await import('../downbeat/studio/src/engine/looks.ts');
+const { MODULES } = await import('../downbeat/studio/src/engine/modules.ts');
+const { drawLane, drawOverview } = await import('../downbeat/studio/src/canvas/timelineCanvas.ts');
 
 const FPS = 30;
 const clips = [{ id: 'a', duration: 12 }, { id: 'b', duration: 9 }, { id: 'c', duration: 20 }];

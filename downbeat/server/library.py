@@ -10,12 +10,12 @@ hundreds of songs lists instantly. Songs come from three places, in this order:
 from __future__ import annotations
 
 import dataclasses
-import hashlib
 import json
 import os
 import subprocess
 
-from .encoder import ffmpeg_path
+from ..media import file_id
+from ..media.encoder import ffmpeg_path
 
 AUDIO_EXTS = (".wav", ".mp3", ".m4a", ".aac", ".flac", ".aif", ".aiff", ".ogg", ".opus")
 # Formats every browser can decode as they are. Anything else is converted to WAV before playback.
@@ -47,7 +47,7 @@ class Track:
 
 def track_id(path: str) -> str:
     """Stable id for a song file. analyze_track() uses it too, so saved sessions keep their song."""
-    return hashlib.md5(os.path.abspath(os.path.expanduser(path)).encode("utf-8")).hexdigest()[:10]
+    return file_id(os.path.abspath(os.path.expanduser(path)))
 
 
 def is_audio_name(name: str) -> bool:

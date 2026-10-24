@@ -1,11 +1,11 @@
 import React, { useCallback, useRef, useState } from 'react';
-import { useStudioStore, useVersion } from '../store.ts';
-import { METERS, fmt } from '../utils.ts';
-import { MOD_SOURCES } from '../../modules.ts';
-import type { ClipMeta } from '../../types.ts';
+import { useStudioStore, useVersion } from '../state/store.ts';
+import { METERS, fmt } from '../lib/utils.ts';
+import { MOD_SOURCES } from '../engine/modules.ts';
+import type { ClipMeta } from '../engine/types.ts';
 import { ExportsSection } from './Exports.tsx';
 import { TrackPicker } from './TrackPicker.tsx';
-import { removeClip } from '../mediaActions.ts';
+import { removeClip } from '../state/mediaActions.ts';
 import { useArmed } from './ui.tsx';
 
 /** Needs a second click within 3 s, like deleting an export. */

@@ -1,13 +1,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { planTimeline, sampleTimeline, clipTime, cameraFor, loopBeats, velocityAt, RHYTHMS, DIRECTIONS, VELOCITY } from '../downbeat/studio/timeline.ts';
-import { compose, resolveParams } from '../downbeat/studio/composer.ts';
-import { flashesPerSecond } from '../downbeat/studio/exporter.ts';
-import { LOOKS, chaosLook, evolveLook, mutate, randomLook } from '../downbeat/studio/looks.ts';
-import { CAMERA, FINISH_DEF, MODULES, moduleSource, buildStageSource } from '../downbeat/studio/modules.ts';
-import { TRANSITIONS } from '../downbeat/studio/shaders.ts';
-import { makeSampler, withLook, lfoAt, lfoCycles, LFO_SHAPES, LFO_RATES } from '../downbeat/studio/audio.ts';
-import { MOD_SOURCES } from '../downbeat/studio/modules.ts';
+import { planTimeline, sampleTimeline, clipTime, cameraFor, loopBeats, velocityAt, RHYTHMS, DIRECTIONS, VELOCITY } from '../downbeat/studio/src/engine/timeline.ts';
+import { compose, resolveParams } from '../downbeat/studio/src/engine/composer.ts';
+import { flashesPerSecond } from '../downbeat/studio/src/engine/exporter.ts';
+import { LOOKS, chaosLook, evolveLook, mutate, randomLook } from '../downbeat/studio/src/engine/looks.ts';
+import { CAMERA, FINISH_DEF, MODULES, moduleSource, buildStageSource } from '../downbeat/studio/src/engine/modules.ts';
+import { TRANSITIONS } from '../downbeat/studio/src/engine/shaders.ts';
+import { makeSampler, withLook, lfoAt, lfoCycles, LFO_SHAPES, LFO_RATES } from '../downbeat/studio/src/engine/audio.ts';
+import { MOD_SOURCES } from '../downbeat/studio/src/engine/modules.ts';
 
 const FPS = 30;
 const clips = [{ id: 'a', duration: 12 }, { id: 'b', duration: 9 }, { id: 'c', duration: 20 }];

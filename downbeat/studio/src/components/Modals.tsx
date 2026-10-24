@@ -1,8 +1,8 @@
 import React, { useRef, useEffect, useMemo } from 'react';
-import { useStudioStore, type LookJob } from '../store.ts';
-import { FORMATS, SIZES, fmt, fmtLength, siblingTracks, sourceLabel } from '../utils.ts';
-import { mutate } from '../../looks.ts';
-import { MODULES } from '../../modules.ts';
+import { useStudioStore, type LookJob } from '../state/store.ts';
+import { FORMATS, SIZES, fmt, fmtLength, siblingTracks, sourceLabel } from '../lib/utils.ts';
+import { mutate } from '../engine/looks.ts';
+import { MODULES } from '../engine/modules.ts';
 
 export const Modals: React.FC = () => {
   const varsContainerRef = useRef<HTMLDivElement>(null);

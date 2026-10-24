@@ -1,6 +1,6 @@
 import React from 'react';
-import { useStudioStore, useVersion } from '../store.ts';
-import { LOOKS } from '../../looks.ts';
+import { useStudioStore, useVersion } from '../state/store.ts';
+import { LOOKS } from '../engine/looks.ts';
 import { LooksPane } from './LooksPane.tsx';
 import { LayersPane } from './LayersPane.tsx';
 import { EditPane } from './EditPane.tsx';

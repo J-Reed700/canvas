@@ -1,8 +1,8 @@
-import { useStudioStore } from './store.ts';
-import { compose } from '../composer.ts';
-import { clamp } from '../looks.ts';
-import { fetchJSON, METERS } from './utils.ts';
-import type { ClipMeta, ComposedFrame } from '../types.ts';
+import { useStudioStore } from '../state/store.ts';
+import { compose } from '../engine/composer.ts';
+import { clamp } from '../engine/looks.ts';
+import { fetchJSON, METERS } from '../lib/utils.ts';
+import type { ClipMeta, ComposedFrame } from '../engine/types.ts';
 
 const THUMBS_PER_FRAME = 3;
 

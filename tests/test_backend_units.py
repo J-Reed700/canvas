@@ -17,9 +17,12 @@ from unittest import mock
 import cv2
 import numpy as np
 
-from downbeat import audio, delivery, encoder, library, proxy, source
-from downbeat import state as state_mod
-from downbeat.effects.geometry import grid_clone
+from downbeat.analysis import audio
+from downbeat import delivery
+from downbeat.media import encoder, proxy, source
+from downbeat.server import library
+from downbeat.server import state as state_mod
+from downbeat.render.effects.geometry import grid_clone
 
 HAS_FFMPEG = shutil.which("ffmpeg") is not None and shutil.which("ffprobe") is not None
 HAS_PIL = importlib.util.find_spec("PIL") is not None

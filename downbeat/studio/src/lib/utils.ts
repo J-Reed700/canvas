@@ -1,6 +1,6 @@
-import { TRANSITIONS } from '../shaders.ts';
-import { defaultEnv, SEQ_STEPS, ENV_POINTS } from '../audio.ts';
-import type { RollOptions, TrackMeta } from '../types.ts';
+import { TRANSITIONS } from '../engine/shaders.ts';
+import { defaultEnv, SEQ_STEPS, ENV_POINTS } from '../engine/audio.ts';
+import type { RollOptions, TrackMeta } from '../engine/types.ts';
 
 export const h = (tag: string, attrs: Record<string, any> = {}, ...kids: any[]): HTMLElement => {
   const e = document.createElement(tag);

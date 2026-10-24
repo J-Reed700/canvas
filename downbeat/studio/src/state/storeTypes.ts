@@ -10,8 +10,8 @@ import type {
   ComposeContext,
   ComposedFrame,
   ClipPalette,
-} from '../types.ts';
-import type { Transport } from '../audio.ts';
+} from '../engine/types.ts';
+import type { Transport } from '../engine/audio.ts';
 
 export interface LookJob {
   id: string;

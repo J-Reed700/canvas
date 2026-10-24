@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { useStudioStore } from '../store.ts';
+import { useStudioStore } from '../state/store.ts';
 import {
   CHECK_ICONS,
   EXPORT_KINDS,
@@ -13,10 +13,10 @@ import {
   specOf,
   timeAgo,
   titleOf,
-} from '../exportsView.ts';
-import { postJSON, toast } from '../utils.ts';
+} from '../lib/exportsView.ts';
+import { postJSON, toast } from '../lib/utils.ts';
 import { Icon, ICONS, SearchField, useArmed } from './ui.tsx';
-import type { RenderRecord } from '../../types.ts';
+import type { RenderRecord } from '../engine/types.ts';
 
 const SIDE_PAGE = 4;
 const LIB_PAGE = 12;

@@ -1,9 +1,9 @@
 import { useStudioStore } from './store.ts';
-import { exportLoop } from '../exporter.ts';
-import { cloneLook } from '../looks.ts';
-import { FORMATS, SIZES, toast, h, postJSON, saveToDownloads, siblingTracks, fmt as fmtTime } from './utils.ts';
-import type { RenderRecord, ComposeContext } from '../types.ts';
-import { CHECK_ICONS } from './exportsView.ts';
+import { exportLoop } from '../engine/exporter.ts';
+import { cloneLook } from '../engine/looks.ts';
+import { FORMATS, SIZES, toast, h, postJSON, saveToDownloads, siblingTracks, fmt as fmtTime } from '../lib/utils.ts';
+import type { RenderRecord, ComposeContext } from '../engine/types.ts';
+import { CHECK_ICONS } from '../lib/exportsView.ts';
 
 let exportAbortCtrl: AbortController | null = null;
 

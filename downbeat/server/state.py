@@ -9,14 +9,14 @@ import threading
 import time
 import urllib.parse
 
-from . import delivery
+from .. import delivery
 from .library import Library, Track, track_id
-from .proxy import ProxyManager
-from .source import IMAGE_EXTS, Source, probe
+from ..media.proxy import ProxyManager
+from ..media.source import IMAGE_EXTS, Source, probe
 
-PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+PACKAGE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+PROJECT_ROOT = os.path.dirname(PACKAGE_DIR)
 OUT_DIR = os.path.join(PROJECT_ROOT, "out")
-PACKAGE_DIR = os.path.dirname(os.path.abspath(__file__))
 STUDIO_DIR = os.path.join(PACKAGE_DIR, "studio")
 STUDIO_DIST_DIR = os.path.join(STUDIO_DIR, "dist")
 

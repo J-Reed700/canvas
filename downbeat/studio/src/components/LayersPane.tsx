@@ -1,6 +1,6 @@
 import React from 'react';
-import { useStudioStore, useVersion } from '../store.ts';
-import { originalLook } from '../historyController.ts';
+import { useStudioStore, useVersion } from '../state/store.ts';
+import { originalLook } from '../state/historyController.ts';
 import {
   h,
   shuffle,
@@ -8,9 +8,9 @@ import {
   closePop,
   toast,
   CLIP_MODES,
-} from '../utils.ts';
-import { cloneLook, insertAtStage } from '../../looks.ts';
-import { MODULES, CATEGORIES, CAMERA, FINISH_DEF, defaults } from '../../modules.ts';
+} from '../lib/utils.ts';
+import { cloneLook, insertAtStage } from '../engine/looks.ts';
+import { MODULES, CATEGORIES, CAMERA, FINISH_DEF, defaults } from '../engine/modules.ts';
 import { ModulatorsCard } from './ModulatorsCard.tsx';
 import { ParamRow } from './ParamRow.tsx';
 import { Card, SliderRow } from './ui.tsx';

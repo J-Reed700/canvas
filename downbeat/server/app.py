@@ -14,11 +14,12 @@ import webbrowser
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-from . import delivery, framing
-from .compositor import CANVAS_FPS
-from .features import track_features
+from .. import delivery
+from ..analysis import framing
+from ..analysis.features import track_features
 from .library import AUDIO_EXTS, pick_folder_dialog, playable_path
-from .source import IMAGE_EXTS, extract_thumbnail_jpeg, still_to_clip
+from ..media.encoder import CANVAS_FPS
+from ..media.source import IMAGE_EXTS, extract_thumbnail_jpeg, still_to_clip
 from .state import (
     OUT_DIR,
     PACKAGE_DIR,

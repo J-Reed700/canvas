@@ -2,12 +2,13 @@
 from __future__ import annotations
 
 import dataclasses
-import hashlib
 import os
 import subprocess
 
 import cv2
 import numpy as np
+
+from . import file_id
 
 
 @dataclasses.dataclass
@@ -25,7 +26,7 @@ class Source:
 
     @property
     def id(self) -> str:
-        return hashlib.md5(self.path.encode()).hexdigest()[:10]
+        return file_id(self.path)
 
 
 IMAGE_EXTS = (".jpg", ".jpeg", ".png", ".webp", ".bmp", ".tif", ".tiff", ".heic", ".heif")

@@ -1,8 +1,8 @@
 import React from 'react';
-import { useStudioStore, useVersion } from '../store.ts';
-import { BAR_CHOICES, POOLS, TRANS_BEATS, fmtLength, parseLength } from '../utils.ts';
-import { RHYTHMS, DIRECTIONS, VELOCITY } from '../../timeline.ts';
-import { TRANSITIONS } from '../../shaders.ts';
+import { useStudioStore, useVersion } from '../state/store.ts';
+import { BAR_CHOICES, POOLS, TRANS_BEATS, fmtLength, parseLength } from '../lib/utils.ts';
+import { RHYTHMS, DIRECTIONS, VELOCITY } from '../engine/timeline.ts';
+import { TRANSITIONS } from '../engine/shaders.ts';
 
 const LoopLength: React.FC = () => {
   const bpm = useStudioStore((s) => s.bpm());

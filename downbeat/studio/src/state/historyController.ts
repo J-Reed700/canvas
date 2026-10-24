@@ -1,8 +1,8 @@
 import { useStudioStore } from './store.ts';
-import { toast } from './utils.ts';
-import { LOOKS, cloneLook } from '../looks.ts';
-import { MODULES } from '../modules.ts';
-import type { Look } from '../types.ts';
+import { toast } from '../lib/utils.ts';
+import { LOOKS, cloneLook } from '../engine/looks.ts';
+import { MODULES } from '../engine/modules.ts';
+import type { Look } from '../engine/types.ts';
 
 const KEY = 'downbeat.studio.v1';
 // Saved before the Canvas Forge → Downbeat rename; read once so nobody loses their session.

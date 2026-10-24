@@ -9,10 +9,10 @@ from collections.abc import Callable
 import cv2
 import numpy as np
 
-from .audio import FrameAudioCurves, extract_frame_curves
+from ..analysis.audio import FrameAudioCurves, extract_frame_curves
 from .effects import coord_grid, zoom_in
 from .recipe import PRESETS, Recipe, build_effect_stack, evolve_effect_names
-from .source import GLOBAL_CACHE, Source
+from ..media.source import GLOBAL_CACHE, Source
 
 CANVAS_FPS = 30
 CANVAS_SECONDS = 8.0  # Official Spotify Canvas max duration (3.0s - 8.0s)

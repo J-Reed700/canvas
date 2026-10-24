@@ -1,6 +1,6 @@
-import type { StudioState } from './store.ts';
-import { sizeCanvas, roundRect } from './utils.ts';
-import { MOD_SOURCES } from '../modules.ts';
+import type { StudioState } from '../state/store.ts';
+import { sizeCanvas, roundRect } from '../lib/utils.ts';
+import { MOD_SOURCES } from '../engine/modules.ts';
 
 export const thumbImgsMap = new Map<string, HTMLImageElement>();
 

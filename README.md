@@ -470,33 +470,26 @@ canvas/
 ├── run.sh · run · Makefile     # one-command launcher and shortcuts
 ├── pyproject.toml              # package metadata and the `downbeat` entry point
 ├── downbeat/
-│   ├── server.py               # local HTTP server: media, features, proxies, export API
-│   ├── state.py                # server state management, proxies, export sessions
-│   ├── features.py             # beat grid, downbeats, loop suggestions, 30 fps envelopes
-│   ├── framing.py              # subject auto-framing, K-Means release color palette, aspect crops
-│   ├── proxy.py                # background 30 fps short-GOP playback proxies
-│   ├── delivery.py             # Annex B remux, release formats, cover art, banners, GIF/WebP, spec checks
-│   ├── effects/                # modular CPU shaders (color, digital, geometry, motion, etc.)
-│   ├── studio/                 # the v4 WebGL2 GPU studio (TypeScript + React + Zustand + Vite)
-│   │   ├── index.html          #   root entry HTML
-│   │   ├── styles.css          #   studio styles
-│   │   ├── types.ts            #   shared TypeScript interfaces
-│   │   ├── engine.ts           #   WebGL2 HDR render graph
-│   │   ├── shaders.ts          #   GLSL: camera, finish, bloom, flash guard, transitions
-│   │   ├── modules.ts          #   the 49 GPU effects and their parameters
-│   │   ├── looks.ts            #   the 44 looks, mutation, random looks and chaos rolls
-│   │   ├── composer.ts         #   compose() and the video pool
-│   │   ├── timeline.ts         #   beat-grid cut planning and sampling
-│   │   ├── audio.ts            #   Web Audio transport and modulation sampler
-│   │   ├── exporter.ts         #   WebCodecs export and seam / flash stats
-│   │   └── src/                #   React + Zustand UI components & store
-│   │       ├── main.tsx        #     React root entry
-│   │       ├── App.tsx         #     Main studio layout & keyboard shortcuts
-│   │       ├── store.ts        #     Zustand state store, WebGL loop & export actions
-│   │       ├── utils.ts        #     UI constants, format definitions & helpers
-│   │       └── components/     #     TopBar, MediaPanel, StagePanel, TimelinePanel, InspectorPanel, LooksPane, LayersPane, EditPane, ModulatorsCard, Modals
-│   ├── audio.py · source.py · recipe.py · compositor.py · encoder.py
-│   └── cli.py                  # headless CLI engine
+│   ├── cli.py                  # command line: renders a canvas with the CPU engine
+│   ├── delivery.py             # export formats, Annex B remux, cover art, banners, GIF/WebP, spec checks
+│   ├── media/                  # source.py (probe, thumbnails, stills), proxy.py (30 fps playback proxies), encoder.py (ffmpeg)
+│   ├── analysis/               # audio.py (decoding, tempo, envelopes), features.py (beat grid, loop suggestions),
+│   │                           #   framing.py (subject auto-framing, color palettes)
+│   ├── render/                 # the command line's CPU renderer: compositor.py, recipe.py, effects/ (NumPy/OpenCV)
+│   ├── server/                 # the studio's backend
+│   │   ├── app.py              #   HTTP routes: media, features, proxies, the export API
+│   │   ├── state.py            #   clips, songs and exports, and export sessions
+│   │   └── library.py          #   song library: Downloads, added songs, your music folders
+│   └── studio/                 # the WebGL2 studio (TypeScript, React, Zustand, Vite)
+│       ├── index.html · styles.css
+│       └── src/
+│           ├── main.tsx · App.tsx   # React root, layout and keyboard shortcuts
+│           ├── engine/         # no React: WebGL2 render graph, GLSL, the GPU effects and looks, compose(),
+│           │                   #   cut planning, Web Audio transport, WebCodecs export
+│           ├── state/          # Zustand store, plus history, roll, export and media actions
+│           ├── canvas/         # per-frame drawing: the render loop, the timeline lane and overview
+│           ├── lib/            # helpers, export formats, export search and paging
+│           └── components/     # the panels, plus shared Slider, Card and SearchField (ui.tsx)
 └── tests/
     ├── test_pipeline.py        # classic engine
     ├── test_studio.py          # beat grid, loop lengths, remux, verifier, proxies
@@ -685,7 +678,7 @@ The NumPy and OpenCV engine has its own set of 18 presets, 52 shaders, 14 transi
 
 ---
 
-#### Shaders (`downbeat/effects/`)
+#### Shaders (`downbeat/render/effects/`)
 
 ##### Motion (8)
 | Effect | Name | Description |

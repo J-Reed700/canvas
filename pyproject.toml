@@ -22,8 +22,8 @@ dependencies = [
 downbeat = "downbeat.cli:main"
 
 [tool.setuptools]
-packages = ["downbeat", "downbeat.effects"]
+packages = ["downbeat", "downbeat.media", "downbeat.analysis", "downbeat.render", "downbeat.render.effects", "downbeat.server"]
 include-package-data = true
 
 [tool.setuptools.package-data]
-downbeat = ["studio/*.html", "studio/*.css", "studio/*.ts", "studio/src/**/*.ts", "studio/src/**/*.tsx", "studio/dist/**/*"]
+downbeat = ["studio/*.html", "studio/*.css", "studio/src/**/*.ts", "studio/src/**/*.tsx", "studio/dist/**/*"]

@@ -1,6 +1,6 @@
 import React, { useEffect, useRef } from 'react';
-import { useStudioStore } from './store.ts';
-import { BAR_CHOICES, closePop, toast } from './utils.ts';
+import { useStudioStore } from './state/store.ts';
+import { BAR_CHOICES, closePop, toast } from './lib/utils.ts';
 import { TopBar } from './components/TopBar.tsx';
 import { MediaPanel } from './components/MediaPanel.tsx';
 import { StagePanel } from './components/StagePanel.tsx';

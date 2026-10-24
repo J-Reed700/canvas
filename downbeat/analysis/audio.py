@@ -8,8 +8,8 @@ import subprocess
 
 import numpy as np
 
-from .encoder import ffmpeg_path
-from .library import track_id
+from ..media.encoder import ffmpeg_path
+from ..media import file_id
 
 SR = 22050
 ONSET_HOP = 256
@@ -207,7 +207,7 @@ def analyze_track(path: str) -> AudioProfile:
 
     y = _decode_pcm(path)
     duration = float(y.size / SR)
-    aid = track_id(path)
+    aid = file_id(path)  # path is already absolute, so this matches library.track_id()
     name = os.path.basename(path)
 
     # Waveform peaks for UI

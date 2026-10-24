@@ -1,8 +1,8 @@
 import { useStudioStore } from './store.ts';
-import { LOOKS, cloneLook, chaosLook, randomLook } from '../looks.ts';
-import { rng, RHYTHMS } from '../timeline.ts';
-import { TRANSITIONS } from '../shaders.ts';
-import { shuffle, CLIP_MODES, toast } from './utils.ts';
+import { LOOKS, cloneLook, chaosLook, randomLook } from '../engine/looks.ts';
+import { rng, RHYTHMS } from '../engine/timeline.ts';
+import { TRANSITIONS } from '../engine/shaders.ts';
+import { shuffle, CLIP_MODES, toast } from '../lib/utils.ts';
 import { rememberLook } from './historyController.ts';
 
 const rollStack: string[] = [];

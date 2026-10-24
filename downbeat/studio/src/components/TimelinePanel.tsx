@@ -1,10 +1,10 @@
 import React, { useRef, useEffect, useLayoutEffect } from 'react';
-import { useStudioStore } from '../store.ts';
-import { fmt, openPop, closePop, h } from '../utils.ts';
-import { clamp } from '../../looks.ts';
-import { RHYTHMS, VELOCITY } from '../../timeline.ts';
-import { TRANSITIONS } from '../../shaders.ts';
-import type { SegmentOverride } from '../../types.ts';
+import { useStudioStore } from '../state/store.ts';
+import { fmt, openPop, closePop, h } from '../lib/utils.ts';
+import { clamp } from '../engine/looks.ts';
+import { RHYTHMS, VELOCITY } from '../engine/timeline.ts';
+import { TRANSITIONS } from '../engine/shaders.ts';
+import type { SegmentOverride } from '../engine/types.ts';
 
 /** Merge a change into one segment's overrides: its clip, in-point, speed ramp or transition. */
 function patchSegment(i: number, patch: SegmentOverride) {

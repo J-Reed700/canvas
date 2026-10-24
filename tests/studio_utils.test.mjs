@@ -3,11 +3,11 @@ import assert from 'node:assert/strict';
 import { installDom, fakeCanvas, recordingContext, stubFetch, FakeElement } from './fakes.mjs';
 
 const dom = installDom();
-const U = await import('../downbeat/studio/src/utils.ts');
-const V = await import('../downbeat/studio/src/exportsView.ts');
-const { TRANSITIONS } = await import('../downbeat/studio/shaders.ts');
-const { SEQ_STEPS, ENV_POINTS } = await import('../downbeat/studio/audio.ts');
-const { rng } = await import('../downbeat/studio/timeline.ts');
+const U = await import('../downbeat/studio/src/lib/utils.ts');
+const V = await import('../downbeat/studio/src/lib/exportsView.ts');
+const { TRANSITIONS } = await import('../downbeat/studio/src/engine/shaders.ts');
+const { SEQ_STEPS, ENV_POINTS } = await import('../downbeat/studio/src/engine/audio.ts');
+const { rng } = await import('../downbeat/studio/src/engine/timeline.ts');
 
 test('times read as m:ss, and loop lengths switch from seconds to m:ss at one minute', () => {
   assert.equal(U.fmt(0), '0:00');

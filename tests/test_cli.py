@@ -15,8 +15,9 @@ from unittest import mock
 
 import numpy as np
 
-from downbeat import __version__, cli, effects
-from downbeat.recipe import PRESETS
+from downbeat import __version__, cli
+from downbeat.render import effects
+from downbeat.render.recipe import PRESETS
 
 HAS_FFMPEG = shutil.which("ffmpeg") is not None and shutil.which("ffprobe") is not None
 
@@ -71,10 +72,10 @@ class TestCommandLine(unittest.TestCase):
             self.assertEqual(done.exception.code, 2, bad)
 
     def test_no_videos_or_studio_flag_starts_the_studio(self) -> None:
-        with mock.patch("downbeat.server.serve_studio") as serve:
+        with mock.patch("downbeat.server.app.serve_studio") as serve:
             self.assertEqual(cli.main([]), 0)
             serve.assert_called_once_with(port=8765, open_browser=True)
-        with mock.patch("downbeat.server.serve_studio") as serve:
+        with mock.patch("downbeat.server.app.serve_studio") as serve:
             self.assertEqual(cli.main(["--studio", "--port", "9123", "--no-browser", "clip.mp4"]), 0)
             serve.assert_called_once_with(port=9123, open_browser=False)
 

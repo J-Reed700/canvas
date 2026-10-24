@@ -1,9 +1,9 @@
 import { create } from 'zustand';
-import { Engine } from '../engine.ts';
-import { Transport, makeSampler } from '../audio.ts';
-import { planTimeline, rng } from '../timeline.ts';
-import { LOOKS, clamp, cloneLook, evolveLook } from '../looks.ts';
-import { VideoBank } from '../composer.ts';
+import { Engine } from '../engine/engine.ts';
+import { Transport, makeSampler } from '../engine/audio.ts';
+import { planTimeline, rng } from '../engine/timeline.ts';
+import { LOOKS, clamp, cloneLook, evolveLook } from '../engine/looks.ts';
+import { VideoBank } from '../engine/composer.ts';
 import type {
   ClipMeta,
   TrackMeta,
@@ -11,15 +11,15 @@ import type {
   TrackFeatures,
   Look,
   ComposeContext,
-} from '../types.ts';
+} from '../engine/types.ts';
 import {
   fetchJSON,
   BAR_CHOICES,
   MAX_LOOP_SECONDS,
   toast,
-} from './utils.ts';
-import { drawOverview, drawLane, drawTimeline } from './timelineCanvas.ts';
-import { startRenderLoop, pollProxies } from './renderLoop.ts';
+} from '../lib/utils.ts';
+import { drawOverview, drawLane, drawTimeline } from '../canvas/timelineCanvas.ts';
+import { startRenderLoop, pollProxies } from '../canvas/renderLoop.ts';
 import {
   openExport,
   runExport,

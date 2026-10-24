@@ -1,5 +1,5 @@
 // Search, filter, sort and paging for the exports panel and the exports browser.
-import type { RenderCheck, RenderRecord } from '../types.ts';
+import type { RenderCheck, RenderRecord } from '../engine/types.ts';
 
 export const EXPORT_KINDS: [string, string][] = [
   ['all', 'All'],

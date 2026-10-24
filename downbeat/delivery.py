@@ -8,7 +8,7 @@ import struct
 import subprocess
 from typing import Any
 
-from .encoder import Encoder, ffmpeg_path, ffprobe_path, mux_audio_preview
+from .media.encoder import Encoder, ffmpeg_path, ffprobe_path, mux_audio_preview
 
 # Spotify for Artists "Canvas" upload requirements (support.spotify.com, 2026).
 SPEC = {"min_seconds": 3.0, "max_seconds": 8.0, "aspect": 9 / 16, "min_height": 720, "listed_max_height": 1080}

@@ -6,12 +6,13 @@ import os
 import random
 import time
 
-from . import __version__, effects
-from .audio import analyze_track
-from .compositor import CANVAS_FPS, CANVAS_H, CANVAS_SECONDS, CANVAS_W, build_plan
-from .encoder import Encoder
-from .recipe import PRESETS, WEIGHTS, make_recipe
-from .source import probe
+from . import __version__
+from .render import effects
+from .analysis.audio import analyze_track
+from .render.compositor import CANVAS_FPS, CANVAS_H, CANVAS_SECONDS, CANVAS_W, build_plan
+from .media.encoder import Encoder
+from .render.recipe import PRESETS, WEIGHTS, make_recipe
+from .media.source import probe
 
 
 def list_effects() -> None:
@@ -219,7 +220,7 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     if args.studio or not args.videos:
-        from .server import serve_studio
+        from .server.app import serve_studio
 
         serve_studio(port=args.port, open_browser=not args.no_browser)
         return 0

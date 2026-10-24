@@ -20,8 +20,8 @@ from unittest import mock
 import cv2
 import numpy as np
 
-from downbeat import server as server_mod
-from downbeat import state as state_mod
+from downbeat.server import app as server_mod
+from downbeat.server import state as state_mod
 
 HAS_FFMPEG = shutil.which("ffmpeg") is not None and shutil.which("ffprobe") is not None
 

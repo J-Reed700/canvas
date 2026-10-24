@@ -3,11 +3,11 @@ import assert from 'node:assert/strict';
 import { installDom, FakeElement, fakeCanvas, stubFetch } from './fakes.mjs';
 
 const dom = installDom();
-const { useStudioStore: S } = await import('../downbeat/studio/src/store.ts');
-const R = await import('../downbeat/studio/src/renderLoop.ts');
-const { LOOKS, cloneLook } = await import('../downbeat/studio/looks.ts');
-const { METERS } = await import('../downbeat/studio/src/utils.ts');
-const { MODULES } = await import('../downbeat/studio/modules.ts');
+const { useStudioStore: S } = await import('../downbeat/studio/src/state/store.ts');
+const R = await import('../downbeat/studio/src/canvas/renderLoop.ts');
+const { LOOKS, cloneLook } = await import('../downbeat/studio/src/engine/looks.ts');
+const { METERS } = await import('../downbeat/studio/src/lib/utils.ts');
+const { MODULES } = await import('../downbeat/studio/src/engine/modules.ts');
 
 const el = (id) => { const e = new FakeElement('div'); dom.byId.set(id, e); return e; };
 const ids = Object.fromEntries(['fps', 'lane', 'stageBadge', 'timeNow', 'timeLen', 'bbt', 'playhead', 'hudProg'].map((id) => [id, el(id)]));
