@@ -15,7 +15,7 @@ import {
   titleOf,
 } from '../lib/exportsView.ts';
 import { postJSON, toast } from '../lib/utils.ts';
-import { Icon, ICONS, SearchField, useArmed } from './ui.tsx';
+import { ArmedButton, Icon, ICONS, Modal, SearchField, useArmed } from './ui.tsx';
 import type { RenderRecord } from '../engine/types.ts';
 
 const SIDE_PAGE = 4;
@@ -424,72 +424,76 @@ export const ExportsLibrary: React.FC = () => {
   });
 
   return (
-    <div
-      className={`modal-bg ${open ? 'on' : ''}`}
+    <Modal
       id="libraryModal"
-      onClick={(e) => {
-        if (e.target === e.currentTarget) close();
-      }}
+      open={open}
+      onClose={close}
+      title="Exports"
+      subtitle={`${renders.length} render${renders.length === 1 ? '' : 's'} · ${totalMb.toFixed(1)} MB in out/`}
+      className="modal-wide lib"
+      ariaLabel="Exports"
+      closeButtonDataAction="close-exports"
+      headerActions={
+        renders.length > 0 ? (
+          <ArmedButton
+            className="sm del"
+            onConfirm={async () => {
+              for (const r of renders) {
+                await postJSON('/api/export/delete', { filename: r.filename });
+              }
+              useStudioStore.setState({ renders: [], libraryItem: null });
+              toast('Deleted all exports');
+            }}
+            label="Delete all"
+            armedLabel="Delete all?"
+            title="Delete all exports"
+          />
+        ) : undefined
+      }
     >
-      {open && (
-        <div className="modal lib" role="dialog" aria-label="Exports">
-          <div className="modal-h">
-            <div>
-              <h2>Exports</h2>
-              <div className="sub">
-                {renders.length} render{renders.length === 1 ? '' : 's'} · {totalMb.toFixed(1)} MB in out/
-              </div>
-            </div>
-            <button className="btn icon modal-x" title="Close (Esc)" onClick={close}>
-              ✕
-            </button>
+      {current ? (
+        <ExportViewer r={current} index={index} count={list.length} onStep={step} />
+      ) : (
+        <>
+          <div className="lib-bar">
+            <SearchBox autoFocus inputRef={searchRef} />
+            <KindChips renders={renders} />
+            <select className="select sm" value={filter.sort} onChange={(e) => setFilter({ sort: e.target.value })} title="Sort">
+              {EXPORT_SORTS.map(([k, label]) => (
+                <option key={k} value={k}>
+                  {label}
+                </option>
+              ))}
+            </select>
           </div>
 
-          {current ? (
-            <ExportViewer r={current} index={index} count={list.length} onStep={step} />
-          ) : (
-            <>
-              <div className="lib-bar">
-                <SearchBox autoFocus inputRef={searchRef} />
-                <KindChips renders={renders} />
-                <select className="select sm" value={filter.sort} onChange={(e) => setFilter({ sort: e.target.value })} title="Sort">
-                  {EXPORT_SORTS.map(([k, label]) => (
-                    <option key={k} value={k}>
-                      {label}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              {!list.length && <NoMatch />}
-              <div className="lib-grid">
-                {list.slice(page * LIB_PAGE, page * LIB_PAGE + LIB_PAGE).map((r) => (
-                  <button className="lib-card" key={r.filename} title={r.filename} onClick={() => useStudioStore.setState({ libraryItem: r.filename })}>
-                    <ExportThumb r={r} />
-                    <span className="lib-cap">
-                      <b>{titleOf(r)}</b>
-                      <span>{metaLine(r)}</span>
-                      <span>
-                        {formatLabel(r)}
-                        {r.created_at ? ` · ${timeAgo(r.created_at)}` : ''} <SpecBadge r={r} />
-                      </span>
-                    </span>
-                  </button>
-                ))}
-              </div>
-
-              {list.length > 0 && (
-                <div className="lib-foot">
-                  <span className="muted">
-                    {page * LIB_PAGE + 1}–{Math.min(list.length, (page + 1) * LIB_PAGE)} of {list.length}
+          {!list.length && <NoMatch />}
+          <div className="lib-grid">
+            {list.slice(page * LIB_PAGE, page * LIB_PAGE + LIB_PAGE).map((r) => (
+              <button className="lib-card" key={r.filename} title={r.filename} onClick={() => useStudioStore.setState({ libraryItem: r.filename })}>
+                <ExportThumb r={r} />
+                <span className="lib-cap">
+                  <b>{titleOf(r)}</b>
+                  <span>{metaLine(r)}</span>
+                  <span>
+                    {formatLabel(r)}
+                    {r.created_at ? ` · ${timeAgo(r.created_at)}` : ''} <SpecBadge r={r} />
                   </span>
-                  {pages > 1 && <Pager page={page} pages={pages} onPage={setPage} />}
-                </div>
-              )}
-            </>
+                </span>
+              </button>
+            ))}
+          </div>
+
+          {list.length > 0 && (
+            <div className="lib-foot">
+              <span className="muted">
+                {page * LIB_PAGE + 1}–{Math.min(list.length, (page + 1) * LIB_PAGE)} of {list.length}
+              </span>
+              {pages > 1 && <Pager page={page} pages={pages} onPage={setPage} />}
+            </div>
           )}
-        </div>
+        </>
       )}
-    </div>
+    </Modal>
   );
 };
