@@ -8,13 +8,13 @@ It runs on your own computer. A small Python server reads the song and handles f
 
 ![The studio on the Landscape 16:9 screen: the video plays on a wide screen with the song title beside the shuffle, skip, play and repeat buttons, the transport bar below shows the 16:9 Screen button, the cut timeline runs along the bottom, and the Layers tab on the right shows LFO B, the drawn envelope and the step sequencer for clip 1's own effect stack](docs/studio-landscape.jpg)
 
-Version 4.0. MIT license. Runs on macOS and Linux, and on Windows through WSL.
+Version 4.0. MIT license. Runs on macOS, Linux and Windows.
 
 ## Contents
 
 - [What it does](#what-it-does)
 - [Requirements](#requirements)
-- [Installation](#installation): [macOS](#macos), [Windows](#windows-10-and-11-with-wsl), [Linux](#linux)
+- [Installation](#installation): [macOS](#macos), [Windows](#windows-10-and-11), [Linux](#linux)
 - [Make your first Canvas](#make-your-first-canvas)
 - [Upload it to Spotify](#upload-it-to-spotify)
 - [Using the studio](#using-the-studio)
@@ -48,10 +48,10 @@ Downbeat does not upload anything for you, and it has no accounts. You upload th
 
 | What | Needed | Notes |
 | :--- | :--- | :--- |
-| Computer | A Mac, a Linux PC, or a Windows 10 or 11 PC with WSL 2 | Tested on macOS 26 (Apple Silicon). [Linux](#linux) has a table of the distributions that were tested. Windows hasn't been tested yet |
+| Computer | A Mac, a Linux PC, or a Windows 10 or 11 PC | Tested on macOS 26 (Apple Silicon). [Linux](#linux) has a table of the distributions that were tested. Windows has had less testing than macOS and Linux |
 | Browser | Chrome or Edge, with hardware acceleration turned on | The studio needs WebGL2. It's developed and tested in Chrome. Safari and Firefox haven't been tested |
 | Graphics | A GPU that Chrome can use for WebGL2 | Open `chrome://gpu` and look for "WebGL2: Hardware accelerated" |
-| ffmpeg | 6.1 or newer, with libx264 | `./run.sh` installs it. Tested with 6.1 through 9.0. The older ffmpeg in Ubuntu 22.04 (4.4) and Debian 12 (5.1) can't write exports correctly |
+| ffmpeg | 6.1 or newer, with libx264 | `./run.sh` (or `run.ps1` on Windows) installs it. Tested with 6.1 through 9.0. The older ffmpeg in Ubuntu 22.04 (4.4) and Debian 12 (5.1) can't write exports correctly |
 | Python | 3.10 or newer | `./run.sh` installs it |
 | Node.js | 20.19+ or 22.12+ | Only used to build the studio. `./run.sh` installs it |
 | Disk | About 250 MB for the project's packages | A new Mac needs about 1 GB more for Homebrew, ffmpeg, Python and Node. Playback copies of your clips go in `out/.proxies/` |
@@ -61,8 +61,8 @@ Downbeat does not upload anything for you, and it has no accounts. You upload th
 If you already have git, Python 3.10+, ffmpeg 6.1+ and Node.js 20.19+:
 
 ```bash
-git clone https://github.com/J-Reed700/canvas.git
-cd canvas
+git clone https://github.com/J-Reed700/downbeat.git
+cd downbeat
 ./run.sh
 ```
 
@@ -116,20 +116,52 @@ This works on Apple Silicon and Intel Macs running a macOS version that Homebrew
 
    ```bash
    cd ~
-   git clone https://github.com/J-Reed700/canvas.git
-   cd canvas
+   git clone https://github.com/J-Reed700/downbeat.git
+   cd downbeat
    ./run.sh
    ```
 
 6. If you don't have Google Chrome, install it from [google.com/chrome](https://www.google.com/chrome/). The studio opens in your default browser. If that's Safari, copy the address into Chrome.
 
-To start it again later, open Terminal and run `cd ~/canvas && ./run.sh`. Press `Ctrl + C` in Terminal to stop the server.
+To start it again later, open Terminal and run `cd ~/downbeat && ./run.sh`. Press `Ctrl + C` in Terminal to stop the server.
 
-### Windows 10 and 11, with WSL
+### Windows 10 and 11
 
-On Windows, the server runs inside WSL (Windows Subsystem for Linux), which gives you a copy of Ubuntu. The studio runs in your normal Chrome or Edge on Windows, so it still renders on your graphics card. Running it straight from PowerShell, Command Prompt or Git Bash isn't supported. From Git Bash, `run.sh` stops with a message pointing here.
+There are two ways to run Downbeat on Windows. Both open the studio in your normal Chrome or Edge, so it still renders on your graphics card.
 
-These steps haven't been tested on a Windows PC yet. The Linux side is the same as the tested Ubuntu setup.
+- From PowerShell, with `run.ps1`. This is the shorter setup.
+- Inside WSL (Windows Subsystem for Linux), which runs the server in a copy of Ubuntu.
+
+Git Bash can't run `run.sh`. Use PowerShell or WSL instead.
+
+#### With PowerShell
+
+1. Open PowerShell: right-click Start and choose Terminal. Install git with winget, then close the window and open a new one so it finds git:
+
+   ```powershell
+   winget install --id Git.Git -e
+   ```
+
+2. Download Downbeat into your user folder and start it:
+
+   ```powershell
+   cd ~
+   git clone https://github.com/J-Reed700/downbeat.git
+   cd downbeat
+   powershell -ExecutionPolicy Bypass -File run.ps1
+   ```
+
+   Windows doesn't run downloaded scripts by default. `-ExecutionPolicy Bypass` lets this one run without changing that setting.
+
+   `run.ps1` asks to install ffmpeg, Python 3.12 and Node.js LTS with winget. Answer Y each time. If it then says a tool isn't on your PATH, open a new PowerShell window and run the last two commands again.
+
+3. The studio opens in your default browser. Windows has no folder chooser here, so click Pick a folder and type the path to your videos, such as `C:\Users\<your-name>\Videos`. Finished exports go to your Downloads folder, and copies stay in the `out` folder inside `downbeat`.
+
+To start it again later, open PowerShell and run `cd ~\downbeat; powershell -ExecutionPolicy Bypass -File run.ps1`. Press `Ctrl + C` to stop the server. `run.ps1` takes the same flags as `./run.sh`, such as `--setup`, `--yes` and `--port 8766`, and `make studio` runs it for you if you have make.
+
+#### With WSL
+
+WSL gives you a copy of Ubuntu, and the server runs there. The Linux side is the same as the tested Ubuntu setup.
 
 1. Install WSL. Right-click Start, choose Terminal (Admin) or Windows PowerShell (Admin), and run:
 
@@ -152,8 +184,8 @@ These steps haven't been tested on a Windows PC yet. The Linux side is the same 
    ```bash
    sudo apt update && sudo apt install -y git curl
    cd ~
-   git clone https://github.com/J-Reed700/canvas.git
-   cd canvas
+   git clone https://github.com/J-Reed700/downbeat.git
+   cd downbeat
    ./run.sh
    ```
 
@@ -163,11 +195,11 @@ These steps haven't been tested on a Windows PC yet. The Linux side is the same 
 
 4. WSL can't open a browser tab for you. Open Chrome or Edge on Windows and go to http://localhost:8765.
 
-5. The studio opens on Pick a folder. Click it and type the path to your videos on the Windows side, such as `/mnt/c/Users/<your-windows-name>/Videos`. You can also drag clips, images and songs from File Explorer onto the studio. Finished exports go to your Windows Downloads folder. Copies also stay in `\\wsl$\Ubuntu\home\<your-linux-name>\canvas\out` (`Ubuntu-24.04` instead of `Ubuntu` if you installed that one), which you can paste into File Explorer's address bar.
+5. The studio opens on Pick a folder. Click it and type the path to your videos on the Windows side, such as `/mnt/c/Users/<your-windows-name>/Videos`. You can also drag clips, images and songs from File Explorer onto the studio. Finished exports go to your Windows Downloads folder. Copies also stay in `\\wsl$\Ubuntu\home\<your-linux-name>\downbeat\out` (`Ubuntu-24.04` instead of `Ubuntu` if you installed that one), which you can paste into File Explorer's address bar.
 
 To list your Windows music too, open the Track menu, choose + Add a folder, and type a path such as `/mnt/c/Users/<your-windows-name>/Music`.
 
-To start it again later, open Ubuntu from the Start menu, run `cd ~/canvas && ./run.sh`, and go to http://localhost:8765.
+To start it again later, open Ubuntu from the Start menu, run `cd ~/downbeat && ./run.sh`, and go to http://localhost:8765.
 
 ### Linux
 
@@ -190,8 +222,8 @@ opi codecs
 
 ```bash
 cd ~
-git clone https://github.com/J-Reed700/canvas.git
-cd canvas
+git clone https://github.com/J-Reed700/downbeat.git
+cd downbeat
 ./run.sh
 ```
 
@@ -214,10 +246,10 @@ On Fedora, the default `ffmpeg-free` package can't encode H.264 with x264, so `.
 
 ### No git? Download the ZIP
 
-On the [GitHub page](https://github.com/J-Reed700/canvas), click Code, then Download ZIP. Unzip it, then in a terminal:
+On the [GitHub page](https://github.com/J-Reed700/downbeat), click Code, then Download ZIP. Unzip it, then in a terminal:
 
 ```bash
-cd ~/Downloads/canvas-main
+cd ~/Downloads/downbeat-main
 chmod +x run.sh
 ./run.sh
 ```
@@ -233,6 +265,8 @@ Each time you run it, `./run.sh` goes through these steps and skips any that are
 3. Runs `npm ci` when `node_modules/` is missing or `package-lock.json` has changed.
 4. Builds the studio into `downbeat/studio/dist/` when there's no build yet, or when a studio source file is newer than the last build.
 5. Starts the server and opens http://127.0.0.1:8765 in your browser. If another copy of Downbeat is already running on that port, it replaces it. If something else is using the port, it tries the next one, up to 8779.
+
+On Windows, `run.ps1` goes through the same steps and installs tools with winget.
 
 Without a terminal (in a script or CI) and without `--yes`, it prints the install command it would have run and stops.
 
@@ -274,7 +308,7 @@ Then open the studio, add a clip and press Space. The clip should play, and the 
 ### Updating
 
 ```bash
-cd ~/canvas
+cd ~/downbeat
 git pull
 ./run.sh
 ```
@@ -286,7 +320,7 @@ git pull
 Everything Downbeat installs is inside its own folder: `.venv/`, `node_modules/`, `downbeat/studio/dist/`, and your exports and added songs in `out/`. Delete the folder to remove it:
 
 ```bash
-rm -rf ~/canvas
+rm -rf ~/downbeat
 ```
 
 ffmpeg, Python and Node are shared tools, so removing them is up to you. On macOS that's `brew uninstall ffmpeg node python@3.12`. On Ubuntu it's `sudo apt remove ffmpeg`, and nvm's Node goes with `rm -rf ~/.nvm`.
@@ -356,7 +390,7 @@ This section gives an overview. [docs/STUDIO_GUIDE.md](docs/STUDIO_GUIDE.md) cov
 
 ### The screen
 
-The left column holds the track, its tempo and beat grid, the level meters, your clips and your past exports. The middle shows the preview, the transport bar and the timeline. The bar along the top shows the track, tempo, loop length, look and clip count. On its right are Undo and Redo (the ↶ and ↷ arrows), Roll and Export.
+The left column holds the track, its tempo and beat grid, the level meters, your clips and your past exports. The middle shows the preview, the transport bar and the timeline. The bar along the top shows the track, tempo, loop length, look and clip count. On its right are Undo and Redo (the ↶ and ↷ arrows), the keyboard shortcuts button, Roll and Export. The arrow next to Roll chooses what a roll changes.
 
 The right column has three tabs. Looks is the gallery of 44 looks. Layers holds the effect stack, the Camera and Finish settings, the color palette and the modulators. Edit sets the cut rhythm, transitions, clip direction, speed ramps and loop length.
 
@@ -364,7 +398,7 @@ The right column has three tabs. Looks is the gallery of 44 looks. Layers holds 
 
 Downbeat lists the videos and songs in the folders you pick, and the files you add.
 
-- + Add a folder (in Clips and in the Track menu) lists a folder's videos and songs, including its subfolders, and leaves the files where they are. On a Mac it opens the system folder chooser. On Linux and WSL you type the folder's path. The folders are saved in `out/.library.json`, and ✕ next to a folder in the Track menu stops listing it.
+- + Add a folder (in Clips and in the Track menu) lists a folder's videos and songs, including its subfolders, and leaves the files where they are. On a Mac it opens the system folder chooser. On Linux and Windows you type the folder's path. The folders are saved in `out/.library.json`, and ✕ next to a folder in the Track menu stops listing it.
 - + Add files, or dragging files onto the window, copies them into Downbeat.
 
 | Kind | Formats |
@@ -427,7 +461,9 @@ Loop mode plays only the slice of the song under the Canvas, over and over. List
 | `R` | Random look | `L` | Switch between Loop and Listener mode |
 | `H` | Show or hide the Spotify player overlay | `S` | Show or hide the safe zones (phone screen only) |
 | `O` | Next screen: phone, landscape, tablet, square | `?` | Keyboard help |
-| `Esc` | Close the open panel | | |
+| `B` | Split the segment at the playhead | `Cmd+D` | Repeat the segment's first half (`Ctrl+D` on Windows and Linux) |
+| `Delete` | Delete the selected segment | `N` | Snap: beat, ½ beat, ¼ beat or off |
+| `Esc` | Close the open panel, or deselect a segment | | |
 
 ## Looks, effects and transitions
 
@@ -536,7 +572,7 @@ Spotify exports are encoded at 16 Mbps (9 Mbps for the smaller sizes). The other
 | Promo copy with the song | Writes a 15 or 30 second video of the loop repeated with the song underneath, for Reels, TikTok, Shorts or a Spotify Countdown Page. YouTube exports get a 30 second promo by default, unless the video is already that long |
 | Save to my Downloads folder when it's done | On by default. Turn it off to keep files only in `out/` |
 
-After an export, the result card also has GIF and WebP teaser buttons. They make small looping previews, 540 px wide at 18 fps from the first 10 seconds, for places that don't play video.
+The GIF Loop and WebP Loop buttons in the export sheet, and the GIF teaser and WebP teaser buttons on an export in the exports library, make small looping previews, 540 px wide at 18 fps from the first 10 seconds, for places that don't play video.
 
 ### Release pack and batch export
 
@@ -568,19 +604,20 @@ The renderer always runs a flash guard on the GPU. It limits how much the averag
 
 ### Where files go
 
-Exports are named `canvas-<look>-<bpm>bpm-<length>s-<width>x<height>-<timestamp>.mp4`, with the format added before the tempo for anything other than a Spotify Canvas (for example `canvas-clean-cut-apple-tall-128bpm-...`). They download to your browser's Downloads folder, and a copy stays in `out/`, along with any `-audio.mp4` and `-promo-<seconds>s.mp4` files. The Exports list on the left shows everything in `out/`, including renders from earlier sessions.
+Exports are named `canvas-<look>-<bpm>bpm-<length>s-<width>x<height>-<timestamp>.mp4`, with the format added before the tempo for anything other than a Spotify Canvas (for example `canvas-clean-cut-apple-tall-128bpm-...`). They download to your browser's Downloads folder, and a copy stays in `out/`, along with any `-audio.mp4` and `-promo-<seconds>s.mp4` files. The Exports list on the left shows everything in `out/`, including renders from earlier sessions. Click an export, or Browse, to open the exports library, where you can play, search and delete them.
 
-On a Mac, the Reveal in Finder button shows the file in Finder. On Linux and WSL, it shows the file's path in `out/` instead.
+On a Mac, the Reveal in Finder button shows the file in Finder. On Linux and Windows, it shows the file's path in `out/` instead.
 
 ## Troubleshooting
 
 | Problem | Fix |
 | :--- | :--- |
 | `permission denied: ./run.sh` | Run `chmod +x run.sh` once, or start it with `bash run.sh`. |
+| `run.ps1 cannot be loaded because running scripts is disabled on this system` | Start it with `powershell -ExecutionPolicy Bypass -File run.ps1`, as in [the Windows steps](#with-powershell). |
 | `command not found: brew` right after installing Homebrew | Run the three lines from [step 3 of the macOS setup](#macos), or open a new Terminal window. |
 | `xcrun: error: invalid active developer path` | The Command Line Tools are missing, which can happen after a macOS update. Run `xcode-select --install`. |
 | `ensurepip is not available` or `No module named venv` | Debian and Ubuntu package this separately. Run `sudo apt install python3-venv`, then `rm -rf .venv && ./run.sh`. `./run.sh` normally does this for you. |
-| `Vite requires Node.js version 20.19+ or 22.12+` | Your Node is too old. Run `brew upgrade node` on macOS, or `nvm install --lts` on Linux and WSL. |
+| `Vite requires Node.js version 20.19+ or 22.12+` | Your Node is too old. Run `brew upgrade node` on macOS, `nvm install --lts` on Linux and WSL, or `winget upgrade OpenJS.NodeJS.LTS` on Windows. |
 | `npm ERR! EACCES` | Don't use `sudo` with npm here. Run `rm -rf node_modules && ./run.sh`. |
 | `pip` fails with `SSL: CERTIFICATE_VERIFY_FAILED` | If your Python came from python.org, run Install Certificates.command in `/Applications/Python 3.x/`, or use Homebrew's Python. |
 | The browser didn't open | Go to http://127.0.0.1:8765 yourself. The terminal prints the exact address, which has a different port if 8765 was busy. |
@@ -598,7 +635,7 @@ On a Mac, the Reveal in Finder button shows the file in Finder. On Linux and WSL
 | The studio looks out of date after `git pull` | `./run.sh` rebuilds it. To force a rebuild, run `rm -rf downbeat/studio/dist && ./run.sh`. |
 | You want to start completely fresh | Run `rm -rf .venv node_modules downbeat/studio/dist && ./run.sh`. |
 
-Problems with sliders, modulators, the color palette or Revert are covered in [the guide's troubleshooting section](docs/STUDIO_GUIDE.md#18-troubleshooting). If something still doesn't work, [open an issue](https://github.com/J-Reed700/canvas/issues) with your operating system, browser, the command you ran and what the terminal printed.
+Problems with sliders, modulators, the color palette or Revert are covered in [the guide's troubleshooting section](docs/STUDIO_GUIDE.md#18-troubleshooting). If something still doesn't work, [open an issue](https://github.com/J-Reed700/downbeat/issues) with your operating system, browser, the command you ran and what the terminal printed.
 
 ## FAQ
 
@@ -669,8 +706,8 @@ flowchart LR
 ### Project layout
 
 ```text
-canvas/
-├── run.sh, run, Makefile       # one-command launcher and shortcuts
+downbeat/
+├── run.sh, run.ps1, run, Makefile  # one-command launcher (run.ps1 for Windows) and shortcuts
 ├── pyproject.toml              # package metadata and the `downbeat` entry point
 ├── package.json                # studio dependencies and build scripts
 ├── docs/
@@ -694,15 +731,15 @@ canvas/
 │           ├── main.tsx, App.tsx   # React root, layout and keyboard shortcuts
 │           ├── engine/         # no React: WebGL2 render graph, GLSL, the GPU effects and looks, compose(),
 │           │                   #   cut planning, Web Audio transport, WebCodecs export
-│           ├── state/          # Zustand store, plus history, roll, export and media actions
+│           ├── state/          # Zustand store, plus history, roll, export, media and timeline block actions
 │           ├── canvas/         # per-frame drawing: the render loop, the timeline lane and overview
-│           ├── lib/            # helpers, export formats, export search and paging
+│           ├── lib/            # helpers, export formats, preview screens, export search and paging
 │           └── components/     # the panels, plus shared Slider, Card and SearchField (ui.tsx)
 └── tests/
     ├── test_*.py               # Python tests, one file per package area (media, analysis, delivery, render,
     │                           #   state, library, server, cli) plus test_studio_js.py, which runs the Node suite
     ├── helpers.py              # shared fixtures: ffprobe, a temp folder with generated media
-    ├── studio*.test.mjs        # studio logic: timeline, modulation, store, media, export sheet, render loop, utils
+    ├── studio*.test.mjs        # studio logic: timeline, block edits, modulation, store, media, export sheet, render loop, utils
     ├── fakes.mjs               # stand-ins for the DOM, <video>, canvas, fetch and WebCodecs
     ├── components/             # React panels rendered with Testing Library and happy-dom (Vitest)
     └── e2e/smoke.test.mjs      # real server, headless Chrome and one real export
@@ -721,11 +758,11 @@ npm run dev                              # Vite dev server with hot reload; star
 npm run build                            # production build into downbeat/studio/dist (./run.sh does this when sources change)
 ```
 
-`make e2e` skips itself when Chrome or ffmpeg isn't installed. The Python tests generate their own media with ffmpeg, so they need no sample files.
+On Windows, the Python is `.venv\Scripts\python.exe`, and `make test` and `make e2e` work from PowerShell if you have make. `make e2e` skips itself when Chrome or ffmpeg isn't installed. The Python tests generate their own media with ffmpeg, so they need no sample files.
 
 Notes for working on the studio, such as why `compose()` must stay the only place frames are built and how looks are edited in place, are in [the guide's developer notes](docs/STUDIO_GUIDE.md#19-notes-for-developers).
 
-To report a bug or suggest a change, [open an issue](https://github.com/J-Reed700/canvas/issues). Pull requests should pass `make test`.
+To report a bug or suggest a change, [open an issue](https://github.com/J-Reed700/downbeat/issues). Pull requests should pass `make test`.
 
 ## Command-line renderer
 
@@ -786,7 +823,7 @@ To report a bug or suggest a change, [open an issue](https://github.com/J-Reed70
 | `--loop-mode` | `crossfade` | How the end joins the start: `crossfade`, `rebound`, `morph` or `hard` |
 | `--cut-beats` | the preset's (4 or 8) | Beats between cuts, such as `0.5`, `1`, `2` or `4` |
 | `--cut-mode` | `steady` | `steady`: a cut every `--cut-beats`. `fit_all`: one equal segment per clip. `fit_all_2x`: two per clip. `build_up`: segments get shorter toward the end. `syncopated`: a long, long, short pattern. `transient`: cuts on the strongest drum hits (needs `--audio`). `chaos`: random lengths around `--cut-beats` |
-| `--no-ensure-all` | off | Allow clips to be left out. By default every clip appears at least once |
+| `--ensure-all-clips`, `--no-ensure-all` | on | Every clip appears at least once. `--no-ensure-all` allows clips to be left out |
 | `--transition` | the preset's | Use one transition for every cut |
 | `--transitions` | none | A list of transitions to use, such as `--transitions luma whip glitch` |
 | `--transition-mode` | `cycle` | How to pick from the list: `cycle` (in order), `random`, or `single` (only the first) |
