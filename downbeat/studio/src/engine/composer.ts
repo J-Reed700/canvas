@@ -204,6 +204,9 @@ export function compose(ctx: ComposeContext, t: number, look: Look = ctx.look): 
 
 // Pool of hidden <video> elements, one per (clip, timeline slot), that the preview keeps playing in
 // sync with the transport. Exports don't use them: see clipFrames.ts.
+/** How many <video> elements the preview keeps. */
+const BANK_SIZE = 20;
+
 export class VideoBank {
   root: HTMLElement;
   /** The clip's playback copy, or null while it's still being made. */
@@ -220,6 +223,24 @@ export class VideoBank {
 
   get(vkey: string, clipId?: string): HTMLVideoElement {
     let e = this.els.get(vkey);
+    // With more cuts than the bank holds, a new element per cut would be made and thrown away every time
+    // round the loop, each one loading its file again. A full bank hands the cut an element of the same
+    // clip that nothing has asked for in the last second instead, which only has to seek.
+    if (!e && this.els.size >= BANK_SIZE) {
+      const url = this.urlFor(clipId ?? vkey.split('#')[0]);
+      const now = performance.now();
+      let idle: [string, HTMLVideoElement] | undefined;
+      for (const kv of this.els) {
+        const x = kv[1] as any;
+        if (url && x._url === url && now - x._used > 1000 && (!idle || x._used < (idle[1] as any)._used)) idle = kv;
+      }
+      if (idle) {
+        this.els.delete(idle[0]);
+        this.onDrop?.(idle[0]);
+        e = idle[1];
+        this.els.set(vkey, e);
+      }
+    }
     if (!e) {
       e = document.createElement('video');
       e.muted = true;
@@ -250,6 +271,7 @@ export class VideoBank {
     for (const n of needs) {
       const e = this.get(n.vkey, n.clipId);
       active.add(e);
+      (e as any)._parked = undefined;
       if (e.readyState < 1) continue;
       const drift = e.currentTime - n.time;
       if (!playing || n.rev) {
@@ -269,18 +291,22 @@ export class VideoBank {
     this._gc(active);
   }
 
-  // Park upcoming segments on their first frame so cuts land without a decode hitch.
+  // Park upcoming segments on their first frame so cuts land without a decode hitch. A cut is first asked
+  // for when its start comes into view, so it's parked then and left there: moved on to the frames after
+  // its start as they come into view, it would be past its first frame when it starts, and seek back.
   prime(needs: VideoNeed[]): void {
     for (const n of needs) {
-      const e = this.get(n.vkey, n.clipId);
-      if (e.paused && e.readyState >= 1 && !e.seeking && Math.abs(e.currentTime - n.time) > 0.05) e.currentTime = n.time;
+      const e = this.get(n.vkey, n.clipId) as any;
+      if (!e.paused || e.readyState < 1 || e.seeking || e._parked === n.vkey) continue;
+      if (Math.abs(e.currentTime - n.time) > 0.05) e.currentTime = n.time;
+      e._parked = n.vkey;
     }
   }
 
   _gc(active: Set<HTMLVideoElement>): void {
-    if (this.els.size <= 20) return;
+    if (this.els.size <= BANK_SIZE) return;
     const old = [...this.els.entries()].filter(([, e]) => !active.has(e)).sort((a, b) => (a[1] as any)._used - (b[1] as any)._used);
-    for (const [k, e] of old.slice(0, this.els.size - 20)) {
+    for (const [k, e] of old.slice(0, this.els.size - BANK_SIZE)) {
       e.pause();
       e.removeAttribute('src');
       e.load();

@@ -77,12 +77,14 @@ async function openBrowser(userDir) {
   if (process.platform === 'darwin') args.push('--use-angle=metal');
   else args.push('--use-angle=swiftshader', '--enable-unsafe-swiftshader');
   if (process.getuid?.() === 0) args.push('--no-sandbox');
-  const proc = spawn(chromePath, [...args, 'about:blank'], { stdio: 'ignore' });
+  const proc = spawn(chromePath, [...args, 'about:blank'], { stdio: ['ignore', 'ignore', 'pipe'] });
+  let launchError = '';
+  proc.stderr.on('data', (data) => { launchError = (launchError + data.toString()).slice(-4000); });
   let ws;
   try {
     const portFile = join(userDir, 'DevToolsActivePort');
-    for (let i = 0; i < 100 && !existsSync(portFile) && proc.exitCode === null; i++) await sleep(100);
-    assert.ok(existsSync(portFile), 'Chrome did not start its debugging endpoint');
+    for (let i = 0; i < 300 && !existsSync(portFile) && proc.exitCode === null; i++) await sleep(100);
+    assert.ok(existsSync(portFile), `Chrome did not start its debugging endpoint (exit ${proc.exitCode ?? 'still running'}): ${launchError}`);
     const port = readFileSync(portFile, 'utf8').split('\n')[0];
     let page;
     for (let i = 0; i < 50 && !page; i++) {

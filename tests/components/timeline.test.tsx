@@ -203,7 +203,7 @@ describe('lane', () => {
     expect(frames).toHaveLength(8);
     const max = +(pop().querySelector('input[type=range]') as HTMLInputElement).max;
     const t = +((max * 4.5) / 8).toFixed(2);
-    expect(frames[4].style.backgroundImage).toBe(`url("/api/thumb/b?w=120&t=${t.toFixed(2)}")`);
+    expect(frames[4].dataset.thumb).toBe(`/api/thumb/b?w=120&t=${t.toFixed(2)}`); // shown once it has loaded
     fireEvent.click(frames[4]);
     expect(st().ctx!.tl.segs[1].in).toBeCloseTo(t, 9);
     expect(pop().querySelector('.seg-body .seg-val')!.textContent).toBe(`${t.toFixed(2)} s`);
@@ -258,7 +258,7 @@ describe('segment framing', () => {
     expect(auto().className).toBe('on');
     expect(pop().querySelectorAll('.seg-win')).toHaveLength(1);
     expect(value('X')).toBe('Center');
-    expect(crop().style.backgroundImage).toBe(`url("/api/thumb/b?w=320&t=${seg().in.toFixed(2)}")`);
+    expect(crop().dataset.thumb).toBe(`/api/thumb/b?w=320&t=${seg().in.toFixed(2)}`);
 
     fireEvent.input(slider('X'), { target: { value: '0.5' } });
     expect(frame()).toEqual({ a: [0.5 + 0.5 * roomX(1), 0.5, 1] });

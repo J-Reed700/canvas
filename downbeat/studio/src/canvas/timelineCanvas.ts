@@ -1,9 +1,13 @@
 import type { StudioState } from '../state/store.ts';
 import { sizeCanvas, roundRect } from '../lib/utils.ts';
+import { cancelThumb, loadThumb } from '../lib/thumbs.ts';
 import type { Segment } from '../engine/types.ts';
 import { ThumbnailCache } from '../lib/thumbnailCache.ts';
 
-const timelineThumbnails = new ThumbnailCache();
+const timelineThumbnails = new ThumbnailCache(512, undefined, (image, url, onReady, wanted) => {
+  loadThumb(url, onReady, image, wanted);
+  return () => cancelThumb(image);
+});
 export const thumbImgsMap = timelineThumbnails.images;
 
 /** The block whose menu is open, outlined on the lane so you can see which one you're editing. */

@@ -12,6 +12,7 @@ import {
   type ClipFilter,
 } from '../lib/clipsView.ts';
 import { clipAspect, homeShort } from '../lib/utils.ts';
+import { thumbRef } from '../lib/thumbs.ts';
 import { isLoaded, removeClip, revealClip } from '../state/mediaActions.ts';
 import { ArmedButton, Icon, ICONS, Modal, useArmed } from './ui.tsx';
 import { FilterChips, FilterSearch, LibraryFoot, LibraryViewer, NoMatch, useLibraryKeys, usePage } from './Library.tsx';
@@ -243,7 +244,7 @@ export const ClipsSection: React.FC<{ onAddFiles: () => void }> = ({ onAddFiles 
                 setDragId(null);
               }}
             >
-              <div className="clip-media" style={{ backgroundImage: `url(/api/thumb/${c.id}?w=320)` }}>
+              <div className="clip-media" ref={thumbRef(`/api/thumb/${c.id}?w=320`)}>
                 {idx >= 0 && (
                   <span className="num" title={`Clip ${idx + 1} in the edit`}>
                     <MediaGlyph kind="check" />
@@ -290,7 +291,7 @@ const ClipThumb: React.FC<{ c: ClipMeta; n: number }> = ({ c, n }) => {
   return (
     <span
       className="clip-thumb"
-      style={{ backgroundImage: `url(/api/thumb/${c.id}?w=360)` }}
+      ref={thumbRef(`/api/thumb/${c.id}?w=360`)}
       onPointerEnter={() => setHover(true)}
       onPointerLeave={() => setHover(false)}
     >

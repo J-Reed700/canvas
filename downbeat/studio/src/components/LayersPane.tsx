@@ -15,6 +15,7 @@ import { ModulatorsCard } from './ModulatorsCard.tsx';
 import { ParamRow } from './ParamRow.tsx';
 import { ColorGradeCard } from './ColorGradeCard.tsx';
 import { Card, SliderRow } from './ui.tsx';
+import { thumbRef } from '../lib/thumbs.ts';
 
 type LayerSection = 'all' | 'effects' | 'color';
 
@@ -251,7 +252,7 @@ export const LayersPane: React.FC = () => {
                     ? `Clip ${i + 1}: ${clipLooks[cid].name}`
                     : `Clip ${i + 1} uses the main look: click to customize`
                 }
-                style={{ backgroundImage: `url(/api/thumb/${cid}?w=120)` }}
+                ref={thumbRef(`/api/thumb/${cid}?w=120`)}
                 onClick={() => editClipLook(cid)}
               >
                 <span>{i + 1}</span>

@@ -1,12 +1,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { installDom, fakeCanvas, recordingContext, stubFetch, FakeElement } from './fakes.mjs';
+import { installDom, fakeCanvas, recordingContext, stubFetch, FakeElement, tick } from './fakes.mjs';
 
 const dom = installDom();
 const U = await import('../downbeat/studio/src/lib/utils.ts');
 const V = await import('../downbeat/studio/src/lib/exportsView.ts');
 const CV = await import('../downbeat/studio/src/lib/clipsView.ts');
 const SC = await import('../downbeat/studio/src/lib/screens.ts');
+const TH = await import('../downbeat/studio/src/lib/thumbs.ts');
 const { TRANSITIONS } = await import('../downbeat/studio/src/engine/shaders.ts');
 const { SEQ_STEPS, ENV_POINTS } = await import('../downbeat/studio/src/engine/audio.ts');
 const { rng } = await import('../downbeat/studio/src/engine/timeline.ts');
@@ -359,4 +360,68 @@ test('the clips list filters by chip and every search word, and keeps the edit o
   assert.deepEqual(f({ q: 'city', kind: 'still' }), []);
   assert.deepEqual(CV.kindCounts(clips, selected), { all: 4, edit: 2, video: 3, still: 1 });
   assert.deepEqual(CV.editOrder(clips, ['gone', 'art']).map((c) => c.id), ['art', 'beach', 'city', 'dawn'], 'an id no longer listed is skipped');
+});
+
+// An image that loads only when the test says so.
+function images(t) {
+  const made = [];
+  globalThis.Image = class {
+    constructor() { this.naturalWidth = 0; made.push(this); }
+    removeAttribute(name) { if (name === 'src') delete this.src; }
+  };
+  TH.resetThumbs();
+  t.after(() => { delete globalThis.Image; TH.resetThumbs(); });
+  const load = (img) => { img.naturalWidth = 200; img.onload(); };
+  return { made, load };
+}
+
+test('thumbnails load two at a time, the latest asked for first, so a cut\'s video is never left without a connection', async (t) => {
+  const { made, load } = images(t);
+  const done = [];
+  for (let i = 0; i < 5; i++) TH.loadThumb(`/t/${i}`, () => done.push(i));
+  await tick();
+  assert.deepEqual(made.map((m) => m.src), [undefined, undefined, undefined, '/t/3', '/t/4']);
+  load(made[4]);
+  assert.deepEqual(done, [4]);
+  assert.equal(made[2].src, '/t/2', 'the latest one waiting goes next');
+  made[3].onerror();
+  assert.deepEqual(done, [4, 3]);
+  assert.equal(made[1].src, '/t/1', 'a failed one frees its place too');
+  assert.equal(made[0].src, undefined);
+
+  const again = TH.loadThumb('/t/4');
+  assert.equal(again.src, '/t/4', 'one already loaded comes straight from the cache');
+});
+
+test('a background thumbnail shows once it has loaded, unless its element has moved on to another', async (t) => {
+  const { made, load } = images(t);
+  const el = { dataset: {}, style: {} };
+  TH.thumbBackground(el, '/t/a');
+  await tick();
+  TH.thumbBackground(el, '/t/a');
+  assert.equal(made.length, 1, 'asked twice, loaded once');
+  TH.thumbBackground(el, '/t/b');
+  await tick();
+  load(made[0]);
+  assert.equal(el.style.backgroundImage, undefined, 'a start frame that has since changed');
+  load(made[1]);
+  assert.equal(el.style.backgroundImage, 'url(/t/b)');
+
+  // one that has left the page, or moved on, before its turn isn't loaded at all
+  const [one, two] = ['/t/1', '/t/2'].map((u) => TH.loadThumb(u));
+  await tick();
+  const gone = { dataset: {}, style: {}, isConnected: true };
+  const moved = { dataset: {}, style: {} };
+  TH.thumbBackground(gone, '/t/c');
+  TH.thumbBackground(moved, '/t/d');
+  TH.thumbBackground(moved, '/t/e');
+  await tick();
+  gone.isConnected = false;
+  load(two);
+  load(one);
+  assert.deepEqual(made.slice(-3).map((m) => m.src), [undefined, undefined, '/t/e']);
+
+  const other = { dataset: {}, style: {} };
+  TH.thumbBackground(other, '/t/a');
+  assert.equal(other.style.backgroundImage, 'url(/t/a)', 'shown at once when already loaded');
 });

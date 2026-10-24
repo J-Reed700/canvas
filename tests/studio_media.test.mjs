@@ -220,6 +220,18 @@ test('priming parks upcoming clips on their first frame', async () => {
   await tick();
   b.prime([need('a#3', 4.01)]);
   assert.deepEqual(e.seeks, [4]);
+  b.prime([need('a#3', 4.3)]);
+  assert.deepEqual(e.seeks, [4], 'the frames after its start coming into view leave it on its first frame');
+  b.sync([need('a#3', 4.008)], true);
+  assert.deepEqual(e.seeks, [4], 'so it starts playing where it was parked');
+  assert.equal(e.plays, 1);
+
+  // over, and round the loop again
+  e._t = 5.2;
+  b.sync([need('a#1', 0)], true);
+  await tick();
+  b.prime([need('a#3', 4)]);
+  assert.deepEqual(e.seeks, [4, 4], 'parked again for its next turn');
 });
 
 test('the bank keeps at most twenty elements, dropping the least recently used ones that are not on screen', async () => {
@@ -246,6 +258,39 @@ test('the bank keeps at most twenty elements, dropping the least recently used o
   assert.equal(root.children.length, 0);
   assert.ok(gone.every((e) => e.loads === 1 && e.src === ''), 'each element lets go of its file');
   assert.equal(dropped.length, 25);
+});
+
+test('a full bank gives a new cut an idle element of the same clip instead of loading the file again', () => {
+  const dropped = [];
+  const { root, b } = bank((k) => dropped.push(k));
+  let now = 0;
+  const real = performance.now;
+  performance.now = () => now;
+  try {
+    for (let i = 0; i < 20; i++) { now += 10; b.get(i % 2 ? `b#${i}` : `a#${i}`); }
+    const a0 = b.els.get('a#0');
+    now += 1500;
+    b.get('a#2');
+    assert.equal(b.get('a#40'), a0, 'the clip element nothing has used for over a second');
+    assert.equal(a0.src, '/api/proxy/a');
+    assert.equal(a0.loads, 0, 'its file stays loaded');
+    assert.deepEqual(dropped, ['a#0'], 'the cut it showed before lets go of its picture');
+    assert.ok(!b.els.has('a#0'));
+    assert.equal(b.els.size, 20);
+    assert.equal(root.children.length, 20);
+
+    assert.equal(b.get('c#0').src, '/api/proxy/c', 'another clip still gets an element of its own');
+    assert.equal(b.els.size, 21);
+
+    now += 2000;
+    const before = new Set(b.els.values());
+    for (const k of b.els.keys()) b.get(k);
+    now += 999;
+    assert.ok(!before.has(b.get('a#50')), 'an element used in the last second is never taken');
+    assert.equal(b.els.size, 22);
+  } finally {
+    performance.now = real;
+  }
 });
 
 function exportCtx(L, look = LOOKS[0]) {
@@ -445,7 +490,7 @@ function lane(width) {
 
 const labels = (x) => x.calls.filter((c) => c.fn === 'fillText').map((c) => c.args[0]);
 
-test('the lane numbers every bar of a short loop and shows a thumbnail per cut', () => {
+test('the lane numbers every bar of a short loop and shows a thumbnail per cut', async () => {
   FakeImage.made = [];
   const x = lane(800);
   const s = laneState(8, 0.5);
@@ -454,7 +499,9 @@ test('the lane numbers every bar of a short loop and shows a thumbnail per cut',
   assert.deepEqual(text.filter((t) => /^\d+$/.test(t)), ['1', '2', '3', '4']);
   assert.deepEqual(text.filter((t) => t.startsWith('#')), ['#1', '#2', '#3', '#1']);
   assert.equal(FakeImage.made.length, 4);
-  assert.match(FakeImage.made[0].src, /^\/api\/thumb\/a\?w=200&t=\d+\.\d\d$/);
+  await tick();
+  assert.equal(FakeImage.made.filter((m) => m.src).length, 2, 'two load at a time');
+  assert.match(FakeImage.made[3].src, /^\/api\/thumb\/a\?w=200&t=\d+\.\d\d$/);
   assert.equal(x.calls.filter((c) => c.fn === 'rotate').length, 4, 'a marker on every cut');
 
   // drawing again reuses the thumbnails, and a loaded one is drawn

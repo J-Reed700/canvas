@@ -19,6 +19,9 @@ describe('clips panel', () => {
     resetStudio({ clips: FOLDERED as any, selected: ['a', 'b'] });
     renderStudio(<MediaPanel />);
     expect(caps()).toHaveLength(3);
+    const poster = document.querySelector<HTMLElement>('#clips .clip .clip-media')!;
+    expect(poster.dataset.thumb).toBe('/api/thumb/a?w=320');
+    expect(document.querySelector('#clips .clip')!.getAttribute('role')).toBe('group');
     fireEvent.change(search(), { target: { value: 'summer' } });
     expect(caps()).toEqual(['12.0s · 1 sunrise.mp4']);
     expect(document.getElementById('clipCount')!.textContent).toBe('1 of 3 shown');
