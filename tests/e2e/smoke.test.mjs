@@ -363,6 +363,65 @@ test('the studio works end to end in a real browser', { skip: missing.length ? `
     assert.ok(still.length <= steps * 0.05, `${still.length} of ${steps} steps inside cuts show no change: frames ${still.slice(0, 20).join(', ')}`);
   });
 
+  await step('saves the edit as a project, which keeps saving itself, and opens it again after a new one', `
+    key('Escape');
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 's', metaKey: true, bubbles: true }));
+    const name = await until(() => $('#projectsModal input[aria-label="Project name"]'), 2000, 'Projects to ask for a name');
+    setRange(name, 'E2E project');
+    await tap(byText('#projectsModal button', 'Save as project'));
+    await until(() => S.getState().project?.name === 'E2E project' && !S.getState().projectsOpen, 5000, 'the project to save');
+    if ($('#btnProjects .proj-name').textContent !== 'E2E project') throw new Error('top bar: ' + $('#btnProjects').textContent);
+    const id = S.getState().project.id;
+    const look = S.getState().look.name;
+    byText('#tabs button', 'Edit').click();
+    await until(() => $('#pane-edit'), 5000, 'the Edit tab');
+    byText('#pane-edit .seg button', '4 bars').click();
+    const file = async () => (await (await fetch('/api/projects/' + id)).json()).project;
+    // the autosave lands a moment after the change
+    for (let i = 0; i < 50 && (await file()).data.bars !== 4; i++) await sleep(100);
+    if ((await file()).data.bars !== 4) throw new Error('the project file has ' + (await file()).data.bars + ' bars');
+
+    await tap($('#btnProjects'));
+    await tap(await until(() => byText('#projectsModal button', 'New project'), 2000, 'New project'));
+    await until(() => S.getState().project === null && !S.getState().projectsOpen, 5000, 'a new edit');
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'o', metaKey: true, bubbles: true }));
+    await tap(await until(() => $('#projectsModal .proj-open[title="Open E2E project"]'), 2000, 'the project in the list'));
+    // the new edit isn't saved, so opening asks first
+    await tap(await until(() => byText('.proj-confirm button', 'Replace it'), 2000, 'the confirmation'));
+    await until(() => S.getState().project?.id === id && S.getState().bars === 4 && S.getState().look.name === look, 10000, 'the project to open');
+    window.__project = id;
+  `);
+
+  await t.test('the project is a file in out/projects', { skip: broken ? 'no project' : false }, async () => {
+    const id = await browser.run('return window.__project;');
+    const saved = JSON.parse(readFileSync(join(out, 'projects', `${id}.json`), 'utf8'));
+    assert.deepEqual([saved.name, saved.data.bars], ['E2E project', 4]);
+    assert.equal(readdirSync(join(out, 'projects', 'exports')).length, 3, 'every export kept its edit');
+  });
+
+  await t.test('after a reload the project is still open', { skip: broken ? 'no project' : false }, async () => {
+    await browser.send('Page.reload');
+    await sleep(1500);
+    await browser.run(PAGE + `
+      await until(() => window.__studio?.ctx && S.getState().project, 30000, 'the studio to start');
+      if (S.getState().project.name !== 'E2E project' || S.getState().bars !== 4) throw new Error(JSON.stringify(S.getState().project) + ' ' + S.getState().bars);
+      if ($('#btnProjects .proj-name').textContent !== 'E2E project') throw new Error('top bar: ' + $('#btnProjects').textContent);
+    `);
+  });
+
+  await step('an export opens the edit it was made from', `
+    await until(() => window.__studio?.ctx && S.getState().features, 30000, 'the song');
+    // the first Spotify export, the hand-cut one (the list is newest first)
+    const r = S.getState().renders.filter((x) => x.resolution === '720x1280').at(-1);
+    if (!r?.has_edit) throw new Error('the Spotify export has no edit: ' + JSON.stringify(r));
+    S.getState().transport.pause();
+    window.__studio.store.setState({ libraryOpen: true, libraryItem: r.filename });
+    await tap(await until(() => byText('#libraryModal button', 'Open the edit'), 2000, 'Open the edit'));
+    await until(() => !S.getState().libraryOpen && S.getState().bars === 2 && S.getState().ctx.tl.handCut, 10000, "the export's edit");
+    if (S.getState().project !== null) throw new Error("the export's edit should open outside the project");
+    if (S.getState().exportOpts.format !== 'spotify') throw new Error('format ' + S.getState().exportOpts.format);
+  `);
+
   await t.test('no errors in the page', () => {
     assert.deepEqual(browser.problems, []);
   });

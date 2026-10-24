@@ -3,6 +3,7 @@ import { useStudioStore } from '../state/store.ts';
 import { historyDepth, subscribeHistory } from '../state/historyController.ts';
 import { openPop, closePop, h, ROLL_OPTS, fmtLength } from '../lib/utils.ts';
 import { Icon, ICONS } from './ui.tsx';
+import { ProjectButton } from './Projects.tsx';
 
 export const TopBar: React.FC = () => {
   const trackId = useStudioStore((s) => s.trackId);
@@ -72,6 +73,7 @@ export const TopBar: React.FC = () => {
         <span className="logo" />
         Downbeat <small>Studio</small>
       </div>
+      <ProjectButton />
 
       <div className="chips" id="chips">
         <span className={`chip ${tr ? '' : 'dim'}`}>

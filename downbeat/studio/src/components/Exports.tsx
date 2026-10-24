@@ -16,6 +16,7 @@ import {
 } from '../lib/exportsView.ts';
 import { postJSON, toast } from '../lib/utils.ts';
 import { ArmedButton, Icon, ICONS, Modal, SearchField, useArmed } from './ui.tsx';
+import { openExportEdit } from '../state/projectController.ts';
 import type { RenderRecord } from '../engine/types.ts';
 
 const SIDE_PAGE = 4;
@@ -57,6 +58,21 @@ const DeleteButton: React.FC<{ r: RenderRecord; wide?: boolean }> = ({ r, wide }
           {wide ? ' Delete' : null}
         </>
       )}
+    </button>
+  );
+};
+
+/** Opens the edit the export was made from. An edit that isn't in a project would be lost, so that takes a second click. */
+const OpenEditButton: React.FC<{ r: RenderRecord }> = ({ r }) => {
+  const project = useStudioStore((s) => s.project);
+  const [armed, setArmed] = useArmed();
+  return (
+    <button
+      className={`btn ${armed ? 'armed' : ''}`}
+      title={armed ? "The edit open now isn't saved to a project. Click again to replace it" : 'Open the edit this export was made from'}
+      onClick={() => (project || armed ? openExportEdit(r.filename, titleOf(r)) : setArmed(true))}
+    >
+      {armed ? 'Replace the unsaved edit?' : 'Open the edit'}
     </button>
   );
 };
@@ -339,6 +355,7 @@ const ExportViewer: React.FC<{ r: RenderRecord; index: number; count: number; on
               Cover JPG
             </a>
           )}
+          {r.has_edit && <OpenEditButton r={r} />}
           <button className="btn" onClick={() => reveal(r.filename)}>
             <Icon d={ICONS.folder} /> Reveal in Finder
           </button>

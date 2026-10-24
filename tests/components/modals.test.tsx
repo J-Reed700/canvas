@@ -213,7 +213,7 @@ describe('shortcuts', () => {
     resetStudio({ helpOpen: true });
     render(<Modals />);
     const keys = Array.from(document.querySelectorAll('#helpModal .keys .kbd')).map((k) => k.textContent);
-    expect(keys).toEqual(['Space', '← →', 'M', 'D', '⇧ D', 'R', 'E', '[ ]', '1–4', 'H', 'S', 'O', 'L', 'T', 'B', '⌘ D', 'Delete', 'N', '⌘ Z', '?', 'Esc', 'Drag', '⇧ Drag', '⌥ Drag', 'Dbl-click']);
+    expect(keys).toEqual(['Space', '← →', 'M', 'D', '⇧ D', 'R', 'E', '[ ]', '1–4', 'H', 'S', 'O', 'L', 'T', 'B', '⌘ D', 'Delete', 'N', '⌘ S', '⌘ O', '⌘ Z', '?', 'Esc', 'Drag', '⇧ Drag', '⌥ Drag', 'Dbl-click']);
     fireEvent.click(within(document.getElementById('helpModal')!).getByTitle('Close (Esc)'));
     expect(st().helpOpen).toBe(false);
   });

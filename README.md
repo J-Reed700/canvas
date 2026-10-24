@@ -254,7 +254,7 @@ chmod +x run.sh
 ./run.sh
 ```
 
-To update, download the ZIP again. Copy the `out/` folder across if you want to keep your exports and added songs.
+To update, download the ZIP again. Copy the `out/` folder across if you want to keep your exports, projects and added songs.
 
 ### What `./run.sh` does
 
@@ -317,7 +317,7 @@ git pull
 
 ### Uninstalling
 
-Everything Downbeat installs is inside its own folder: `.venv/`, `node_modules/`, `downbeat/studio/dist/`, and your exports and added songs in `out/`. Delete the folder to remove it:
+Everything Downbeat installs is inside its own folder: `.venv/`, `node_modules/`, `downbeat/studio/dist/`, and your exports, projects and added songs in `out/`. Delete the folder to remove it:
 
 ```bash
 rm -rf ~/downbeat
@@ -358,6 +358,8 @@ This walk-through takes about ten minutes. You need a song file (WAV, MP3, FLAC,
 
 9. Press `E` to open the export sheet. Choose Spotify Canvas at 1080 × 1920 and click Render & verify. When it finishes, the sheet lists the checks it ran. The file downloads to your browser's Downloads folder, and a copy stays in the project's `out/` folder.
 
+10. Press `Cmd+S` (`Ctrl+S` on Windows and Linux) and give the edit a name to save it as a project. It saves itself from then on, and the button next to the Downbeat name opens it again later.
+
 To go further, change the effect layers in the Layers tab and the cut rhythm and transitions in the Edit tab. [Using the studio](#using-the-studio) and [docs/STUDIO_GUIDE.md](docs/STUDIO_GUIDE.md) cover each control.
 
 ## Upload it to Spotify
@@ -390,7 +392,7 @@ This section gives an overview. [docs/STUDIO_GUIDE.md](docs/STUDIO_GUIDE.md) cov
 
 ### The screen
 
-The left column holds the track, its tempo and beat grid, the level meters, your clips and your past exports. The middle shows the preview, the transport bar and the timeline. The bar along the top shows the track, tempo, loop length, look and clip count. On its right are Undo and Redo (the ↶ and ↷ arrows), the keyboard shortcuts button, Roll and Export. The arrow next to Roll chooses what a roll changes.
+The left column holds the track, its tempo and beat grid, the level meters, your clips and your past exports. The middle shows the preview, the transport bar and the timeline. The bar along the top shows the open project, then the track, tempo, loop length, look and clip count. On its right are Undo and Redo (the ↶ and ↷ arrows), the keyboard shortcuts button, Roll and Export. The arrow next to Roll chooses what a roll changes.
 
 The right column has three tabs. Looks is the gallery of 44 looks. Layers holds the effect stack, the Camera and Finish settings, the color palette and the modulators. Edit sets the cut rhythm, transitions, clip direction, speed ramps and loop length.
 
@@ -539,7 +541,7 @@ The 18 classic looks are the presets from Downbeat's earlier CPU-based studio, r
 | Stylize (11) | 1-Bit Dither, Halftone, Pixel Sort, Glyph Matrix, Data Glitch, VHS Tape, CRT Monitor, Neon Contours, Mosaic, Frost Mist, Audio Visualizer |
 | Color (8) | Gradient Map, Holographic, Liquid Chrome, Hue Orbit, Posterize, Solarize, Acid Solarize, Film Stock |
 
-Together with the Camera and Finish stages, these cover all 52 shaders of the earlier studio. Beat Shutter only dims the picture, never below half brightness and at most once per beat. What each effect's sliders do is in [the guide](docs/STUDIO_GUIDE.md#16-effects).
+Together with the Camera and Finish stages, these cover all 52 shaders of the earlier studio. Beat Shutter only dims the picture, never below half brightness and at most once per beat. What each effect's sliders do is in [the guide](docs/STUDIO_GUIDE.md#17-effects).
 
 ### 16 transitions
 
@@ -621,6 +623,10 @@ Exports are named `canvas-<look>-<bpm>bpm-<length>s-<width>x<height>-<timestamp>
 
 On a Mac, the Reveal in Finder button shows the file in Finder. On Linux and Windows, it shows the file's path in `out/` instead.
 
+### Projects
+
+A project is one edit saved as a file in `out/projects/`: the clips, the song and loop, the look, the cuts and the export settings. Press `Cmd+S` (`Ctrl+S`) to name the edit, and from then on it saves itself after each change. The button next to the Downbeat name opens Projects, where you can open, rename, copy, start or delete one. Each export also keeps the edit it was made from, and Open the edit in the exports library loads it again. [The guide](docs/STUDIO_GUIDE.md#13-projects) has the details.
+
 ## Troubleshooting
 
 | Problem | Fix |
@@ -649,7 +655,7 @@ On a Mac, the Reveal in Finder button shows the file in Finder. On Linux and Win
 | The studio looks out of date after `git pull` | `./run.sh` rebuilds it. To force a rebuild, run `rm -rf downbeat/studio/dist && ./run.sh`. |
 | You want to start completely fresh | Run `rm -rf .venv node_modules downbeat/studio/dist && ./run.sh`. |
 
-Problems with sliders, modulators, the color palette or Revert are covered in [the guide's troubleshooting section](docs/STUDIO_GUIDE.md#18-troubleshooting). If something still doesn't work, [open an issue](https://github.com/J-Reed700/downbeat/issues) with your operating system, browser, the command you ran and what the terminal printed.
+Problems with sliders, modulators, the color palette or Revert are covered in [the guide's troubleshooting section](docs/STUDIO_GUIDE.md#19-troubleshooting). If something still doesn't work, [open an issue](https://github.com/J-Reed700/downbeat/issues) with your operating system, browser, the command you ran and what the terminal printed.
 
 ## FAQ
 
@@ -683,7 +689,7 @@ Downbeat has no accounts, no analytics and no telemetry. While it runs, the serv
 
 The server listens only on 127.0.0.1. It rejects requests whose Host header isn't 127.0.0.1, localhost or [::1] on its own port, and POST requests from any other origin. This stops other websites open in your browser from reading your files or starting exports.
 
-Your files stay in the project folder: uploads in `out/uploads/`, exports in `out/`, playback copies in `out/.proxies/`. The studio saves your current session in the browser's local storage.
+Your files stay in the project folder: uploads in `out/uploads/`, exports in `out/`, saved projects in `out/projects/`, playback copies in `out/.proxies/`. The studio also keeps your current session in the browser's local storage.
 
 ## How it works
 
@@ -738,6 +744,7 @@ downbeat/
 │   ├── server/                 # the studio's backend
 │   │   ├── app.py              #   HTTP routes: media, features, proxies, the export API
 │   │   ├── state.py            #   clips, songs and exports, and export sessions
+│   │   ├── projects.py         #   saved projects and the edits kept with exports, in out/projects/
 │   │   └── library.py          #   media library: added files and the folders you pick
 │   └── studio/                 # the WebGL2 studio (TypeScript, React, Zustand, Vite)
 │       ├── index.html, styles.css
@@ -745,18 +752,18 @@ downbeat/
 │           ├── main.tsx, App.tsx   # React root, layout and keyboard shortcuts
 │           ├── engine/         # no React: WebGL2 render graph, GLSL, the GPU effects and looks, compose(),
 │           │                   #   cut planning, Web Audio transport, WebCodecs export
-│           ├── state/          # Zustand store, plus history, roll, export, media and timeline block actions
+│           ├── state/          # Zustand store, plus history, projects, roll, export, media and timeline block actions
 │           ├── canvas/         # per-frame drawing: the render loop, the timeline lane and overview
 │           ├── lib/            # helpers, export formats, preview screens, export search and paging
 │           └── components/     # the panels, plus shared Slider, Card and SearchField (ui.tsx)
 └── tests/
     ├── test_*.py               # Python tests, one file per package area (media, analysis, delivery, render,
-    │                           #   state, library, server, cli) plus test_studio_js.py, which runs the Node suite
+    │                           #   state, projects, library, server, cli) plus test_studio_js.py, which runs the Node suite
     ├── helpers.py              # shared fixtures: ffprobe, a temp folder with generated media
-    ├── studio*.test.mjs        # studio logic: timeline, block edits, modulation, store, media, export sheet, render loop, utils
+    ├── studio*.test.mjs        # studio logic: timeline, block edits, modulation, store, projects, media, export sheet, render loop, utils
     ├── fakes.mjs               # stand-ins for the DOM, <video>, canvas, fetch and WebCodecs
     ├── components/             # React panels rendered with Testing Library and happy-dom (Vitest)
-    └── e2e/smoke.test.mjs      # real server, headless Chrome and one real export
+    └── e2e/smoke.test.mjs      # real server, headless Chrome, real exports and a saved project
 ```
 
 ## Development
@@ -774,7 +781,7 @@ npm run build                            # production build into downbeat/studio
 
 On Windows, the Python is `.venv\Scripts\python.exe`, and `make test` and `make e2e` work from PowerShell if you have make. `make e2e` skips itself when Chrome or ffmpeg isn't installed. The Python tests generate their own media with ffmpeg, so they need no sample files.
 
-Notes for working on the studio, such as why `compose()` must stay the only place frames are built and how looks are edited in place, are in [the guide's developer notes](docs/STUDIO_GUIDE.md#19-notes-for-developers).
+Notes for working on the studio, such as why `compose()` must stay the only place frames are built and how looks are edited in place, are in [the guide's developer notes](docs/STUDIO_GUIDE.md#20-notes-for-developers).
 
 To report a bug or suggest a change, [open an issue](https://github.com/J-Reed700/downbeat/issues). Pull requests should pass `make test`.
 

@@ -112,6 +112,8 @@ test('what an export asks the server for depends on the format, the song and the
     { w: 1080, h: 1920, fmt: 'spotify', audio: true, promo: 0, track: 't1', start: 33.5, dur: 8, bpm: 120, look: LOOKS[0].name },
   );
   assert.equal(r.bitrate, 16_000_000, 'Spotify uses the encoder default for its size');
+  // the edit goes with it, so Exports can open it again
+  assert.deepEqual([r.meta.edit.trackId, r.meta.edit.selected, r.meta.edit.loopStart, r.meta.edit.look.name], ['t1', ['a', 'b'], 33.5, LOOKS[0].name]);
 
   r = await render({ size: 'lite', audio: false }, { song: true });
   assert.deepEqual([r.meta.width, r.meta.height, r.meta.with_audio], [720, 1280, false]);
@@ -275,6 +277,7 @@ test('a batch of rolls renders four variations and then restores the look', asyn
   await runOnFakeClock(t, () => quiet(() => X.runBatch('rolls')));
   assert.equal(begins(reqs).length, 4);
   assert.equal(new Set(begins(reqs).map((m) => m.look)).size > 1, true, 'each render is a different roll');
+  assert.deepEqual(begins(reqs).map((m) => m.edit.look.name), begins(reqs).map((m) => m.look), 'each keeps the edit of its own roll');
   assert.equal(st().snapshot(), before);
   // the sheet ends on a summary with a link to each file
   assert.equal(status.find((c) => c.tagName === 'H2').text, 'Batch done');

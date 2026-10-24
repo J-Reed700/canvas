@@ -5,6 +5,7 @@ import { cloneLook } from '../engine/looks.ts';
 import { FORMATS, SIZES, toast, h, postJSON, saveToDownloads, siblingTracks, fmt as fmtTime } from '../lib/utils.ts';
 import type { RenderRecord, ComposeContext } from '../engine/types.ts';
 import { CHECK_ICONS } from '../lib/exportsView.ts';
+import { editState } from './historyController.ts';
 
 let exportAbortCtrl: AbortController | null = null;
 
@@ -138,6 +139,8 @@ export async function renderOnce(onProgress?: (progress: any) => void): Promise<
         format: fmt,
         with_audio: withAudio,
         promo_seconds: promoSeconds,
+        // saved with the export, so Exports can open the edit it was made from
+        edit: editState(),
       },
       signal: exportAbortCtrl?.signal,
       onProgress: (p: any) => {

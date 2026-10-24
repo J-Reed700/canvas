@@ -80,6 +80,27 @@ class TestStateHelpers(unittest.TestCase):
         self.assertEqual(entry["resolution"], "720x1280")
         self.assertEqual([r["filename"] for r in st._renders], ["y.mp4", "x.mp4"], "a re-export replaces its old entry")
 
+    def test_an_export_keeps_the_edit_it_was_made_from(self) -> None:
+        st = state_mod.StudioState()
+        st._initialized = True
+        result = {"size_mb": 1.0, "checks": [], "width": 720, "height": 1280, "duration": 4.0}
+        edit = {"selected": ["a"], "bars": 4}
+        with mock.patch.object(state_mod, "STATE", st), mock.patch.object(state_mod.delivery, "deliver", return_value=result):
+            with_edit = state_mod._finish_export(os.path.join(self.out, "a.mp4"), {"edit": edit})
+            without = state_mod._finish_export(os.path.join(self.out, "b.mp4"), {})
+            junk = state_mod._finish_export(os.path.join(self.out, "c.mp4"), {"edit": ["not", "an", "edit"]})
+        self.assertEqual((with_edit["has_edit"], without["has_edit"], junk["has_edit"]), (True, False, False))
+        self.assertNotIn("edit", with_edit, "the record doesn't carry the edit itself")
+        self.assertEqual(st.projects.export_edit("a.mp4"), edit)
+        self.assertEqual(sorted(os.listdir(os.path.join(self.out, "projects", "exports"))), ["a.json"])
+
+        # found again after a restart
+        self.touch("a.mp4")
+        self.touch("b.mp4")
+        again = state_mod.StudioState()
+        again._discover_existing_renders()
+        self.assertEqual({r["filename"]: r["has_edit"] for r in again._renders}, {"a.mp4": True, "b.mp4": False})
+
     def test_hidden_clip_list_tolerates_a_damaged_file(self) -> None:
         self.assertEqual(state_mod._hidden_clips(), set())
         with open(os.path.join(self.out, ".hidden-clips.json"), "w") as f:
@@ -270,7 +291,12 @@ class TestLibraryCleanup(unittest.TestCase):
         st._initialized = True  # don't scan ~/Downloads or start proxies
         st._renders = [{"filename": f"{stem}.mp4"}, {"filename": "other.mp4"}]
         with mock.patch.object(state_mod, "OUT_DIR", out):
+            st.projects.save_export_edit(f"{stem}.mp4", {"bars": 4})
+            st.projects.save_export_edit("other.mp4", {"bars": 2})
             removed = st.remove_export(f"../{stem}.mp4")
+            # its edit goes with it, and other exports keep theirs
+            self.assertEqual((st.projects.has_export_edit(f"{stem}.mp4"), st.projects.has_export_edit("other.mp4")), (False, True))
+            shutil.rmtree(os.path.join(out, "projects"))
             with self.assertRaises(FileNotFoundError):
                 st.remove_export(f"{stem}.mp4")
             with self.assertRaises(FileNotFoundError):

@@ -12,6 +12,8 @@ import { InspectorPanel } from './components/InspectorPanel.tsx';
 import { Modals } from './components/Modals.tsx';
 import { ExportsLibrary } from './components/Exports.tsx';
 import { Welcome } from './components/Folders.tsx';
+import { ProjectsModal } from './components/Projects.tsx';
+import { saveNow } from './state/projectController.ts';
 
 export const App: React.FC = () => {
   const ambientRef = useRef<HTMLCanvasElement>(null);
@@ -43,6 +45,19 @@ export const App: React.FC = () => {
         return;
       }
 
+      if (e.key === 'Escape' && s.projectsOpen) {
+        useStudioStore.setState({ projectsOpen: false });
+        return;
+      }
+
+      if ((e.metaKey || e.ctrlKey) && !e.shiftKey && (e.key === 's' || e.key === 'o')) {
+        e.preventDefault(); // or the browser saves the page or opens a file
+        if (s.exporting || s.welcome) return;
+        if (e.key === 's') void saveNow();
+        else useStudioStore.setState({ projectsOpen: true });
+        return;
+      }
+
       if (
         (e.metaKey || e.ctrlKey) &&
         (e.key === 'd' || e.key === 'D') &&
@@ -50,11 +65,11 @@ export const App: React.FC = () => {
         !target?.closest?.('input, select, textarea, [contenteditable]')
       ) {
         e.preventDefault(); // or the browser bookmarks the page
-        if (!s.exporting && !s.libraryOpen && !s.welcome) s.repeatSegment();
+        if (!s.exporting && !s.libraryOpen && !s.projectsOpen && !s.welcome) s.repeatSegment();
         return;
       }
 
-      if (target?.closest?.('input, select, textarea, [contenteditable]') || e.metaKey || e.ctrlKey || s.exporting || s.libraryOpen || s.welcome) {
+      if (target?.closest?.('input, select, textarea, [contenteditable]') || e.metaKey || e.ctrlKey || s.exporting || s.libraryOpen || s.projectsOpen || s.welcome) {
         return;
       }
 
@@ -173,6 +188,7 @@ export const App: React.FC = () => {
 
       <Modals />
       <ExportsLibrary />
+      <ProjectsModal />
       <Welcome />
     </>
   );

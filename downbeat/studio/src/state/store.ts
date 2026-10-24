@@ -33,8 +33,9 @@ import {
   exportCompanion,
 } from './exportController.ts';
 import { surprise, rollClips, rollAll, undoRoll } from './rollController.ts';
-import { save, restore, snapshot, applySnapshot, undo, redo, resetHistory, saveLook, rememberLook } from './historyController.ts';
-import { uploadFiles, autoFrame, reorderClips, toggleClip, fetchPalette, firstClips, requestProxies } from './mediaActions.ts';
+import { save, restore, snapshot, applySnapshot, undo, redo, resetHistory, saveLook, rememberLook, editFields } from './historyController.ts';
+import { startingEdit, syncProject } from './projectController.ts';
+import { uploadFiles, autoFrame, reorderClips, toggleClip, fetchPalette, requestProxies } from './mediaActions.ts';
 import { selectBlock, splitAtPlayhead, splitBlockAt, deleteBlock, repeatSegment, insertClip, trimCut, setBlock, clearBlock, setSnap } from './blockActions.ts';
 import type { StudioState } from './storeTypes.ts';
 
@@ -98,6 +99,10 @@ export const useStudioStore = create<StudioState>((set, get) => ({
   canPick: false,
   welcome: false,
   exportFilter: { q: '', kind: 'all', sort: 'new' },
+  project: null,
+  projects: [],
+  projectsOpen: false,
+  projectSync: 'saved',
   mutAmt: 0.45,
   varSeed: 1,
   trackStateText: '',
@@ -563,17 +568,8 @@ export const useStudioStore = create<StudioState>((set, get) => ({
 
     type ServerState = { clips: ClipMeta[]; tracks: TrackMeta[]; renders: RenderRecord[]; folders?: string[]; can_pick?: boolean };
     const st = await fetchJSON<ServerState>('/api/state').catch((): ServerState => ({ clips: [], tracks: [], renders: [] }));
-    const saved = get().restore();
-
-    // an empty selection, or one whose clips are all gone, starts on a few clips instead of a blank stage
-    const kept: string[] = saved.selected?.filter((id: string) => st.clips.some((c) => c.id === id)) || [];
-    const selectedClips = kept.length ? kept : firstClips(st.clips);
-
-    let initialTrack = saved.trackId || (st.tracks.length ? st.tracks[0].id : '');
-    if (initialTrack && !st.tracks.some((t) => t.id === initialTrack)) initialTrack = '';
-
-    const initialLook = saved.look && Array.isArray(saved.look.layers) ? saved.look : cloneLook(LOOKS[0]);
-    const initialLookId = saved.lookId || LOOKS[0].id;
+    // The session, or the open project's file when another tab or browser saved it since this one did.
+    const saved = await startingEdit(get().restore());
 
     set({
       clips: st.clips,
@@ -582,46 +578,24 @@ export const useStudioStore = create<StudioState>((set, get) => ({
       folders: st.folders || [],
       canPick: !!st.can_pick,
       welcome: !!st.folders && !st.folders.length && !st.clips.length,
-      selected: selectedClips,
-      trackId: initialTrack,
-      look: initialLook,
-      lookId: initialLookId,
-      bars: saved.bars ?? 4,
-      loopStart: saved.loopStart ?? 0,
-      bpmManual: saved.bpmManual ?? 128,
-      bpmOverride: saved.bpmOverride || {},
-      seed: saved.seed ?? 2026,
-      direction: saved.direction || 'forward',
-      lockEdit: saved.lockEdit ?? false,
-      intensity: saved.intensity ?? 1,
-      clipMode: saved.clipMode || 'one',
-      clipLooks: saved.clipLooks || {},
-      evolveAmt: saved.evolveAmt ?? 0.45,
-      evolveCuts: !!saved.evolveCuts,
-      rebound: !!saved.rebound,
-      fitAll: saved.fitAll ?? true,
+      ...editFields(saved, st.clips, st.tracks),
+      saved: Array.isArray(saved.saved) ? saved.saved : [],
       rollOpts: saved.rollOpts || { look: true, edit: true, perClip: true, clips: false, loop: false },
-      blocks: saved.blocks || null,
-      legacyEdit:
-        !saved.blocks && (saved.customCuts?.length || Object.keys(saved.segOverrides || {}).length)
-          ? { customCuts: saved.customCuts || null, segOverrides: saved.segOverrides || {} }
-          : null,
       snap: [0, 1, 2, 4].includes(saved.snap) ? saved.snap : 1,
-      clipFrame: saved.clipFrame || {},
-      gridNudge: saved.gridNudge || {},
       hud: saved.hud ?? true,
       safe: saved.safe ?? false,
       muted: saved.muted ?? false,
       tab: saved.tab || 'looks',
-      exportOpts: saved.exportOpts || { size: 'master', audio: true, format: 'spotify', promo: 0, autoSave: true },
     });
 
     if (saved.mode) transportInstance.mode = saved.mode;
     transportInstance.setMuted(!!saved.muted);
 
-    await get().selectTrack(initialTrack, { initial: true });
+    await get().selectTrack(get().trackId, { initial: true });
     // Undo goes back as far as the session the studio opened with.
     resetHistory();
+    // an edit made after the last write reached the project's file goes there now
+    void syncProject();
 
     startRenderLoop(viewCanvas, ambientCanvas);
     // Clips put in the edit get their playback copies made, however they got there.

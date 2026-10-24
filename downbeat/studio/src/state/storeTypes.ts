@@ -13,6 +13,8 @@ import type {
   ComposedFrame,
   ClipPalette,
   Segment,
+  ProjectRef,
+  ProjectSummary,
 } from '../engine/types.ts';
 import type { Transport } from '../engine/audio.ts';
 import type { SnapDiv } from '../engine/blocks.ts';
@@ -91,6 +93,13 @@ export interface StudioState {
   /** First run: no folder picked and nothing added, so the studio waits on Pick a folder. */
   welcome: boolean;
   exportFilter: { q: string; kind: string; sort: string };
+  /** The saved project the edit autosaves to, or null while the edit is only in this browser. */
+  project: ProjectRef | null;
+  /** Every saved project, the most recently saved first. */
+  projects: ProjectSummary[];
+  projectsOpen: boolean;
+  /** Whether the open project's file has the latest edit. A failed write is tried again on the next change. */
+  projectSync: 'saved' | 'saving' | 'failed';
   mutAmt: number;
   varSeed: number;
   trackStateText: string;

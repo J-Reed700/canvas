@@ -127,6 +127,8 @@ const SHORTCUTS: [string, string][] = [
   ['⌘ D', 'Repeat the selected segment: its first half plays twice'],
   ['Delete', 'Delete the selected segment. The one before plays on'],
   ['N', 'What cuts snap to: beat, ½, ¼, off'],
+  ['⌘ S', 'Save the project now, or name the edit to save it as one'],
+  ['⌘ O', 'Projects: open, start, rename or delete one'],
   ['⌘ Z', 'Undo any edit · ⇧⌘Z or ⌘Y redo · Ctrl on Windows and Linux'],
   ['?', 'This list'],
   ['Esc', 'Close menus and dialogs, or clear the selected block'],
