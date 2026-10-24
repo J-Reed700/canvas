@@ -1,8 +1,8 @@
-// Curated looks: one hero effect, one supporting effect, and a designed grade.
+// Built-in looks: one main effect, an optional second one, and a color grade.
 import { CAMERA, FINISH_DEF, MODULES, defaults } from './modules.ts';
 import { TRANSITIONS } from './shaders.ts';
 import { RHYTHMS, rng } from './timeline.ts';
-import type { CategoryId, CutSpec, LayerSpec, Look, Modulation, ParamDef } from './types.ts';
+import type { CutSpec, LayerSpec, Look, Modulation, ParamDef } from './types.ts';
 
 const L = (m: string, p: Record<string, number> = {}, mods: Record<string, Modulation> = {}): LayerSpec => ({ m, on: true, p, mods });
 const mod = (src: string, amt: number): Modulation => ({ src, amt });
@@ -311,12 +311,20 @@ export function randomLook(seed: number): Look {
   return l;
 }
 
-// Chaos roll: random stack (4-6 layers) or heavily mutated curated look.
-const STAGE: string[] = ['space', 'warp', 'time', 'stylize', 'color', 'light'];
+// Chaos roll: random stack (4-6 layers) or heavily mutated built-in look.
+/** Pipeline order of effect categories: geometry first, light last. */
+export const STAGE: string[] = ['space', 'warp', 'time', 'stylize', 'color', 'light'];
+
+/** Insert a layer before the first layer from a later pipeline stage. */
+export function insertAtStage(layers: LayerSpec[], layer: LayerSpec): void {
+  const stage = (m: string) => STAGE.indexOf(MODULES[m]?.cat || '');
+  const at = layers.findIndex((x) => stage(x.m) > stage(layer.m));
+  layers.splice(at < 0 ? layers.length : at, 0, layer);
+}
 const CAPS: Record<string, number> = { space: 1, warp: 2, time: 1, stylize: 1, color: 2, light: 2 };
 const GLOWS: string[] = ['bloom', 'streaks', 'rays', 'leak', 'glint', 'pulse', 'ghost'];
 
-// Designed starting points: every setting a curated look uses for a module.
+// Starting points: every setting a built-in look uses for a module.
 const CURATED: Record<string, Record<string, number>[]> = {};
 for (const lk of LOOKS) for (const x of lk.layers) (CURATED[x.m] ||= []).push(x.p);
 // how far a roll may wander from that starting point (image-replacing effects break first)
@@ -364,8 +372,7 @@ export function chaosLook(seed: number): Look {
     if (!pool.length) break;
     const id = pick(r, pool);
     counts[MODULES[id].cat || ''] = (counts[MODULES[id].cat || ''] || 0) + 1;
-    const at = l.layers.findIndex((x) => STAGE.indexOf(MODULES[x.m].cat || '') > STAGE.indexOf(MODULES[id].cat || ''));
-    l.layers.splice(at < 0 ? l.layers.length : at, 0, L(id));
+    insertAtStage(l.layers, L(id));
   }
   if (!l.vibe) l.vibe = l.layers.map((x) => MODULES[x.m].name).join(' + ');
   l.id = `chaos-${seed}`;

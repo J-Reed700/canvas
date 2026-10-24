@@ -70,10 +70,6 @@ export interface StudioState {
   exportFilter: { q: string; kind: string; sort: string };
   mutAmt: number;
   varSeed: number;
-  fpsText: string;
-  timeText: string;
-  bbtText: string;
-  stageWaiting: boolean;
   trackStateText: string;
 
   engine: any;
@@ -81,7 +77,6 @@ export interface StudioState {
   transport: Transport;
   ctx: ComposeContext | null;
   version: number;
-  lastFrame: ComposedFrame | null;
   clipDur: Map<string, number>;
   lookJobs: LookJob[];
   varJobs: LookJob[];
@@ -126,8 +121,11 @@ export interface StudioState {
   audioStart: () => number;
   beatDur: () => number;
   barDur: () => number;
-  validBars: () => number[];
+  canvasBars: () => number[];
+  maxBars: () => number;
   loopLen: () => number;
+  setBars: (bars: number) => void;
+  wholeSong: () => void;
   clipLookOf: (id: string) => Look;
   editLook: () => Look;
   drawTimeline: () => void;

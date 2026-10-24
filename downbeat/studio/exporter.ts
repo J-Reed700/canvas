@@ -105,22 +105,32 @@ export async function exportLoop({ engine, bank, ctx, width, height, fps = 30, b
   const N = Math.round(ctx.L * fps);
   const stacks = [ctx.look, ...(ctx.clipLook ? ctx.tl.segs.map((s) => ctx.clipLook?.(s.clipId)).filter(Boolean) : [])];
   const hasFeedback = stacks.some((look: any) => look.layers.some((l: any) => l.on !== false && MODULES[l.m]?.feedback));
-  const warm = hasFeedback ? N : 12; // pre-roll a full loop so frame 0 inherits the end's feedback history
+  // Pre-roll the end of the loop so frame 0 inherits its feedback history. Feedback fades within a
+  // few seconds, so long videos don't need a whole extra pass.
+  const warm = hasFeedback ? Math.min(N, 10 * fps) : 12;
   const chunks: Uint8Array[] = [];
   let encErr: any = null;
   const made = await makeEncoder(width, height, fps, chunks, (e) => { encErr = e; }, bitrate);
-  let raw: string | null = null;
-  if (!made) {
-    const r = await fetch('/api/export/raw/begin', { method: 'POST', body: JSON.stringify({ ...meta, width, height, fps }) });
-    raw = (await r.json()).sid;
-  }
+  const codec = made?.codec || 'raw-rgba';
+  // Either way the video streams to the server as it renders: encoded H.264 chunks, or raw RGBA
+  // frames for ffmpeg. Nothing the length of the whole video is held in memory.
+  const r = await fetch('/api/export/raw/begin', { method: 'POST', body: JSON.stringify({ ...meta, width, height, fps, codec, stream: made ? 'h264' : 'rgba' }) });
+  const sid: string = (await r.json()).sid;
+  const send = async (body: BodyInit): Promise<void> => {
+    const res = await fetch(`/api/export/raw/frames?sid=${encodeURIComponent(sid)}`, { method: 'POST', body });
+    if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || 'the server stopped taking frames');
+  };
+  const upload = async (): Promise<void> => {
+    if (chunks.length) await send(new Blob(chunks.splice(0) as any));
+  };
   engine.resize(width, height);
   engine.main.reset();
   const stats = new Stats();
   const t0 = performance.now();
   try {
-  // Every clip must be decodable before the first frame is committed.
-  for (const s of ctx.tl.segs) await bank.exact([{ vkey: `${s.clipId}#${s.i}`, clipId: s.clipId, time: s.in }]);
+  // Every clip must be decodable before the first frame is committed: one check per clip, not per cut.
+  const firstUse = new Map(ctx.tl.segs.map((s) => [s.clipId, s] as const));
+  for (const s of firstUse.values()) await bank.exact([{ vkey: `${s.clipId}#${s.i}`, clipId: s.clipId, time: s.in }]);
   for (let j = -warm; j < N; j++) {
     if (signal?.aborted) throw new DOMException('Export cancelled', 'AbortError');
     if (encErr) throw encErr;
@@ -135,36 +145,29 @@ export async function exportLoop({ engine, bank, ctx, width, height, fps = 30, b
       made.enc.encode(vf, { keyFrame: j % fps === 0 });
       vf.close();
     } else {
-      const px = engine.readFull();
-      await fetch(`/api/export/raw/frames?sid=${encodeURIComponent(raw!)}`, { method: 'POST', body: px });
+      await send(engine.readFull());
     }
     stats.add(engine.readStats(out));
     if (made && made.enc.encodeQueueSize > 4) {
       await new Promise<void>((r) => { made.enc.addEventListener?.('dequeue', r, { once: true }); setTimeout(r, 50); });
     }
+    if (made && j % fps === fps - 1) await upload(); // about a second of video per request
     onProgress?.({ frame: j + 1, total: N, speed: ((j + 1) / fps) / ((performance.now() - t0) / 1000) });
   }
-  } catch (err) {
-    if (made && made.enc.state !== 'closed') made.enc.close();
-    if (raw) fetch(`/api/export/raw/abort?sid=${encodeURIComponent(raw)}`, { method: 'POST' }).catch(() => {});
-    throw err;
-  }
-  const st = stats.result(fps);
-  const fullMeta = { ...meta, width, height, fps, stats: st, codec: made?.codec || 'raw-rgba' };
-  let res: Response;
   if (made) {
     await made.enc.flush();
     made.enc.close();
     if (encErr) throw encErr;
-    res = await fetch('/api/export', {
-      method: 'POST',
-      headers: { 'X-Export-Meta': encodeURIComponent(JSON.stringify(fullMeta)), 'Content-Type': 'application/octet-stream' },
-      body: new Blob(chunks as any),
-    });
-  } else {
-    res = await fetch(`/api/export/raw/end?sid=${encodeURIComponent(raw!)}`, { method: 'POST', body: JSON.stringify({ stats: st }) });
+    await upload();
   }
+  } catch (err) {
+    if (made && made.enc.state !== 'closed') made.enc.close();
+    fetch(`/api/export/raw/abort?sid=${encodeURIComponent(sid)}`, { method: 'POST' }).catch(() => {});
+    throw err;
+  }
+  const st = stats.result(fps);
+  const res = await fetch(`/api/export/raw/end?sid=${encodeURIComponent(sid)}`, { method: 'POST', body: JSON.stringify({ stats: st }) });
   const json = await res.json();
   if (!json.ok) throw new Error(json.error || 'export failed');
-  return { ...json.render, stats: st, codec: fullMeta.codec, seconds: (performance.now() - t0) / 1000 };
+  return { ...json.render, stats: st, codec, seconds: (performance.now() - t0) / 1000 };
 }

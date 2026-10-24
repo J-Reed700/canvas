@@ -5,6 +5,7 @@ import { clamp } from '../../looks.ts';
 import { CAMERA, FINISH_DEF, MODULES, MOD_SOURCES } from '../../modules.ts';
 import { defaultEnv, defaultLfos, defaultSeq, envAt, lfoAt, lfoCycles, LFO_RATES, LFO_SHAPES } from '../../audio.ts';
 import type { ClipPalette, LfoSpec, Look, ParamDef } from '../../types.ts';
+import { Card, SliderRow } from './ui.tsx';
 
 const USER_SOURCES = ['lfoA', 'lfoB', 'macroA', 'macroB', 'env', 'seq'];
 const LFO_KEYS = ['lfoA', 'lfoB'];
@@ -259,251 +260,223 @@ export const ModulatorsCard: React.FC = () => {
   return (
     <>
       {palette && (
-        <div className="card">
-          <div className="card-h">
-            <span className="cdot" style={{ ['--c' as any]: palette.colors[0]?.hex || '#C8FF4D' }} />
-            <span className="ct">
-              Color palette<small>from clip #1 · click a color to tint the look</small>
-            </span>
-          </div>
-          <div className="prms" style={{ padding: '8px 12px' }}>
-            <div className="pal-grad" style={{ background: palette.css_gradient }} title="Palette gradient preview" />
-            <div className="pal-list">
-              {palette.colors.map((sw, idx) => {
-                const on = tintOn && Math.abs((finishP?.splitHue ?? -1) - sw.hue) < 0.002;
-                return (
-                  <div
-                    key={idx}
-                    role="button"
-                    tabIndex={0}
-                    className={`pal-row ${on ? 'on' : ''}`}
-                    title={`Tint the look with ${sw.role} (split-tone hue ${sw.hue.toFixed(2)})`}
-                    onClick={() => tint(sw)}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter' || e.key === ' ') {
-                        e.preventDefault();
-                        tint(sw);
-                      }
+        <Card
+          color={palette.colors[0]?.hex || '#C8FF4D'}
+          title="Color palette"
+          sub="from clip #1 · click a color to tint the look"
+          bodyStyle={{ padding: '8px 12px' }}
+        >
+          <div className="pal-grad" style={{ background: palette.css_gradient }} title="Palette gradient preview" />
+          <div className="pal-list">
+            {palette.colors.map((sw, idx) => {
+              const on = tintOn && Math.abs((finishP?.splitHue ?? -1) - sw.hue) < 0.002;
+              return (
+                <div
+                  key={idx}
+                  role="button"
+                  tabIndex={0}
+                  className={`pal-row ${on ? 'on' : ''}`}
+                  title={`Tint the look with ${sw.role} (split-tone hue ${sw.hue.toFixed(2)})`}
+                  onClick={() => tint(sw)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault();
+                      tint(sw);
+                    }
+                  }}
+                >
+                  <span className="chip-sw" style={{ backgroundColor: sw.hex }} />
+                  <button
+                    className="hex"
+                    title={`Copy ${sw.hex}`}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      navigator.clipboard?.writeText(sw.hex).then(
+                        () => toast(`Copied ${sw.hex}`),
+                        () => toast(`Could not copy ${sw.hex}`),
+                      );
                     }}
                   >
-                    <span className="chip-sw" style={{ backgroundColor: sw.hex }} />
-                    <button
-                      className="hex"
-                      title={`Copy ${sw.hex}`}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        navigator.clipboard?.writeText(sw.hex).then(
-                          () => toast(`Copied ${sw.hex}`),
-                          () => toast(`Could not copy ${sw.hex}`),
-                        );
-                      }}
-                    >
-                      {sw.hex}
-                    </button>
-                    <span className="role">{sw.role}</span>
-                    <span className="act">{on ? 'Tinted' : 'Tint'}</span>
-                  </div>
-                );
-              })}
-            </div>
+                    {sw.hex}
+                  </button>
+                  <span className="role">{sw.role}</span>
+                  <span className="act">{on ? 'Tinted' : 'Tint'}</span>
+                </div>
+              );
+            })}
           </div>
-        </div>
+        </Card>
       )}
 
-      <div className="card">
-        <div className="card-h">
-          <span className="cdot" style={{ ['--c' as any]: '#FFD36E' }} />
-          <span className="ct">
-            Modulators<small>LFOs · macros · envelope · step sequencer</small>
-          </span>
-        </div>
-        <div className="prms">
-          {lfos.slice(0, 2).map((lfo, i) => {
-            const key = LFO_KEYS[i];
-            const color = MOD_SOURCES[key].color;
-            const cycles = lfoCycles(lfo.rate, loopBeats);
-            const fitted = lfo.rate > 0 && lfo.rate * 4 > loopBeats;
-            const randomish = lfo.shape === 'random' || lfo.shape === 'smooth';
-            return (
-              <div className="lfo" key={key}>
-                <div className="mod-h">
-                  <span>
-                    <i className="lfo-dot" style={{ background: color }} />
-                    {MOD_SOURCES[key].name} ·{' '}
-                    {fitted
-                      ? `once per loop (the loop is ${loopBeats / 4} bar${loopBeats > 4 ? 's' : ''})`
-                      : `${cycles} cycle${cycles > 1 ? 's' : ''} per loop`}
-                  </span>
-                  {randomish && (
-                    <div className="mini-presets">
-                      <button className="mini" title="New random pattern" onClick={() => editLfo(i, { seed: (lfo.seed || 0) + 1 })}>
-                        🎲 New pattern
-                      </button>
-                    </div>
-                  )}
-                </div>
-                <canvas
-                  className="envcv lfocv"
-                  ref={(el) => {
-                    lfoCanvasRefs.current[i] = el;
-                  }}
-                  width={600}
-                  height={96}
-                  title={`${MOD_SOURCES[key].name} over one loop. Lines mark the bars.`}
-                />
-                <div className="seg lfo-seg" role="group" aria-label={`${MOD_SOURCES[key].name} shape`}>
-                  {LFO_SHAPES.map(([k, name]) => (
-                    <button key={k} className={lfo.shape === k ? 'on' : ''} title={name} aria-label={name} onClick={() => editLfo(i, { shape: k })}>
-                      <svg viewBox="0 0 24 12" aria-hidden="true">
-                        <path d={SHAPE_ICONS[k]} />
-                      </svg>
+      <Card color="#FFD36E" title="Modulators" sub="LFOs · macros · envelope · step sequencer">
+        {lfos.slice(0, 2).map((lfo, i) => {
+          const key = LFO_KEYS[i];
+          const color = MOD_SOURCES[key].color;
+          const cycles = lfoCycles(lfo.rate, loopBeats);
+          const fitted = lfo.rate > 0 && lfo.rate * 4 > loopBeats;
+          const randomish = lfo.shape === 'random' || lfo.shape === 'smooth';
+          return (
+            <div className="lfo" key={key}>
+              <div className="mod-h">
+                <span>
+                  <i className="lfo-dot" style={{ background: color }} />
+                  {MOD_SOURCES[key].name} ·{' '}
+                  {fitted
+                    ? `once per loop (the loop is ${loopBeats / 4} bar${loopBeats > 4 ? 's' : ''})`
+                    : `${cycles} cycle${cycles > 1 ? 's' : ''} per loop`}
+                </span>
+                {randomish && (
+                  <div className="mini-presets">
+                    <button className="mini" title="New random pattern" onClick={() => editLfo(i, { seed: (lfo.seed || 0) + 1 })}>
+                      🎲 New pattern
+                    </button>
+                  </div>
+                )}
+              </div>
+              <canvas
+                className="envcv lfocv"
+                ref={(el) => {
+                  lfoCanvasRefs.current[i] = el;
+                }}
+                width={600}
+                height={96}
+                title={`${MOD_SOURCES[key].name} over one loop. Lines mark the bars.`}
+              />
+              <div className="seg lfo-seg" role="group" aria-label={`${MOD_SOURCES[key].name} shape`}>
+                {LFO_SHAPES.map(([k, name]) => (
+                  <button key={k} className={lfo.shape === k ? 'on' : ''} title={name} aria-label={name} onClick={() => editLfo(i, { shape: k })}>
+                    <svg viewBox="0 0 24 12" aria-hidden="true">
+                      <path d={SHAPE_ICONS[k]} />
+                    </svg>
+                  </button>
+                ))}
+              </div>
+              <div className="lfo-row">
+                <span className="lfo-lbl">Bars</span>
+                <div className="seg lfo-seg" role="group" aria-label={`${MOD_SOURCES[key].name} rate`}>
+                  {LFO_RATES.map(([r, label]) => (
+                    <button
+                      key={r}
+                      className={lfo.rate === r ? 'on' : ''}
+                      title={r ? `One cycle every ${label} bar${r > 1 ? 's' : ''}` : 'One cycle per loop'}
+                      onClick={() => editLfo(i, { rate: r })}
+                    >
+                      {label}
                     </button>
                   ))}
                 </div>
-                <div className="lfo-row">
-                  <span className="lfo-lbl">Bars</span>
-                  <div className="seg lfo-seg" role="group" aria-label={`${MOD_SOURCES[key].name} rate`}>
-                    {LFO_RATES.map(([r, label]) => (
-                      <button
-                        key={r}
-                        className={lfo.rate === r ? 'on' : ''}
-                        title={r ? `One cycle every ${label} bar${r > 1 ? 's' : ''}` : 'One cycle per loop'}
-                        onClick={() => editLfo(i, { rate: r })}
-                      >
-                        {label}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-                <div className="prm">
-                  <label title="Where in its cycle the LFO starts">Phase</label>
-                  <div className="slider">
-                    <div className="trk" />
-                    <div className="fill" style={{ width: `${lfo.phase * 100}%` }} />
-                    <div className="knob" style={{ left: `${lfo.phase * 100}%` }} />
-                    <input
-                      type="range"
-                      min={0}
-                      max={0.99}
-                      step={0.01}
-                      value={lfo.phase}
-                      onChange={(e) => editLfo(i, { phase: +e.target.value })}
-                      onDoubleClick={() => editLfo(i, { phase: 0 })}
-                    />
-                  </div>
-                  <output>{Math.round(lfo.phase * 360)}°</output>
-                  <span />
-                </div>
               </div>
-            );
-          })}
-
-          {(['a', 'b'] as const).map((k) => {
-            const v = target.macro?.[k] || 0;
-            return (
-              <div className="prm" key={k}>
-                <label title={`One knob for many parameters: set a parameter's ● to Macro ${k.toUpperCase()}`}>
-                  Macro {k.toUpperCase()}
-                </label>
-                <div className="slider">
-                  <div className="trk" />
-                  <div className="fill" style={{ width: `${v * 100}%` }} />
-                  <div className="knob" style={{ left: `${v * 100}%` }} />
-                  <input
-                    type="range"
-                    min={0}
-                    max={1}
-                    step={0.01}
-                    value={v}
-                    onChange={(e) => setMacro(k, +e.target.value)}
-                    onDoubleClick={() => setMacro(k, 0)}
-                  />
-                </div>
-                <output>{Math.round(v * 100)}%</output>
-                <span />
-              </div>
-            );
-          })}
-
-          <div className="mod-h">
-            <span>Envelope · whole loop</span>
-            <div className="mini-presets">
-              {Object.entries(ENV_PRESETS).map(([name, fn]) => (
-                <button
-                  key={name}
-                  className="mini"
-                  onClick={() => {
-                    target.env = fn();
-                    touch();
-                    save();
-                  }}
-                >
-                  {name}
-                </button>
-              ))}
+              <SliderRow
+                label="Phase"
+                title="Where in its cycle the LFO starts"
+                min={0}
+                max={0.99}
+                step={0.01}
+                value={lfo.phase}
+                def={0}
+                output={`${Math.round(lfo.phase * 360)}°`}
+                onChange={(v) => editLfo(i, { phase: v })}
+              />
             </div>
-          </div>
+          );
+        })}
 
-          <canvas
-            className="envcv"
-            ref={envCanvasRef}
-            width={600}
-            height={128}
-            title="Drag to draw · double-click for default arc"
-          />
+        {(['a', 'b'] as const).map((k) => {
+          const v = target.macro?.[k] || 0;
+          return (
+            <SliderRow
+              key={k}
+              label={`Macro ${k.toUpperCase()}`}
+              title={`One knob for many parameters: set a parameter's ● to Macro ${k.toUpperCase()}`}
+              min={0}
+              max={1}
+              step={0.01}
+              value={v}
+              def={0}
+              output={`${Math.round(v * 100)}%`}
+              onChange={(x) => setMacro(k, x)}
+            />
+          );
+        })}
 
-          <div className="mod-h">
-            <span>Step sequencer · 1 bar</span>
-            <div className="mini-presets">
-              {Object.entries(SEQ_PRESETS).map(([name, fn]) => (
-                <button
-                  key={name}
-                  className="mini"
-                  onClick={() => {
-                    target.seq = fn();
-                    touch();
-                    save();
-                  }}
-                >
-                  {name}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          <div className="seqgrid" ref={gridRef}>
-            {(target.seq || defaultSeq()).map((on, i) => (
+        <div className="mod-h">
+          <span>Envelope · whole loop</span>
+          <div className="mini-presets">
+            {Object.entries(ENV_PRESETS).map(([name, fn]) => (
               <button
-                key={i}
-                className={on ? 'on' : ''}
-                title={`Step ${i + 1} (16th note ${i + 1} of the bar)`}
+                key={name}
+                className="mini"
                 onClick={() => {
-                  target.seq = target.seq || defaultSeq();
-                  target.seq[i] = target.seq[i] ? 0 : 1;
+                  target.env = fn();
                   touch();
                   save();
                 }}
-              />
+              >
+                {name}
+              </button>
             ))}
           </div>
+        </div>
 
-          <div className="note mod-routes">
-            {routed ? (
-              USER_SOURCES.map((k) => (
-                <div key={k}>
-                  <b style={{ color: MOD_SOURCES[k].color }}>{MOD_SOURCES[k].name}</b> →{' '}
-                  {routes[k].length ? routes[k].join(', ') : <span className="muted">nothing yet</span>}
-                </div>
-              ))
-            ) : (
-              <div>
-                None of these are connected yet. To use one, click the ● at the end of a slider below and pick
-                LFO A, LFO B, Step sequencer, Drawn envelope, Macro A or Macro B.
-              </div>
-            )}
+        <canvas
+          className="envcv"
+          ref={envCanvasRef}
+          width={600}
+          height={128}
+          title="Drag to draw · double-click for default arc"
+        />
+
+        <div className="mod-h">
+          <span>Step sequencer · 1 bar</span>
+          <div className="mini-presets">
+            {Object.entries(SEQ_PRESETS).map(([name, fn]) => (
+              <button
+                key={name}
+                className="mini"
+                onClick={() => {
+                  target.seq = fn();
+                  touch();
+                  save();
+                }}
+              >
+                {name}
+              </button>
+            ))}
           </div>
         </div>
-      </div>
+
+        <div className="seqgrid" ref={gridRef}>
+          {(target.seq || defaultSeq()).map((on, i) => (
+            <button
+              key={i}
+              className={on ? 'on' : ''}
+              title={`Step ${i + 1} (16th note ${i + 1} of the bar)`}
+              onClick={() => {
+                target.seq = target.seq || defaultSeq();
+                target.seq[i] = target.seq[i] ? 0 : 1;
+                touch();
+                save();
+              }}
+            />
+          ))}
+        </div>
+
+        <div className="note mod-routes">
+          {routed ? (
+            USER_SOURCES.map((k) => (
+              <div key={k}>
+                <b style={{ color: MOD_SOURCES[k].color }}>{MOD_SOURCES[k].name}</b> →{' '}
+                {routes[k].length ? routes[k].join(', ') : <span className="muted">nothing yet</span>}
+              </div>
+            ))
+          ) : (
+            <div>
+              None of these are connected yet. To use one, click the ● at the end of a slider below and pick
+              LFO A, LFO B, Step sequencer, Drawn envelope, Macro A or Macro B.
+            </div>
+          )}
+        </div>
+      </Card>
     </>
   );
 };

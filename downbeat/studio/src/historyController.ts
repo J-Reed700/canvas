@@ -14,7 +14,10 @@ let histLastSnap: string | null = null;
 let histTimerId: ReturnType<typeof setTimeout> | undefined;
 let histMutedFlag = false;
 
-export function save() {
+let saveTimer: ReturnType<typeof setTimeout> | undefined;
+
+function writeSession() {
+  saveTimer = undefined;
   const s = useStudioStore.getState();
   try {
     localStorage.setItem(
@@ -52,6 +55,25 @@ export function save() {
   } catch {
     /* session storage only */
   }
+}
+
+function flushSession() {
+  if (saveTimer === undefined) return;
+  clearTimeout(saveTimer);
+  writeSession();
+}
+
+if (typeof window !== 'undefined') {
+  window.addEventListener('pagehide', flushSession);
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'hidden') flushSession();
+  });
+}
+
+export function save() {
+  const s = useStudioStore.getState();
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(writeSession, 300);
   if (!histMutedFlag && s.look) {
     clearTimeout(histTimerId);
     histTimerId = setTimeout(() => {
@@ -107,7 +129,6 @@ export function applySnapshot(snap: string) {
 }
 
 export function undo() {
-  const s = useStudioStore.getState();
   const snap = snapshot();
   if (!histList.length) {
     toast('Nothing to undo');
@@ -120,7 +141,6 @@ export function undo() {
 }
 
 export function redo() {
-  const s = useStudioStore.getState();
   const snap = snapshot();
   if (!futList.length) {
     toast('Nothing to redo');

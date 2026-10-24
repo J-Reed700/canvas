@@ -28,6 +28,18 @@ test('cuts land on the beat grid and tile the loop', () => {
   }
   assert.equal(planTimeline({ ...base, rhythm: 'twice' }).segs.length, clips.length * 2);
   assert.equal(planTimeline({ ...base, rhythm: 'eighth' }).segs.length, 32);
+});
+
+test('a five-minute loop keeps cutting on the beat and stays inside its footage', () => {
+  const L = base.beatDur * 4 * 188; // 188 bars at 150 BPM, about 5 minutes
+  const tl = planTimeline({ ...base, L, rhythm: 'bar' });
+  assert.equal(tl.segs.length, 188);
+  assert.ok(Math.abs(tl.segs.at(-1).t1 - L) < 1e-6);
+  const durs = new Map(clips.map((c) => [c.id, c.duration]));
+  for (const s of tl.segs) assert.ok(s.in >= 0 && s.in + s.dur * s.speed <= durs.get(s.clipId) + 1e-6, `cut ${s.i} runs past its clip`);
+  const sampler = makeSampler({ features: null, loopStart: 0, beatDur: base.beatDur, seed: 1, L });
+  const ctx = { look: LOOKS[0], tl, sampler, clipDur: (id) => durs.get(id), L, beatDur: base.beatDur, seed: 1 };
+  for (const t of [0, L / 3, L - 1 / FPS]) assert.equal(compose(ctx, t).seg.a.seg.clipId, sampleTimeline(tl, t).a.seg.clipId);
   assert.equal(loopBeats(6.4, 0.4).length, 16);
 });
 

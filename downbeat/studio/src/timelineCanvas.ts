@@ -3,11 +3,6 @@ import { sizeCanvas, roundRect } from './utils.ts';
 import { MOD_SOURCES } from '../modules.ts';
 
 export const thumbImgsMap = new Map<string, HTMLImageElement>();
-let selSegIndex = -1;
-
-export function setSelectedSegmentIndex(idx: number) {
-  selSegIndex = idx;
-}
 
 export function drawOverview(s: StudioState) {
   const c = document.getElementById('overview') as HTMLCanvasElement | null;
@@ -74,10 +69,18 @@ export function drawLane(s: StudioState, onRedraw?: () => void) {
   const { L, beatDur: bd, tl } = ctx;
   const X = (t: number) => (t / L) * w;
 
+  // Long loops squeeze hundreds of bars into the lane, so beat lines drop out first, then bar
+  // numbers go to every 2nd, 4th, 8th... bar.
+  const beatPx = X(bd);
+  let every = 1;
+  while (beatPx * 4 * every < 26 * dpr) every *= 2;
   for (let b = 0; b * bd < L - 1e-6; b++) {
-    x.fillStyle = b % 4 === 0 ? 'rgba(255,255,255,0.16)' : 'rgba(255,255,255,0.05)';
+    const onBar = b % 4 === 0;
+    const labelled = onBar && (b / 4) % every === 0;
+    if (!labelled && !(onBar && beatPx * 4 >= 4 * dpr) && beatPx < 5 * dpr) continue;
+    x.fillStyle = onBar ? 'rgba(255,255,255,0.16)' : 'rgba(255,255,255,0.05)';
     x.fillRect(Math.round(X(b * bd)), 0, dpr, hh);
-    if (b % 4 === 0) {
+    if (labelled) {
       x.fillStyle = 'rgba(255,255,255,0.4)';
       x.font = `600 ${9 * dpr}px ui-monospace, Menlo, monospace`;
       x.fillText(String(b / 4 + 1), X(b * bd) + 3 * dpr, 10 * dpr);
@@ -90,63 +93,75 @@ export function drawLane(s: StudioState, onRedraw?: () => void) {
   const editing = !!s.editClip && s.editLook() !== s.look;
 
   tl.segs.forEach((seg, i) => {
-    const a = X(seg.t0) + 1.5 * dpr;
-    const W = X(seg.t1) - X(seg.t0) - 3 * dpr;
+    const span = X(seg.t1) - X(seg.t0);
+    const pad = span > 8 * dpr ? 1.5 * dpr : 0;
+    const a = X(seg.t0) + pad;
+    const W = Math.max(dpr, span - 2 * pad);
+    const r = Math.min(7 * dpr, W / 2);
     x.save();
-    roundRect(x, a, top, W, bot - top, 7 * dpr);
+    roundRect(x, a, top, W, bot - top, r);
     x.clip();
 
-    const k = `${seg.clipId}@${seg.in.toFixed(1)}`;
-    let img = thumbImgsMap.get(k);
-    if (!img) {
-      img = new Image();
-      img.onload = () => onRedraw ? onRedraw() : s.drawLane();
-      img.src = `/api/thumb/${seg.clipId}?w=200&t=${seg.in.toFixed(2)}`;
-      thumbImgsMap.set(k, img);
-    }
-    if (img.complete && img.naturalWidth) {
-      const ir = img.naturalWidth / img.naturalHeight;
-      const cr = W / (bot - top);
-      let sw = img.naturalWidth;
-      let sh = img.naturalHeight;
-      let sx = 0;
-      let sy = 0;
-      if (ir > cr) {
-        sw = sh * cr;
-        sx = (img.naturalWidth - sw) / 2;
-      } else {
-        sh = sw / cr;
-        sy = (img.naturalHeight - sh) / 2;
-      }
-      x.drawImage(img, sx, sy, sw, sh, a, top, W, bot - top);
-    } else {
-      x.fillStyle = '#1b1b22';
-      x.fillRect(a, top, W, bot - top);
-    }
-
-    const grd = x.createLinearGradient(0, top, 0, bot);
-    grd.addColorStop(0, 'rgba(0,0,0,0.05)');
-    grd.addColorStop(1, 'rgba(0,0,0,0.65)');
-    x.fillStyle = grd;
-    x.fillRect(a, top, W, bot - top);
-    x.fillStyle = '#fff';
-    x.font = `700 ${10 * dpr}px ui-monospace, Menlo, monospace`;
     const ci = s.selected.indexOf(seg.clipId) + 1;
-    if (W > 22 * dpr) x.fillText(`#${ci}`, a + 6 * dpr, bot - 7 * dpr);
+    if (W < 16 * dpr) {
+      // Too narrow for a thumbnail to read: a flat color per clip, and no request for one.
+      x.fillStyle = `hsl(${(ci * 67) % 360} 30% 34%)`;
+      x.fillRect(a, top, W, bot - top);
+    } else {
+      const k = `${seg.clipId}@${seg.in.toFixed(1)}`;
+      let img = thumbImgsMap.get(k);
+      if (!img) {
+        img = new Image();
+        img.onload = () => onRedraw ? onRedraw() : s.drawLane();
+        img.src = `/api/thumb/${seg.clipId}?w=200&t=${seg.in.toFixed(2)}`;
+        thumbImgsMap.set(k, img);
+      }
+      if (img.complete && img.naturalWidth) {
+        const ir = img.naturalWidth / img.naturalHeight;
+        const cr = W / (bot - top);
+        let sw = img.naturalWidth;
+        let sh = img.naturalHeight;
+        let sx = 0;
+        let sy = 0;
+        if (ir > cr) {
+          sw = sh * cr;
+          sx = (img.naturalWidth - sw) / 2;
+        } else {
+          sh = sw / cr;
+          sy = (img.naturalHeight - sh) / 2;
+        }
+        x.drawImage(img, sx, sy, sw, sh, a, top, W, bot - top);
+      } else {
+        x.fillStyle = '#1b1b22';
+        x.fillRect(a, top, W, bot - top);
+      }
+
+      const grd = x.createLinearGradient(0, top, 0, bot);
+      grd.addColorStop(0, 'rgba(0,0,0,0.05)');
+      grd.addColorStop(1, 'rgba(0,0,0,0.65)');
+      x.fillStyle = grd;
+      x.fillRect(a, top, W, bot - top);
+      x.fillStyle = '#fff';
+      x.font = `700 ${10 * dpr}px ui-monospace, Menlo, monospace`;
+      if (W > 22 * dpr) x.fillText(`#${ci}`, a + 6 * dpr, bot - 7 * dpr);
+    }
     if (editing && seg.clipId !== s.editClip) {
       x.fillStyle = 'rgba(10,10,14,0.62)';
       x.fillRect(a, top, W, bot - top);
     }
     x.restore();
 
-    if (i === selSegIndex || (editing && seg.clipId === s.editClip)) {
+    if (editing && seg.clipId === s.editClip) {
       x.strokeStyle = '#C8FF4D';
       x.lineWidth = 2 * dpr;
-      roundRect(x, a, top, W, bot - top, 7 * dpr);
+      roundRect(x, a, top, W, bot - top, r);
       x.stroke();
     }
   });
 
+  // With cuts closer than ~10 px, the diamonds would overlap: keep only the cut lines, and drop
+  // those too once they'd merge into a solid block.
+  const gap = w / tl.segs.length;
   tl.segs.forEach((seg) => {
     const cx = X(seg.t0);
     const half = (tl.transDur / 2 / L) * w;
@@ -155,13 +170,15 @@ export function drawLane(s: StudioState, onRedraw?: () => void) {
       x.fillRect(cx - half, top, half * 2, bot - top);
       if (seg.t0 === 0) x.fillRect(w - half, top, half, bot - top);
     }
-    x.fillStyle = seg.trans === 'cut' ? '#fff' : '#FF4FA3';
-    x.save();
-    x.translate(cx === 0 ? 5 * dpr : cx, top);
-    x.rotate(Math.PI / 4);
-    x.fillRect(-4 * dpr, -4 * dpr, 8 * dpr, 8 * dpr);
-    x.restore();
-    if (seg.t0 > 0) {
+    if (gap >= 10 * dpr) {
+      x.fillStyle = seg.trans === 'cut' ? '#fff' : '#FF4FA3';
+      x.save();
+      x.translate(cx === 0 ? 5 * dpr : cx, top);
+      x.rotate(Math.PI / 4);
+      x.fillRect(-4 * dpr, -4 * dpr, 8 * dpr, 8 * dpr);
+      x.restore();
+    }
+    if (seg.t0 > 0 && gap >= 3 * dpr) {
       x.fillStyle = 'rgba(255,255,255,0.85)';
       x.fillRect(cx - 0.75 * dpr, top, 1.5 * dpr, bot - top);
     }

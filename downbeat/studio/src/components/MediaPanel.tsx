@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useRef, useState } from 'react';
 import { useStudioStore, useVersion } from '../store.ts';
 import { METERS, fmt } from '../utils.ts';
 import { MOD_SOURCES } from '../../modules.ts';
@@ -6,15 +6,11 @@ import type { ClipMeta } from '../../types.ts';
 import { ExportsSection } from './Exports.tsx';
 import { TrackPicker } from './TrackPicker.tsx';
 import { removeClip } from '../mediaActions.ts';
+import { useArmed } from './ui.tsx';
 
 /** Needs a second click within 3 s, like deleting an export. */
 const RemoveClipButton: React.FC<{ id: string }> = ({ id }) => {
-  const [armed, setArmed] = useState(false);
-  useEffect(() => {
-    if (!armed) return;
-    const t = setTimeout(() => setArmed(false), 3000);
-    return () => clearTimeout(t);
-  }, [armed]);
+  const [armed, setArmed] = useArmed();
   return (
     <button
       className={`rm ${armed ? 'armed' : ''}`}
@@ -34,6 +30,7 @@ const RemoveClipButton: React.FC<{ id: string }> = ({ id }) => {
 export const MediaPanel: React.FC = () => {
   useVersion();
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const addSong = useCallback(() => fileInputRef.current?.click(), []);
   const [dragId, setDragId] = useState<string | null>(null);
 
   const trackId = useStudioStore((s) => s.trackId);
@@ -79,7 +76,7 @@ export const MediaPanel: React.FC = () => {
             </span>
           </div>
 
-          <TrackPicker onAddSong={() => fileInputRef.current?.click()} />
+          <TrackPicker onAddSong={addSong} />
 
           <div className="track-meta" id="trackMeta">
             {features ? (
@@ -155,7 +152,7 @@ export const MediaPanel: React.FC = () => {
 
           <div className="meters" id="meters">
             {METERS.map((m) => {
-              const meta = (MOD_SOURCES as any)[m];
+              const meta = MOD_SOURCES[m];
               return (
                 <div className="meter" style={{ ['--c' as any]: meta?.color || '#FFD36A' }} title={meta?.name || m} key={m}>
                   <div className="bar">

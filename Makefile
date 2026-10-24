@@ -15,7 +15,7 @@ install: setup
 
 test: setup
 	./.venv/bin/python -m unittest discover -s tests -v
-	@if command -v node >/dev/null 2>&1; then node --test tests/studio.test.mjs; fi
+	@if command -v node >/dev/null 2>&1; then node --test tests/*.test.mjs; fi
 
 list: setup
 	./.venv/bin/python -m downbeat --list

@@ -482,7 +482,8 @@ export class Engine {
   }
 
   // Render a look into a small pipeline and copy it into a 2D canvas.
-  renderThumb(id: string, frame: ComposedFrame, ctx2d: CanvasRenderingContext2D): void {
+  // `restore: false` lets a caller drawing several thumbnails put the preview back once at the end.
+  renderThumb(id: string, frame: ComposedFrame, ctx2d: CanvasRenderingContext2D, restore = true): void {
     const w = ctx2d.canvas.width, h = ctx2d.canvas.height;
     let p = this.thumbs.get(id);
     if (!p) { p = new Pipeline(this.gpu, w, h); this.thumbs.set(id, p); }
@@ -492,7 +493,7 @@ export class Engine {
     this.gpu.draw('blit', S.BLIT, null, p.U(out), { uSrc: out }, [0, ch - h, w, h]);
     ctx2d.drawImage(this.canvas, 0, 0, w, h, 0, 0, w, h);
     // The thumbnail was staged in the corner of the visible canvas; put the preview back.
-    this.present();
+    if (restore) this.present();
   }
 
   dropThumb(id: string): void {

@@ -3,7 +3,6 @@ import { Engine } from '../engine.ts';
 import { Transport, makeSampler } from '../audio.ts';
 import { planTimeline, rng } from '../timeline.ts';
 import { LOOKS, clamp, cloneLook, evolveLook } from '../looks.ts';
-import { MODULES } from '../modules.ts';
 import { VideoBank } from '../composer.ts';
 import type {
   ClipMeta,
@@ -16,14 +15,12 @@ import type {
 import {
   fetchJSON,
   BAR_CHOICES,
+  MAX_LOOP_SECONDS,
   toast,
 } from './utils.ts';
 import { drawOverview, drawLane, drawTimeline } from './timelineCanvas.ts';
 import { startRenderLoop, pollProxies } from './renderLoop.ts';
 import {
-  autoSave,
-  showResult,
-  renderOnce,
   openExport,
   runExport,
   runBatch,
@@ -33,10 +30,9 @@ import {
 import { surprise, rollClips, rollAll, undoRoll } from './rollController.ts';
 import { save, restore, snapshot, applySnapshot, undo, redo, saveLook, rememberLook } from './historyController.ts';
 import { uploadFiles, autoFrame, reorderClips, toggleClip, fetchPalette } from './mediaActions.ts';
-import type { LookJob, GhostItem, StudioState } from './storeTypes.ts';
+import type { StudioState } from './storeTypes.ts';
 
 export type { LookJob, GhostItem, StudioState } from './storeTypes.ts';
-export { autoSave, showResult, renderOnce } from './exportController.ts';
 
 const transportInstance = new Transport();
 const clipDurMap = new Map<string, number>();
@@ -89,10 +85,6 @@ export const useStudioStore = create<StudioState>((set, get) => ({
   exportFilter: { q: '', kind: 'all', sort: 'new' },
   mutAmt: 0.45,
   varSeed: 1,
-  fpsText: '',
-  timeText: '0.00 / 0.00',
-  bbtText: '1.1',
-  stageWaiting: false,
   trackStateText: '',
 
   engine: null,
@@ -100,7 +92,6 @@ export const useStudioStore = create<StudioState>((set, get) => ({
   transport: transportInstance,
   ctx: null,
   version: 0,
-  lastFrame: null,
   clipDur: clipDurMap,
   lookJobs: [],
   varJobs: [],
@@ -117,7 +108,8 @@ export const useStudioStore = create<StudioState>((set, get) => ({
   },
   beatDur: () => 60 / get().bpm(),
   barDur: () => get().beatDur() * 4,
-  validBars: () => {
+  // Lengths that fit Spotify's 3-8 s Canvas window. Longer loops are fine for visualizers.
+  canvasBars: () => {
     const bd = get().barDur();
     if (bd !== lastVbBd) {
       lastVbBd = bd;
@@ -125,14 +117,24 @@ export const useStudioStore = create<StudioState>((set, get) => ({
     }
     return lastVb;
   },
+  // The longest loop: the song from its first downbeat, or MAX_LOOP_SECONDS without a song.
+  maxBars: () => {
+    const s = get();
+    const f = s.features;
+    const room = f?.duration ? f.duration - (f.downbeats?.[0] ?? 0) : MAX_LOOP_SECONDS;
+    return Math.max(1, Math.floor(room / s.barDur() + 1e-6));
+  },
   loopLen: () => {
     const s = get();
-    const vb = s.validBars();
-    let currentBars = s.bars;
-    if (!vb.includes(currentBars)) {
-      currentBars = vb.length ? vb[vb.length - 1] : 0;
-    }
-    return currentBars ? currentBars * s.barDur() : 8;
+    return clamp(Math.round(s.bars) || 1, 1, s.maxBars()) * s.barDur();
+  },
+  setBars: (b: number) => {
+    set({ bars: clamp(Math.round(b) || 1, 1, get().maxBars()), customCuts: null });
+    get().rebuild();
+  },
+  wholeSong: () => {
+    set({ loopStart: get().features?.downbeats?.[0] ?? 0 });
+    get().setBars(get().maxBars());
   },
 
   clipLookOf: (id: string): Look => {
@@ -186,6 +188,12 @@ export const useStudioStore = create<StudioState>((set, get) => ({
     s.touch();
     const L = s.loopLen();
     const bd = s.beatDur();
+    // The song can't loop past its end, so a long loop starts at the last downbeat that leaves room.
+    const f = s.features;
+    if (f?.duration && s.loopStart + L > f.duration + 1e-3) {
+      const fits = (f.downbeats || []).filter((d) => d + L <= f.duration! + 1e-3);
+      set({ loopStart: fits.length ? fits[fits.length - 1] : (f.downbeats?.[0] ?? 0) });
+    }
     const clips = s.selected
       .map((id) => s.clips.find((c) => c.id === id))
       .filter(Boolean)
@@ -198,7 +206,6 @@ export const useStudioStore = create<StudioState>((set, get) => ({
 
     if (!clips.length || !s.look) {
       set({ ctx: null });
-      s.drawTimeline();
       return;
     }
 
@@ -220,7 +227,7 @@ export const useStudioStore = create<StudioState>((set, get) => ({
       transitions: cut.transitions,
       transBeats: cut.beats,
       seed: s.seed,
-      speed: (s.look.camera.p as any).speed ?? 1,
+      speed: s.look.camera.p.speed ?? 1,
       direction: s.direction,
       order: cut.order,
       hitCurve: hit,
@@ -242,9 +249,10 @@ export const useStudioStore = create<StudioState>((set, get) => ({
       L,
       beatDur: bd,
       seed: s.seed,
-      clipDur: (id: string) => s.clipDur.get(id) || 10,
+      // Read live state, never `s`: a closure over `s` would keep every earlier state (and ctx) alive.
+      clipDur: (id: string) => clipDurMap.get(id) || 10,
       intensity: s.intensity,
-      clipLook: s.clipMode === 'one' ? null : (id: string) => s.clipLookOf(id),
+      clipLook: s.clipMode === 'one' ? null : (id: string) => get().clipLookOf(id),
       sampler: makeSampler({
         features: s.features,
         loopStart: s.audioStart(),
@@ -256,8 +264,8 @@ export const useStudioStore = create<StudioState>((set, get) => ({
     };
 
     s.transport.setLoop(Math.max(0, s.audioStart()), L);
+    // TimelinePanel redraws when ctx changes.
     set({ ctx });
-    s.drawTimeline();
     s.save();
   },
 
@@ -326,13 +334,13 @@ export const useStudioStore = create<StudioState>((set, get) => ({
       const ov = s.bpmOverride[id];
       const [feats] = await Promise.all([
         fetchJSON<TrackFeatures>(`/api/features/${id}${ov ? `?bpm=${ov}` : ''}`),
-        s.transport.buffer && (s.transport as any).trackId === id
+        s.transport.buffer && s.transport.trackId === id
           ? s.transport.buffer
           : s.transport.decode(`/api/track_audio/${id}`),
       ]).then(([f, buf]) => {
         if (token === trackTokenVal) {
           s.transport.setBuffer(buf);
-          (s.transport as any).trackId = id;
+          s.transport.trackId = id;
         }
         return [f];
       });
@@ -565,21 +573,10 @@ export const useStudioStore = create<StudioState>((set, get) => ({
 // that renders look data (layers, params, modulators, cut settings) subscribes to it.
 export const useVersion = () => useStudioStore((s) => s.version);
 
-export const S = new Proxy({} as StudioState, {
-  get(_target, prop) {
-    return (useStudioStore.getState() as any)[prop];
-  },
-  set(_target, prop, value) {
-    useStudioStore.setState({ [prop]: value } as any);
-    return true;
-  },
-});
-
+// Debug handle for the browser console and headless QA scripts.
 if (typeof window !== 'undefined') {
   (window as any).__studio = {
-    get S() {
-      return S;
-    },
+    store: useStudioStore,
     get engine() {
       return useStudioStore.getState().engine;
     },

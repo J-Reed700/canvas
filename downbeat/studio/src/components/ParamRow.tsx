@@ -3,6 +3,7 @@ import { useStudioStore } from '../store.ts';
 import { h, openPop, closePop } from '../utils.ts';
 import { MOD_SOURCES } from '../../modules.ts';
 import type { ParamDef } from '../../types.ts';
+import { Slider } from './ui.tsx';
 
 export function openModPopover(
   anchor: HTMLElement,
@@ -123,7 +124,7 @@ export const ParamRow: React.FC<ParamRowProps> = ({ p, holder, readLive }) => {
               onClick={() => {
                 values[p.id] = i;
                 touch();
-                if (p.id === 'speed') rebuild();
+                if (p.retime) rebuild();
                 save();
               }}
             >
@@ -147,12 +148,19 @@ export const ParamRow: React.FC<ParamRowProps> = ({ p, holder, readLive }) => {
       style={mod ? ({ ['--mc' as any]: MOD_SOURCES[mod.src]?.color } as any) : undefined}
     >
       <label title={`${p.name}: double-click slider to reset`}>{p.name}</label>
-      <div className="slider">
-        <div className="trk" />
-        <div
-          className="fill"
-          style={{ width: `${((v0 - p.min) / (p.max - p.min)) * 100}%` }}
-        />
+      <Slider
+        min={p.min}
+        max={p.max}
+        step={stepped ? p.step : (p.max - p.min) / 400}
+        value={v0}
+        def={p.def}
+        onChange={(val) => {
+          values[p.id] = val;
+          touch();
+          if (p.retime) rebuild();
+          save();
+        }}
+      >
         <div
           className="ghost"
           ref={(el) => {
@@ -169,31 +177,7 @@ export const ParamRow: React.FC<ParamRowProps> = ({ p, holder, readLive }) => {
             }
           }}
         />
-        <div
-          className="knob"
-          style={{ left: `${((v0 - p.min) / (p.max - p.min)) * 100}%` }}
-        />
-        <input
-          type="range"
-          min={p.min}
-          max={p.max}
-          step={stepped ? p.step : (p.max - p.min) / 400}
-          value={v0}
-          onChange={(e) => {
-            const val = +e.target.value;
-            values[p.id] = val;
-            touch();
-            if (p.id === 'speed') rebuild();
-            save();
-          }}
-          onDoubleClick={() => {
-            values[p.id] = p.def;
-            touch();
-            if (p.id === 'speed') rebuild();
-            save();
-          }}
-        />
-      </div>
+      </Slider>
       <output>{fmtVal(v0)}</output>
       <button
         className={`modbtn ${stepped ? 'na' : ''}`}

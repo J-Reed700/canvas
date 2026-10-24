@@ -260,7 +260,10 @@ export const defaultLfos = (): LfoSpec[] => [
   { shape: 'sine', rate: 1, phase: 0, seed: 1 },
   { shape: 'tri', rate: 2, phase: 0, seed: 2 },
 ];
+// Read-only defaults for looks that never set their own, so withLook allocates nothing per frame.
 const DEFAULT_LFOS = defaultLfos();
+const DEFAULT_SEQ = defaultSeq();
+const DEFAULT_ENV = defaultEnv();
 
 // Whole cycles an LFO makes per loop. A rate longer than the loop plays once per loop.
 export const lfoCycles = (rate: number, loopBeats: number): number =>
@@ -290,7 +293,7 @@ export function lfoAt(lfo: LfoSpec, u: number, loopBeats: number): number {
 // lit step, wrapping round the bar, so it lasts a few frames and never cuts off at the next step.
 export function withLook(mv: ModValues, look: Look, u: number, beat: number, loopBeats: number): ModValues {
   const lfos = look.lfos || DEFAULT_LFOS;
-  const seq = look.seq || defaultSeq();
+  const seq = look.seq || DEFAULT_SEQ;
   const x = fract(beat / 4) * SEQ_STEPS;
   const step = Math.floor(x);
   let since = -1;
@@ -298,7 +301,7 @@ export function withLook(mv: ModValues, look: Look, u: number, beat: number, loo
   return {
     ...mv,
     seq: since < 0 ? 0 : Math.exp(-since * 1.2),
-    env: envAt(look.env || defaultEnv(), u),
+    env: envAt(look.env || DEFAULT_ENV, u),
     macroA: look.macro?.a ?? 0,
     macroB: look.macro?.b ?? 0,
     lfoA: lfoAt(lfos[0] || DEFAULT_LFOS[0], u, loopBeats),

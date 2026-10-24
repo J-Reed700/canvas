@@ -15,6 +15,8 @@ import json
 import os
 import subprocess
 
+from .encoder import ffmpeg_path
+
 AUDIO_EXTS = (".wav", ".mp3", ".m4a", ".aac", ".flac", ".aif", ".aiff", ".ogg", ".opus")
 # Formats every browser can decode as they are. Anything else is converted to WAV before playback.
 BROWSER_AUDIO_EXTS = (".wav", ".mp3", ".flac")
@@ -44,7 +46,7 @@ class Track:
 
 
 def track_id(path: str) -> str:
-    """Same id analyze_track() gives a file, so saved sessions keep pointing at the right song."""
+    """Stable id for a song file. analyze_track() uses it too, so saved sessions keep their song."""
     return hashlib.md5(os.path.abspath(os.path.expanduser(path)).encode("utf-8")).hexdigest()[:10]
 
 
@@ -144,7 +146,7 @@ def playable_path(track: Track, cache_dir: str, keep: int = 20) -> str:
     if not os.path.isfile(dest) or os.path.getmtime(dest) < os.path.getmtime(track.path):
         tmp = dest + ".part"
         subprocess.run(
-            ["ffmpeg", "-v", "error", "-y", "-i", track.path, "-vn", "-acodec", "pcm_s16le", "-f", "wav", tmp],
+            [ffmpeg_path(), "-v", "error", "-y", "-i", track.path, "-vn", "-acodec", "pcm_s16le", "-f", "wav", tmp],
             check=True,
             capture_output=True,
         )

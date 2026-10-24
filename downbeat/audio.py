@@ -2,12 +2,14 @@
 from __future__ import annotations
 
 import dataclasses
-import hashlib
 import os
 import re
 import subprocess
 
 import numpy as np
+
+from .encoder import ffmpeg_path
+from .library import track_id
 
 SR = 22050
 ONSET_HOP = 256
@@ -70,7 +72,7 @@ def _decode_pcm(path: str, max_seconds: float = 180.0) -> np.ndarray:
         raise FileNotFoundError(path)
 
     cmd = [
-        "ffmpeg",
+        ffmpeg_path(),
         "-v",
         "error",
         "-i",
@@ -205,7 +207,7 @@ def analyze_track(path: str) -> AudioProfile:
 
     y = _decode_pcm(path)
     duration = float(y.size / SR)
-    aid = hashlib.md5(path.encode("utf-8")).hexdigest()[:10]
+    aid = track_id(path)
     name = os.path.basename(path)
 
     # Waveform peaks for UI

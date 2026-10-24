@@ -31,6 +31,8 @@ export interface ParamDef {
   def: number;
   step: number;
   opts?: string[];
+  /** Changes the timeline (clip speed), so editing it rebuilds the edit. */
+  retime?: boolean;
 }
 
 export interface ModuleDef {
@@ -153,11 +155,11 @@ export interface TrackFeatures {
   bpm_source?: string;
 }
 
+/** One spec check from delivery.verify(). */
 export interface RenderCheck {
-  name: string;
-  desc?: string;
-  pass: boolean;
-  level?: 'pass' | 'warn' | 'fail' | string;
+  id: string;
+  label: string;
+  level: 'ok' | 'warn' | 'fail';
   detail?: string;
 }
 
@@ -263,6 +265,8 @@ export interface VideoNeed {
 export interface ComposedLayer {
   m: string;
   key: string;
+  /** The look layer this came from, so the inspector can show its live values. */
+  src: LayerSpec;
   params: Record<string, number>;
 }
 

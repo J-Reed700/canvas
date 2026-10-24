@@ -1,6 +1,6 @@
 // Edit planning and sampling. Segments are aligned to the beat grid; each cut,
 // including the loop seam at t = 0, is a transition centered on its beat.
-import type { CameraTransform, ClipMeta, RhythmDef, Segment, TimelinePlan, TimelinePlanOptions, TimelineSample, VelocityDef } from './types.ts';
+import type { CameraTransform, RhythmDef, Segment, TimelinePlan, TimelinePlanOptions, TimelineSample, VelocityDef } from './types.ts';
 
 export const RHYTHMS: Record<string, RhythmDef> = {
   hits: { name: 'On hits', short: 'Hits', beats: null },

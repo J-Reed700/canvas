@@ -126,6 +126,31 @@ class TestStudioBackend(unittest.TestCase):
         self.assertGreater(img[150:, :, 0].mean(), 200, "...must end up at the bottom of the video")
         self.assertLess(img[:40, :, 0].mean(), 40)
 
+    def test_chunk_session_rebuilds_a_stream_sent_in_pieces(self) -> None:
+        h264 = os.path.join(self.tmp, "chunks.h264")
+        subprocess.run(
+            ["ffmpeg", "-v", "error", "-y", "-f", "lavfi", "-i", "testsrc2=size=360x640:rate=30", "-frames:v", "300",
+             "-c:v", "libx264", "-bf", "0", "-pix_fmt", "yuv420p", "-f", "h264", h264],
+            check=True,
+        )
+        with open(h264, "rb") as fh:
+            data = fh.read()
+        dest = os.path.join(self.tmp, "chunks.mp4")
+        session = delivery.ChunkSession(dest, 30)
+        cuts = [0, 1000, 1001, len(data) // 2, len(data)]  # uneven pieces, split mid-NAL on purpose
+        for a, b in zip(cuts, cuts[1:]):
+            self.assertEqual(session.write(data[a:b]), b - a)
+        session.finish()
+        self.assertFalse(os.path.exists(session.tmp))
+        video = _ffprobe(dest)["streams"][0]
+        self.assertEqual(int(video["nb_frames"]), 300)
+        self.assertEqual(video["r_frame_rate"], "30/1")
+
+        dropped = delivery.ChunkSession(os.path.join(self.tmp, "dropped.mp4"), 30)
+        dropped.write(data[:5000])
+        dropped.abort()
+        self.assertFalse(os.path.exists(dropped.tmp) or os.path.exists(dropped.dest))
+
     def test_proxy_is_constant_30fps_short_gop(self) -> None:
         clip = os.path.join(self.tmp, "clip.mp4")
         subprocess.run(
@@ -509,7 +534,10 @@ class TestSongLibrary(unittest.TestCase):
 
 class TestStudioJavaScript(unittest.TestCase):
     def test_node_suite(self) -> None:
-        res = subprocess.run(["node", "--test", os.path.join(ROOT, "tests")], capture_output=True, text=True)
+        # List the files: Node 24 (the LTS run.sh installs on Linux) won't take a directory here.
+        tests_dir = os.path.join(ROOT, "tests")
+        files = sorted(os.path.join(tests_dir, f) for f in os.listdir(tests_dir) if f.endswith(".test.mjs"))
+        res = subprocess.run(["node", "--test", *files], capture_output=True, text=True)
         self.assertEqual(res.returncode, 0, res.stdout[-3000:] + res.stderr[-2000:])
 
 

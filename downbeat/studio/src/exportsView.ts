@@ -1,5 +1,5 @@
 // Search, filter, sort and paging for the exports panel and the exports browser.
-import type { RenderRecord } from '../types.ts';
+import type { RenderCheck, RenderRecord } from '../types.ts';
 
 export const EXPORT_KINDS: [string, string][] = [
   ['all', 'All'],
@@ -34,6 +34,8 @@ const FORMAT_LABEL: Record<string, string> = {
   social_square: 'Social 1:1',
   cover_art: 'Cover art',
 };
+
+export const CHECK_ICONS: Record<RenderCheck['level'], string> = { ok: '✓', warn: '!', fail: '✕' };
 
 export const kindOf = (r: RenderRecord): string => KIND_OF_FORMAT[r.format || 'spotify'] || 'spotify';
 export const formatLabel = (r: RenderRecord): string => FORMAT_LABEL[r.format || 'spotify'] || 'Spotify Canvas';

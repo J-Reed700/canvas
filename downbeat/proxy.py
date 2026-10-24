@@ -9,7 +9,7 @@ import subprocess
 import threading
 from typing import Any
 
-from .encoder import ffmpeg_path, has_videotoolbox, video_codec_args
+from .encoder import ffmpeg_path, video_codec_args
 from .source import Source
 
 PROXY_VERSION = 1

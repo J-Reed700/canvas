@@ -14,11 +14,10 @@ import webbrowser
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-from . import delivery, effects, framing
+from . import delivery, framing
 from .compositor import CANVAS_FPS
 from .features import track_features
 from .library import AUDIO_EXTS, pick_folder_dialog, playable_path
-from .recipe import PRESETS
 from .source import IMAGE_EXTS, extract_thumbnail_jpeg, still_to_clip
 from .state import (
     OUT_DIR,
@@ -26,14 +25,12 @@ from .state import (
     PROJECT_ROOT,
     STATE,
     STUDIO_DIR,
+    STUDIO_DIST_DIR,
     StudioState,
     _abort_raw,
     _export_dest,
-    _export_format,
     _finish_export,
 )
-
-STUDIO_DIST_DIR = os.path.join(STUDIO_DIR, "dist")
 
 STATIC_TYPES = {
     ".html": "text/html; charset=utf-8",
@@ -138,7 +135,7 @@ class StudioHandler(BaseHTTPRequestHandler):
         elif route.startswith("/api/proxy/"):
             self._get_proxy(route)
         elif route == "/api/state":
-            self._get_state()
+            self._get_state(query)
         elif route == "/api/status":
             self._get_status()
         elif route.startswith("/api/thumb/"):
@@ -147,8 +144,6 @@ class StudioHandler(BaseHTTPRequestHandler):
             self._get_autoframe(route)
         elif route.startswith("/api/palette/"):
             self._get_palette(route)
-        elif route.startswith("/api/clip_video/"):
-            self._get_clip_video(route)
         elif route.startswith("/api/track_audio/"):
             self._get_track_audio(route)
         elif route == "/api/tracks":
@@ -251,7 +246,7 @@ class StudioHandler(BaseHTTPRequestHandler):
             return
         self._serve_file(path, "video/mp4")
 
-    def _get_state(self) -> None:
+    def _get_state(self, query: dict[str, list[str]]) -> None:
         clips_list = [
             {
                 "id": s.id,
@@ -267,39 +262,23 @@ class StudioHandler(BaseHTTPRequestHandler):
             }
             for s in STATE.clips.values()
         ]
-        tracks_list = [t.to_dict() for t in STATE.tracks.values()]
-        effects_list = [
-            {"name": k, "label": v["label"], "category": v["category"]}
-            for k, v in effects.EFFECTS.items()
-        ]
-        presets_list = [
-            {
-                "id": k,
-                "label": v["label"],
-                "desc": v["desc"],
-                "effects": v["effects"],
-                "cut_beats": v["cut_beats"],
-                "transition": v["transition"],
-            }
-            for k, v in PRESETS.items()
-        ]
+        # The studio polls ?only=clips while playback proxies build; that needn't carry the song library.
+        if query.get("only") == ["clips"]:
+            self._send_json({"clips": clips_list})
+            return
         with STATE.lock:
-            job = STATE.active_job
             renders = list(STATE.renders)
         self._send_json(
             {
                 "clips": clips_list,
-                "tracks": tracks_list,
-                "effects": effects_list,
-                "presets": presets_list,
+                "tracks": [t.to_dict() for t in STATE.tracks.values()],
                 "renders": renders,
-                "job": job,
             }
         )
 
     def _get_status(self) -> None:
-        with STATE.lock:
-            self._send_json({"job": STATE.active_job, "renders": STATE.renders[:10]})
+        # Lets a second launch find a running server (see _is_downbeat_running).
+        self._send_json({"ok": True})
 
     def _get_thumb(self, route: str, query: dict[str, list[str]]) -> None:
         cid = route.split("/api/thumb/", 1)[1]
@@ -319,14 +298,6 @@ class StudioHandler(BaseHTTPRequestHandler):
             self.wfile.write(jpg)
         except Exception as exc:
             self.send_error(HTTPStatus.INTERNAL_SERVER_ERROR, str(exc))
-
-    def _get_clip_video(self, route: str) -> None:
-        cid = route.split("/api/clip_video/", 1)[1]
-        src = STATE.clips.get(cid)
-        if not src:
-            self.send_error(HTTPStatus.NOT_FOUND)
-            return
-        self._serve_file(src.path, "video/mp4")
 
     def _get_track_audio(self, route: str) -> None:
         tid = route.split("/api/track_audio/", 1)[1]
@@ -353,7 +324,7 @@ class StudioHandler(BaseHTTPRequestHandler):
         }
 
     def _post_library_folders(self, body: bytes) -> None:
-        data = json.loads(body.decode("utf-8") or "{}")
+        data = _json_body(body)
         try:
             if data.get("add"):
                 STATE.library.add_folder(str(data["add"]))
@@ -440,7 +411,7 @@ class StudioHandler(BaseHTTPRequestHandler):
 
     def _post_export_companion(self, body: bytes) -> None:
         try:
-            data = json.loads(body.decode("utf-8") or "{}")
+            data = _json_body(body)
         except Exception as exc:
             self._send_json({"ok": False, "error": f"Invalid JSON body: {exc}"}, status=400)
             return
@@ -470,15 +441,11 @@ class StudioHandler(BaseHTTPRequestHandler):
             if kind == "cover":
                 out_name = f"{stem}-cover-3000x3000.jpg"
                 dest_path = os.path.join(OUT_DIR, out_name)
-                res = delivery.export_cover_art(src_path, dest_path, size=3000, at_sec=at_sec)
-                if isinstance(res, dict):
-                    extra = res
+                delivery.export_cover_art(src_path, dest_path, size=3000, at_sec=at_sec)
             elif kind in ("gif", "webp"):
                 out_name = f"{stem}-teaser.{kind}"
                 dest_path = os.path.join(OUT_DIR, out_name)
-                res = delivery.export_animated(src_path, dest_path, fmt=kind)
-                if isinstance(res, dict):
-                    extra = res
+                delivery.export_animated(src_path, dest_path, fmt=kind)
             elif kind in ("spotify_header", "youtube_banner", "soundcloud_header"):
                 out_name = f"{stem}-{kind}.jpg"
                 dest_path = os.path.join(OUT_DIR, out_name)
@@ -493,9 +460,7 @@ class StudioHandler(BaseHTTPRequestHandler):
                         focus = tuple(framing.autoframe(src_path)["focus"])
                     except Exception:
                         focus = (0.5, 0.5)
-                res = delivery.export_banner(src_path, dest_path, banner_type=kind, focus=focus, at_sec=at_sec)
-                if isinstance(res, dict):
-                    extra = res
+                extra = delivery.export_banner(src_path, dest_path, banner_type=kind, focus=focus, at_sec=at_sec)
             else:
                 self._send_json({"ok": False, "error": f"unsupported kind: {kind}"}, status=400)
                 return
@@ -505,10 +470,13 @@ class StudioHandler(BaseHTTPRequestHandler):
             self._send_json({"ok": False, "error": str(exc)}, status=500)
 
     def _post_raw_begin(self, body: bytes) -> None:
-        meta = json.loads(body.decode("utf-8") or "{}")
+        meta = _json_body(body)
         dest = _export_dest(meta)
         sid = os.path.basename(dest)
-        session = delivery.RawSession(dest, int(meta["width"]), int(meta["height"]), int(meta.get("fps", CANVAS_FPS)))
+        fps = int(meta.get("fps", CANVAS_FPS))
+        # stream "h264": the browser encoded the frames and sends Annex B chunks; otherwise raw RGBA frames
+        session = (delivery.ChunkSession(dest, fps) if meta.get("stream") == "h264"
+                   else delivery.RawSession(dest, int(meta["width"]), int(meta["height"]), fps))
         with STATE.lock:
             STATE.raw_sessions[sid] = (session, meta)
         self._send_json({"ok": True, "sid": sid})
@@ -539,31 +507,33 @@ class StudioHandler(BaseHTTPRequestHandler):
         session, meta = entry
         try:
             session.finish()
-            meta["stats"] = json.loads(body.decode("utf-8") or "{}").get("stats") or meta.get("stats")
+            meta["stats"] = _json_body(body).get("stats") or meta.get("stats")
             self._send_json({"ok": True, "render": _finish_export(session.dest, meta)})
         except Exception as exc:
             self._send_json({"ok": False, "error": str(exc)}, status=500)
 
     def _post_delete_export(self, body: bytes) -> None:
-        data = json.loads(body.decode("utf-8") or "{}")
+        data = _json_body(body)
         try:
             removed = STATE.remove_export(str(data.get("filename", "")))
         except FileNotFoundError:
-            self._send_json({"ok": False, "error": "That export no longer exists"}, status=404)
+            # Already gone is the outcome the caller wanted.
+            self._send_json({"ok": True, "removed": []})
             return
         self._send_json({"ok": True, "removed": removed})
 
     def _post_remove_clip(self, body: bytes) -> None:
-        data = json.loads(body.decode("utf-8") or "{}")
+        data = _json_body(body)
         try:
             deleted = STATE.remove_clip(str(data.get("id", "")))
         except KeyError:
-            self._send_json({"ok": False, "error": "That clip is no longer in the library"}, status=404)
+            # Already gone is the outcome the caller wanted.
+            self._send_json({"ok": True, "deleted": False})
             return
         self._send_json({"ok": True, "deleted": deleted})
 
     def _post_reveal(self, body: bytes) -> None:
-        data = json.loads(body.decode("utf-8") or "{}")
+        data = _json_body(body)
         path = os.path.abspath(os.path.join(OUT_DIR, os.path.basename(str(data.get("filename", "")))))
         if os.path.isfile(path) and sys.platform == "darwin":
             subprocess.Popen(["open", "-R", path])
@@ -610,6 +580,10 @@ class ReusableThreadingHTTPServer(ThreadingHTTPServer):
         super().handle_error(request, client_address)
 
 
+def _json_body(body: bytes) -> dict:
+    return json.loads(body.decode("utf-8") or "{}")
+
+
 def _is_downbeat_running(host: str, port: int) -> bool:
     try:
         with urllib.request.urlopen(f"http://{host}:{port}/api/status", timeout=0.6) as resp:
@@ -628,8 +602,7 @@ def serve_studio(host: str = "127.0.0.1", port: int = 8765, open_browser: bool =
                 data=b"{}",
                 headers={"Content-Type": "application/json"},
             )
-            with urllib.request.urlopen(req, timeout=1.0) as resp:
-                pass
+            urllib.request.urlopen(req, timeout=1.0).close()
         except Exception:
             pass
         time.sleep(0.4)

@@ -274,7 +274,7 @@ Finished exports download to your browser's Downloads folder. A copy stays in `o
 A walkthrough of every panel and control is in [docs/STUDIO_GUIDE.md](docs/STUDIO_GUIDE.md). The short version:
 
 1. Add clips and a track with + Add clips, art or tracks, or drop files anywhere on the window. Drag clips to reorder them. Playback proxies (30 fps H.264 with frequent keyframes) build in the background so scrubbing stays smooth.
-2. Pick the loop. The track panel shows the tempo and suggested starting points such as Drop, Peak and Intro. Choose 1, 2, 4 or 8 bars, or drag the highlighted region along the waveform. If the tempo is wrong, use ½×, 2× or Tap, or type the BPM.
+2. Pick the loop. The track panel shows the tempo and suggested starting points such as Drop, Peak and Intro. Choose 1, 2, 4 or 8 bars, or drag the highlighted region along the waveform. For a visualizer, the Edit tab takes any number of bars, a time such as 2:30, or Whole song. If the tempo is wrong, use ½×, 2× or Tap, or type the BPM.
 3. Choose a look in the Looks tab. `D` rolls a new look and edit, `M` shows variations of the current look, and `R` picks a random preset. `Cmd+Z` undoes any change.
 4. Adjust it in the Layers tab: overall FX intensity, per-clip looks, and each effect layer. The dot next to a slider sets what moves it: an audio band, a tempo clock, LFO A or B, the step sequencer, your drawn envelope or a macro. You edit the LFOs, envelope, steps and macros in the Modulators card on the same tab. Camera covers zoom, drift, shake and clip speed. Finish covers the color grade, grain, vignette and cinema bars.
 5. Shape the edit in the Edit tab: cut rhythm, which transitions to use, clip direction and speed ramps. On the timeline, drag a cut to move it along the beat grid, `Alt`-drag a segment to use a different part of its clip, or double-click a segment to change just that one.
@@ -287,7 +287,7 @@ A walkthrough of every panel and control is in [docs/STUDIO_GUIDE.md](docs/STUDI
 | :--- | :--- | :--- | :--- |
 | `Space` | Play / pause | `E` | Export |
 | `Left` / `Right` | Previous / next look | `[` / `]` | Previous / next loop suggestion |
-| `M` | Look variations | `1`–`4` | Loop length (1, 2, 4, 8 bars) |
+| `M` | Look variations | `1`–`4` | Loop length presets (1, 2, 4, 8 bars) |
 | `D` | Roll a new look and edit | `Shift` `D` | Undo the last roll |
 | `Cmd+Z` / `Shift+Cmd+Z` | Undo / redo | `T` | Tap tempo |
 | `R` | Random look | `L` | Toggle Loop / Listener mode |
@@ -405,13 +405,15 @@ Spotify's [Canvas guidelines](https://support.spotify.com/us/artists/article/can
 
 A Spotify Canvas export can also make a 15 or 30 second promo: the loop repeated with the song playing underneath, for Reels, TikTok or Shorts.
 
+Loops longer than 8 seconds, up to the whole song, are for YouTube 16:9 and Social 1:1 exports. Spotify and Apple Music have length limits of their own, and the export sheet warns when a loop doesn't fit. Videos over a minute are encoded at 20 Mbps, and every export streams to disk as it renders.
+
 Batch export renders four random rolls of the current edit, or the current look on every track in your library.
 
 ### What each export is checked for
 
 After an export, ffprobe inspects the file and the studio lists the results:
 
-- Length: 3 to 8 s for a Canvas (promos are 15 or 30 s)
+- Length: 3 to 8 s for a Canvas and at most 35 s for Apple Music. YouTube and Social files can be any length
 - Aspect: 9:16, or 3:4 and 1:1 for Apple Music
 - Codec: H.264, yuv420p, constant 30 fps
 - Audio: none in Canvas and Apple Music files. Only promos and the `-audio` copy have sound
@@ -498,14 +500,23 @@ canvas/
 └── tests/
     ├── test_pipeline.py        # classic engine
     ├── test_studio.py          # beat grid, loop lengths, remux, verifier, proxies
-    └── studio.test.mjs         # timeline, modulation, looks, flash counter (node --test)
+    ├── test_server.py          # every HTTP route, uploads, streamed exports, launch and relaunch
+    ├── test_cli.py             # command-line options and a small real render
+    ├── test_backend_units.py   # probing, encoding, audio analysis, delivery, state, proxies
+    ├── studio.test.mjs         # timeline, modulation, looks, flash counter (node --test)
+    ├── studio_store.test.mjs   # loop lengths, per-clip looks, undo, rolls, uploads, clip actions
+    ├── studio_media.test.mjs   # audio transport, video bank, export streaming, timeline lane
+    ├── studio_export.test.mjs  # export sheet: format settings, progress, cancel, batches
+    ├── studio_render.test.mjs  # preview loop: redraws, readouts, meters, step grid, slider markers
+    ├── studio_utils.test.mjs   # helpers and the exports browser's search and sort
+    └── fakes.mjs               # stand-ins for the DOM, <video>, canvas, fetch and WebCodecs
 ```
 
 ### Development
 
 ```bash
 make test               # Python suite, plus the JS suite when Node is installed
-node --test tests/studio.test.mjs   # just the studio's JS tests (Node 22.18+ runs the .ts modules directly)
+node --test tests/*.test.mjs        # just the studio's JS tests (Node 22.18+ runs the .ts modules directly)
 npm run typecheck       # TypeScript check without building
 npm run dev             # Vite dev server with hot reload; start ./run.sh first, it proxies /api and /out to :8765
 npm run build           # production build into downbeat/studio/dist (./run.sh does this when sources change)

@@ -1,12 +1,6 @@
 import { TRANSITIONS } from '../shaders.ts';
 import { defaultEnv, SEQ_STEPS, ENV_POINTS } from '../audio.ts';
-import type { TrackMeta } from '../types.ts';
-
-export const $ = <T extends HTMLElement = HTMLElement>(s: string, el: Document | HTMLElement = document): T | null =>
-  el.querySelector<T>(s);
-
-export const $$ = <T extends HTMLElement = HTMLElement>(s: string, el: Document | HTMLElement = document): T[] =>
-  Array.from(el.querySelectorAll<T>(s));
+import type { RollOptions, TrackMeta } from '../types.ts';
 
 export const h = (tag: string, attrs: Record<string, any> = {}, ...kids: any[]): HTMLElement => {
   const e = document.createElement(tag);
@@ -31,7 +25,24 @@ export const fetchJSON = async <T = any>(u: string, o?: RequestInit): Promise<T>
   return r.json();
 };
 
+/** POSTs JSON and returns the reply, error replies included, so their message can be shown.
+ * A network failure comes back as `{ ok: false, error }`. */
+export const postJSON = <T = { ok?: boolean; error?: string; [k: string]: any }>(u: string, body: unknown): Promise<T> =>
+  fetch(u, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+    .then((r) => r.json())
+    .catch((e) => ({ ok: false, error: String(e) }) as T);
+
 export const fmt = (s: number): string => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
+// Loop lengths: seconds under a minute, m:ss above.
+export const fmtLength = (s: number): string => (s < 60 ? `${s.toFixed(2)}s` : fmt(s));
+// "2:30", "150", "150s" or "2.5m" -> seconds
+export const parseLength = (v: string): number => {
+  const t = v.trim().toLowerCase();
+  const ms = t.match(/^(?:(\d+):)?(\d+(?:\.\d+)?)\s*s?$/);
+  if (ms) return (ms[1] ? +ms[1] * 60 : 0) + +ms[2];
+  const m = t.match(/^(\d+(?:\.\d+)?)\s*m(?:in)?$/);
+  return m ? +m[1] * 60 : NaN;
+};
 
 export const shuffle = <T>(arr: T[], rand: () => number = Math.random): T[] => {
   for (let i = arr.length - 1; i > 0; i--) {
@@ -41,13 +52,10 @@ export const shuffle = <T>(arr: T[], rand: () => number = Math.random): T[] => {
   return arr;
 };
 
-export const ICON = {
-  play: '<svg viewBox="0 0 24 24"><path d="M7 4v16l13-8z"/></svg>',
-  pause: '<svg viewBox="0 0 24 24"><path d="M6 4h4v16H6zM14 4h4v16h-4z"/></svg>',
-};
-
 export const METERS = ['kick', 'snare', 'hats', 'bass', 'energy', 'bright'] as const;
 export const BAR_CHOICES = [1, 2, 4, 8];
+// Without a song to set the limit, a loop can run up to 10 minutes.
+export const MAX_LOOP_SECONDS = 600;
 export const TRANS_BEATS: [number, string][] = [[0, 'Cut'], [0.25, '¼'], [0.5, '½'], [1, '1'], [2, '2']];
 export const CLIP_MODES: [string, string][] = [
   ['one', 'Same look'],
@@ -64,7 +72,7 @@ export const POOLS: Record<string, string[]> = {
   'Hard cuts': ['cut'],
 };
 
-export const ROLL_OPTS: [string, string, string][] = [
+export const ROLL_OPTS: [keyof RollOptions, string, string][] = [
   ['look', 'Look & layers', 'effects, settings, grade, camera'],
   ['edit', 'Edit', 'rhythm, transitions, direction, speed, intensity'],
   ['perClip', 'Per-clip FX', 'same / evolve / per-clip stacks'],
@@ -93,8 +101,6 @@ export const SIZES: Record<string, [number, number]> = {
   lite: [720, 1280],
   strict: [608, 1080],
 };
-
-export const STAGE = ['space', 'warp', 'time', 'stylize', 'color', 'light'];
 
 export const SEQ_PRESETS: Record<string, () => number[]> = {
   Four: () => Array.from({ length: SEQ_STEPS }, (_, i) => +(i % 4 === 0)),
@@ -155,81 +161,6 @@ if (typeof document !== 'undefined') {
   });
 }
 
-export interface CardOptions {
-  title: string;
-  sub?: string;
-  color?: string;
-  collapsed?: boolean;
-  onToggle?: () => void;
-  on?: boolean;
-  actions?: HTMLElement[];
-}
-
-export function card({ title, sub, color, collapsed, onToggle, on, actions = [] }: CardOptions, body: HTMLElement[]): HTMLElement {
-  const c = h('div', { class: `card ${on === false ? 'off' : ''} ${collapsed ? 'collapsed' : ''}` });
-  const head = h(
-    'div',
-    {
-      class: 'card-h',
-      onclick: (e: MouseEvent) => {
-        if ((e.target as HTMLElement).closest('button,.sw')) return;
-        c.classList.toggle('collapsed');
-      },
-    },
-    h('span', { class: 'cdot', style: `--c:${color}` }),
-    h('span', { class: 'ct' }, title, sub ? h('small', {}, sub) : null),
-    onToggle
-      ? h('span', {
-          class: `sw ${on ? 'on' : ''}`,
-          title: 'Enable / bypass',
-          onclick: (e: MouseEvent) => {
-            e.stopPropagation();
-            onToggle();
-          },
-        })
-      : null,
-    ...actions,
-  );
-  c.append(head, h('div', { class: 'prms' }, ...body));
-  return c;
-}
-
-export interface SliderRowOptions {
-  min: number;
-  max: number;
-  step: number;
-  value: number;
-  fmt: (v: number) => string;
-  def?: number;
-  title?: string;
-}
-
-export function sliderRow(label: string, { min, max, step, value, fmt: f, def, title }: SliderRowOptions, onInput: (v: number) => void): HTMLElement {
-  const input = h('input', { type: 'range', min, max, step, value }) as HTMLInputElement;
-  const fill = h('div', { class: 'fill' });
-  const knob = h('div', { class: 'knob' });
-  const out = h('output', {}, f(value));
-  const paint = (v: number) => {
-    const k = ((v - min) / (max - min)) * 100;
-    fill.style.width = `${k}%`;
-    knob.style.left = `${k}%`;
-    out.textContent = f(v);
-  };
-  input.addEventListener('input', () => {
-    paint(+input.value);
-    onInput(+input.value);
-  });
-  if (def !== undefined) {
-    input.addEventListener('dblclick', () => {
-      input.value = String(def);
-      paint(def);
-      onInput(def);
-    });
-  }
-  paint(value);
-  return h('div', { class: 'prm' }, h('label', { title }, label), h('div', { class: 'slider' }, h('div', { class: 'trk' }), fill, knob, input), out, h('span'));
-}
-
 export function sizeCanvas(c: HTMLCanvasElement): [number, number, number] {
   const r = c.getBoundingClientRect();
   const dpr = typeof devicePixelRatio !== 'undefined' ? devicePixelRatio || 1 : 1;
@@ -252,7 +183,7 @@ export function roundRect(x: CanvasRenderingContext2D, X: number, Y: number, W: 
   x.closePath();
 }
 
-export function clipAspect(clip?: { width?: number; height?: number } | null): number {
+function clipAspect(clip?: { width?: number; height?: number } | null): number {
   if (!clip || !clip.height) return 9 / 16;
   return (clip.width || 0) / Math.max(1, clip.height);
 }
@@ -264,13 +195,7 @@ export function room(c: { width?: number; height?: number }, zoom: number): { fr
   return { frac, room: [Math.max(0, (1 - frac[0] / zoom) / 2), Math.max(0, (1 - frac[1] / zoom) / 2)] };
 }
 
-export async function detectSubject(clipId: string): Promise<any> {
-  let r = await fetchJSON(`/api/autoframe/${clipId}`).catch(() => null);
-  if (!r?.ok) {
-    r = await fetchJSON(`/api/framing/${clipId}`).catch(() => null);
-  }
-  return r;
-}
+export const detectSubject = (clipId: string): Promise<any> => fetchJSON(`/api/autoframe/${clipId}`).catch(() => null);
 
 export const songTitle = (t: TrackMeta): string => t.name.replace(/\.[^.]+$/, '');
 

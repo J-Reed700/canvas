@@ -1,13 +1,101 @@
 import React from 'react';
 import { useStudioStore, useVersion } from '../store.ts';
-import { BAR_CHOICES, POOLS, TRANS_BEATS } from '../utils.ts';
+import { BAR_CHOICES, POOLS, TRANS_BEATS, fmtLength, parseLength } from '../utils.ts';
 import { RHYTHMS, DIRECTIONS, VELOCITY } from '../../timeline.ts';
 import { TRANSITIONS } from '../../shaders.ts';
+
+const LoopLength: React.FC = () => {
+  const bpm = useStudioStore((s) => s.bpm());
+  const barDur = useStudioStore((s) => s.barDur());
+  const maxBars = useStudioStore((s) => s.maxBars());
+  const loopLen = useStudioStore((s) => s.loopLen());
+  const features = useStudioStore((s) => s.features);
+  const loopStart = useStudioStore((s) => s.loopStart);
+  const setBars = useStudioStore((s) => s.setBars);
+  const wholeSong = useStudioStore((s) => s.wholeSong);
+  const bars = Math.round(loopLen / barDur);
+  const [barsText, setBarsText] = React.useState(String(bars));
+  const [lenText, setLenText] = React.useState(fmtLength(loopLen));
+  React.useEffect(() => {
+    setBarsText(String(bars));
+    setLenText(fmtLength(loopLen));
+  }, [bars, loopLen]);
+
+  const commit = (b: number) => {
+    if (!(b >= 1)) {
+      setBarsText(String(bars));
+      setLenText(fmtLength(loopLen));
+      return;
+    }
+    const n = Math.min(maxBars, Math.max(1, Math.round(b)));
+    setBars(n);
+    setBarsText(String(n));
+    setLenText(fmtLength(n * barDur));
+  };
+  const onKey = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter') e.currentTarget.blur();
+  };
+
+  const isWhole = !!features?.duration && bars === maxBars && Math.abs(loopStart - (features.downbeats?.[0] ?? 0)) < 0.01;
+  const fit =
+    loopLen < 3 - 1e-6
+      ? 'Shorter than a Spotify Canvas, which needs 3 to 8 s.'
+      : loopLen <= 8 + 1e-6
+        ? 'Fits a Spotify Canvas (3 to 8 s).'
+        : 'Longer than a Spotify Canvas (3 to 8 s), so export it as YouTube 16:9 or Social 1:1.';
+  const limit = features?.duration
+    ? `The longest is ${maxBars} bars (${fmtLength(maxBars * barDur)}), the song from its first downbeat.`
+    : `Without a song the longest is ${maxBars} bars (${fmtLength(maxBars * barDur)}).`;
+
+  return (
+    <div className="field">
+      <label>Loop length</label>
+      <div className="seg">
+        {BAR_CHOICES.map((b) => (
+          <button key={b} className={b === bars && !isWhole ? 'on' : ''} disabled={b > maxBars} onClick={() => setBars(b)}>
+            {b} bar{b > 1 ? 's' : ''}
+          </button>
+        ))}
+        {features?.duration ? (
+          <button className={isWhole ? 'on' : ''} title="Start at the first downbeat and run to the last full bar of the song" onClick={wholeSong}>
+            Whole song
+          </button>
+        ) : null}
+      </div>
+      <div className="row loop-len">
+        <input
+          className="numin"
+          type="number"
+          min={1}
+          max={maxBars}
+          aria-label="Loop length in bars"
+          value={barsText}
+          onChange={(e) => setBarsText(e.target.value)}
+          onBlur={(e) => commit(parseInt(e.currentTarget.value, 10))}
+          onKeyDown={onKey}
+        />
+        <span className="note">bars</span>
+        <input
+          className="numin"
+          aria-label="Loop length in minutes and seconds"
+          title="Type 2:30, 150 or 2.5m. It rounds to the nearest whole bar."
+          value={lenText}
+          onChange={(e) => setLenText(e.target.value)}
+          onBlur={(e) => commit(parseLength(e.currentTarget.value) / barDur)}
+          onKeyDown={onKey}
+        />
+      </div>
+      <div className="note" style={{ marginTop: '6px' }}>
+        {fmtLength(loopLen)} at {bpm.toFixed(2)} BPM. {fit} {limit} Lengths are whole bars so beat-synced effects stay in phase
+        when the loop restarts.
+      </div>
+    </div>
+  );
+};
 
 export const EditPane: React.FC = () => {
   useVersion();
   const look = useStudioStore((s) => s.look);
-  const bars = useStudioStore((s) => s.bars);
   const customCuts = useStudioStore((s) => s.customCuts);
   const direction = useStudioStore((s) => s.direction);
   const seed = useStudioStore((s) => s.seed);
@@ -17,34 +105,11 @@ export const EditPane: React.FC = () => {
 
   const rebuild = useStudioStore((s) => s.rebuild);
   const save = useStudioStore((s) => s.save);
-  const validBars = useStudioStore((s) => s.validBars());
-  const loopLen = useStudioStore((s) => s.loopLen());
-  const bpm = useStudioStore((s) => s.bpm());
 
   return (
     <div className="pane on" id="pane-edit">
       <div style={{ padding: '14px' }}>
-        <div className="field">
-          <label>Loop length</label>
-          <div className="seg">
-            {BAR_CHOICES.map((b) => (
-              <button
-                key={b}
-                className={b === bars ? 'on' : ''}
-                disabled={!validBars.includes(b)}
-                onClick={() => {
-                  useStudioStore.setState({ bars: b, customCuts: null });
-                  rebuild();
-                }}
-              >
-                {b} bar{b > 1 ? 's' : ''}
-              </button>
-            ))}
-          </div>
-          <div className="note" style={{ marginTop: '6px' }}>
-            {loopLen.toFixed(3)} s at {bpm.toFixed(2)} BPM. Whole bars keep every beat-synced effect phase-locked across the seam.
-          </div>
-        </div>
+        <LoopLength />
 
         <div className="field">
           <label>Cut rhythm</label>
@@ -60,7 +125,7 @@ export const EditPane: React.FC = () => {
                   rebuild();
                 }}
               >
-                {(r as any).name}
+                {r.name}
               </button>
             ))}
           </div>
@@ -95,7 +160,7 @@ export const EditPane: React.FC = () => {
                 <button
                   key={k}
                   className={cutTrans.includes(k) ? 'on' : ''}
-                  title={`${(t as any).name}: click to toggle, double-click to isolate`}
+                  title={`${t.name}: click to toggle, double-click to isolate`}
                   onClick={() => {
                     if (!look) return;
                     const idx = cutTrans.indexOf(k);
@@ -111,7 +176,7 @@ export const EditPane: React.FC = () => {
                     rebuild();
                   }}
                 >
-                  {(t as any).name}
+                  {t.name}
                 </button>
               );
             })}
@@ -184,14 +249,14 @@ export const EditPane: React.FC = () => {
               <button
                 key={k}
                 className={(look?.cut?.velocity || 'none') === k ? 'on' : ''}
-                title={(v as any).desc || 'Constant clip speed'}
+                title={v.desc || 'Constant clip speed'}
                 onClick={() => {
                   if (!look) return;
                   look.cut.velocity = k;
                   rebuild();
                 }}
               >
-                {(v as any).name}
+                {v.name}
               </button>
             ))}
           </div>

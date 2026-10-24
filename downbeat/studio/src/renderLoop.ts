@@ -2,10 +2,22 @@ import { useStudioStore } from './store.ts';
 import { compose } from '../composer.ts';
 import { clamp } from '../looks.ts';
 import { fetchJSON, METERS } from './utils.ts';
-import type { ClipMeta, TrackMeta } from '../types.ts';
+import type { ClipMeta, ComposedFrame } from '../types.ts';
+
+const THUMBS_PER_FRAME = 3;
 
 let thumbCursorIdx = 0;
 let renderLoopStarted = false;
+let lastFrame: ComposedFrame | null = null;
+
+/** The frame on screen, so the preview can tell which clip a drag or scroll should reframe. */
+export const getLastFrame = (): ComposedFrame | null => lastFrame;
+
+// Per-frame readouts are written straight to the DOM, and only when they change, to keep React out of the loop.
+function setText(id: string, text: string) {
+  const el = document.getElementById(id);
+  if (el && el.textContent !== text) el.textContent = text;
+}
 
 export function fitView(viewCanvas: HTMLCanvasElement, engineObj: any, force = false) {
   const r = viewCanvas.getBoundingClientRect();
@@ -35,7 +47,14 @@ export function startRenderLoop(viewCanvas: HTMLCanvasElement, ambientCanvas?: H
   let fpsN = 0;
   let lastNow = performance.now();
   let lastKey = '';
-  const ambientCtx = ambientCanvas?.getContext('2d', { willReadFrequently: true });
+  let lastStep = -1;
+  let meterEls: (HTMLElement | null)[] = [];
+  // The visible glow copies the preview GPU-to-GPU; only a 48×85 sample is read back for the phone's tint.
+  const ambientCtx = ambientCanvas?.getContext('2d');
+  const sample = document.createElement('canvas');
+  sample.width = 48;
+  sample.height = 85;
+  const sampleCtx = sample.getContext('2d', { willReadFrequently: true });
 
   const tick = (now: number) => {
     requestAnimationFrame(tick);
@@ -63,8 +82,13 @@ export function startRenderLoop(viewCanvas: HTMLCanvasElement, ambientCanvas?: H
     const ctx = s.ctx;
     if (!ctx) return;
 
+    // Layout reads before this frame's DOM writes, so the browser doesn't lay out twice.
+    const laneEl = document.getElementById('lane');
+    const laneW = laneEl?.clientWidth || 0;
+
     const t = transportInstance.loopTime();
     const fr = compose(ctx, t);
+    lastFrame = fr;
     bankObj.sync(fr.needs, transportInstance.playing);
 
     if (transportInstance.playing) {
@@ -72,10 +96,13 @@ export function startRenderLoop(viewCanvas: HTMLCanvasElement, ambientCanvas?: H
       if (ahead.length) bankObj.prime(ahead);
     }
 
-    const sources = fr.needs.map((n) => ({
-      ...engineObj.video(n.vkey, bankObj.get(n.vkey, n.clipId)),
-      cam: n.cam,
-    }));
+    // Uploading video frames is the expensive part, so it only happens on frames that draw something.
+    let sources: any[] | null = null;
+    const getSources = () =>
+      (sources ??= fr.needs.map((n) => ({
+        ...engineObj.video(n.vkey, bankObj.get(n.vkey, n.clipId)),
+        cam: n.cam,
+      })));
     const waiting = fr.needs.some((n) => bankObj.get(n.vkey, n.clipId).readyState < 2);
     const stageBadge = document.getElementById('stageBadge');
     if (stageBadge) {
@@ -85,27 +112,30 @@ export function startRenderLoop(viewCanvas: HTMLCanvasElement, ambientCanvas?: H
 
     const key = `${Math.round(t * 30)}|${s.version}|${waiting ? frameNo : ''}|${engineObj.main?.w}`;
     if (key !== lastKey || !engineObj.present()) {
-      engineObj.renderMain({ ...fr, sources });
+      engineObj.renderMain({ ...fr, sources: getSources() });
       lastKey = key;
     }
 
     const jobs = s.varOpen ? s.varJobs : s.tab === 'looks' ? s.lookJobs.filter((j) => j.visible) : [];
     if (jobs.length) {
-      const texBy = new Map(fr.needs.map((n, i) => [n.vkey, sources[i]]));
-      const per = Math.min(jobs.length, s.varOpen ? 3 : 3);
+      const srcs = getSources();
+      const texBy = new Map(fr.needs.map((n, i) => [n.vkey, srcs[i]]));
+      const per = Math.min(jobs.length, THUMBS_PER_FRAME);
       for (let k = 0; k < per; k++) {
         const job = jobs[(thumbCursorIdx + k) % jobs.length];
         const f = compose(ctx, t, job.look);
-        const src = f.needs.map((n) => ({ ...(texBy.get(n.vkey) || sources[0]), cam: n.cam }));
-        engineObj.renderThumb(job.id, { ...f, sources: src }, job.ctx2d);
+        const src = f.needs.map((n) => ({ ...(texBy.get(n.vkey) || srcs[0]), cam: n.cam }));
+        engineObj.renderThumb(job.id, { ...f, sources: src }, job.ctx2d, false);
       }
+      engineObj.present();
       thumbCursorIdx += per;
     }
 
     if (ambientCtx && frameNo % 5 === 0) {
       ambientCtx.drawImage(viewCanvas, 0, 0, 48, 85);
-      if (frameNo % 30 === 0) {
-        const d = ambientCtx.getImageData(0, 0, 48, 85).data;
+      if (sampleCtx && frameNo % 30 === 0) {
+        sampleCtx.drawImage(ambientCtx.canvas, 0, 0);
+        const d = sampleCtx.getImageData(0, 0, 48, 85).data;
         let r = 0;
         let g = 0;
         let b = 0;
@@ -122,24 +152,23 @@ export function startRenderLoop(viewCanvas: HTMLCanvasElement, ambientCanvas?: H
       }
     }
 
-    const timeEl = document.getElementById('time');
-    if (timeEl) timeEl.innerHTML = `${t.toFixed(2)} <small>/ ${ctx.L.toFixed(2)}</small>`;
+    setText('timeNow', t.toFixed(2));
+    setText('timeLen', ctx.L.toFixed(2));
 
     const beat = Math.floor(t / ctx.beatDur + 1e-6);
-    const bbtEl = document.getElementById('bbt');
-    if (bbtEl) bbtEl.textContent = `${Math.floor(beat / 4) + 1}.${(beat % 4) + 1}`;
+    setText('bbt', `${Math.floor(beat / 4) + 1}.${(beat % 4) + 1}`);
 
     const playheadEl = document.getElementById('playhead');
-    const laneEl = document.getElementById('lane');
     if (playheadEl && laneEl) {
-      playheadEl.style.transform = `translateX(${(t / ctx.L) * laneEl.clientWidth}px)`;
+      playheadEl.style.transform = `translateX(${(t / ctx.L) * laneW}px)`;
     }
 
+    if (!meterEls[0]?.isConnected) {
+      meterEls = METERS.map((_, idx) => document.querySelector<HTMLElement>(`#meters .meter:nth-child(${idx + 1}) .bar i`));
+    }
     METERS.forEach((m, idx) => {
-      const bar = document.querySelector(`#meters .meter:nth-child(${idx + 1}) .bar i`) as HTMLElement | null;
-      if (bar && fr.mv) {
-        bar.style.height = `${clamp(fr.mv[m] || 0, 0, 1) * 100}%`;
-      }
+      const bar = meterEls[idx];
+      if (bar && fr.mv) bar.style.height = `${clamp(fr.mv[m] || 0, 0, 1) * 100}%`;
     });
 
     const hudProgEl = document.getElementById('hudProg');
@@ -158,11 +187,13 @@ export function startRenderLoop(viewCanvas: HTMLCanvasElement, ambientCanvas?: H
     }
 
     if (s.modUI && s.tab === 'layers') {
-      if (s.modUI.drawEnv) s.modUI.drawEnv(t / ctx.L);
+      if (s.modUI.drawEnv && frameNo % 2 === 0) s.modUI.drawEnv(t / ctx.L);
       const grid = s.modUI.grid as HTMLElement | null;
-      if (grid?.isConnected) {
-        const st = Math.floor((((t / ctx.beatDur) / 4) % 1) * 16);
-        Array.from(grid.children).forEach((b, idx) => b.classList.toggle('cur', idx === st));
+      const step = Math.floor((((t / ctx.beatDur) / 4) % 1) * 16);
+      if (grid?.isConnected && step !== lastStep) {
+        grid.children[lastStep]?.classList.remove('cur');
+        grid.children[step]?.classList.add('cur');
+        lastStep = step;
       }
     }
 
@@ -178,8 +209,8 @@ export function pollProxies() {
   setTimeout(async () => {
     const cur = useStudioStore.getState();
     if (cur.clips.some((c) => c.proxy && c.proxy !== 'ready' && c.proxy !== 'error')) {
-      const fresh = await fetchJSON<{ clips: ClipMeta[]; tracks: TrackMeta[] }>('/api/state').catch(() => null);
-      if (fresh) useStudioStore.setState({ clips: fresh.clips, tracks: fresh.tracks });
+      const fresh = await fetchJSON<{ clips: ClipMeta[] }>('/api/state?only=clips').catch(() => null);
+      if (fresh) useStudioStore.setState({ clips: fresh.clips });
     }
     pollProxies();
   }, 2500);

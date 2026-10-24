@@ -68,11 +68,48 @@ class RawSession:
     def finish(self) -> None:
         self.encoder.close()
 
+    def abort(self) -> None:
+        proc = self.encoder.proc
+        if proc.poll() is None:
+            proc.kill()
+            proc.wait()
+        if os.path.exists(self.dest):
+            os.remove(self.dest)
+
     def __enter__(self) -> RawSession:
         return self
 
     def __exit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
         self.finish()
+
+
+class ChunkSession:
+    """WebCodecs path: H.264 Annex B chunks appended to disk as the browser encodes them, then
+    remuxed once at the end. Streaming keeps exports minutes long out of browser and server memory."""
+
+    def __init__(self, dest: str, fps: int) -> None:
+        self.dest = dest
+        self.fps = fps
+        self.tmp = dest[:-4] + ".h264"
+        self.file = open(self.tmp, "wb")
+
+    def write(self, data: bytes) -> int:
+        self.file.write(data)
+        return len(data)
+
+    def finish(self) -> None:
+        self.file.close()
+        try:
+            mux_annexb(self.tmp, self.dest, self.fps)
+        finally:
+            if os.path.exists(self.tmp):
+                os.remove(self.tmp)
+
+    def abort(self) -> None:
+        self.file.close()
+        for path in (self.tmp, self.dest):
+            if os.path.exists(path):
+                os.remove(path)
 
 
 def _atom_order(path: str) -> list[str]:
@@ -159,13 +196,14 @@ def export_cover_art(source_path: str, dest: str, size: int = 3000, at_sec: floa
     return dest
 
 
-def export_animated(mp4_path: str, dest: str, fmt: str = "gif", fps: int = 18, width: int = 540) -> str:
+def export_animated(mp4_path: str, dest: str, fmt: str = "gif", fps: int = 18, width: int = 540, max_seconds: float = 10.0) -> str:
+    """A teaser GIF or WebP from the start of a render; long renders are cut to `max_seconds`."""
     os.makedirs(os.path.dirname(os.path.abspath(dest)), exist_ok=True)
     if fmt == "webp":
         try:
             subprocess.run(
                 [
-                    ffmpeg_path(), "-y", "-v", "error", "-i", mp4_path,
+                    ffmpeg_path(), "-y", "-v", "error", "-t", f"{max_seconds:g}", "-i", mp4_path,
                     "-vf", f"fps={fps},scale={width}:-1:flags=lanczos",
                     "-vcodec", "libwebp", "-loop", "0", "-an", dest,
                 ],
@@ -181,7 +219,7 @@ def export_animated(mp4_path: str, dest: str, fmt: str = "gif", fps: int = 18, w
                 tmp_gif = dest + ".tmp.gif"
                 vf = f"fps={fps},scale={width}:-1:flags=lanczos,split[s0][s1];[s0]palettegen=max_colors=128[p];[s1][p]paletteuse=dither=bayer:bayer_scale=3"
                 subprocess.run(
-                    [ffmpeg_path(), "-y", "-v", "error", "-i", mp4_path, "-vf", vf, "-loop", "0", "-an", tmp_gif],
+                    [ffmpeg_path(), "-y", "-v", "error", "-t", f"{max_seconds:g}", "-i", mp4_path, "-vf", vf, "-loop", "0", "-an", tmp_gif],
                     check=True,
                     capture_output=True,
                 )
@@ -201,7 +239,7 @@ def export_animated(mp4_path: str, dest: str, fmt: str = "gif", fps: int = 18, w
             except Exception:
                 vf = f"fps={fps},scale={width}:-1:flags=lanczos,split[s0][s1];[s0]palettegen=max_colors=128[p];[s1][p]paletteuse=dither=bayer:bayer_scale=3"
                 subprocess.run(
-                    [ffmpeg_path(), "-y", "-v", "error", "-i", mp4_path, "-vf", vf, "-loop", "0", "-an", "-f", "gif", dest],
+                    [ffmpeg_path(), "-y", "-v", "error", "-t", f"{max_seconds:g}", "-i", mp4_path, "-vf", vf, "-loop", "0", "-an", "-f", "gif", dest],
                     check=True,
                     capture_output=True,
                 )
@@ -210,7 +248,7 @@ def export_animated(mp4_path: str, dest: str, fmt: str = "gif", fps: int = 18, w
     vf = f"fps={fps},scale={width}:-1:flags=lanczos,split[s0][s1];[s0]palettegen=max_colors=128[p];[s1][p]paletteuse=dither=bayer:bayer_scale=3"
     subprocess.run(
         [
-            ffmpeg_path(), "-y", "-v", "error", "-i", mp4_path,
+            ffmpeg_path(), "-y", "-v", "error", "-t", f"{max_seconds:g}", "-i", mp4_path,
             "-vf", vf, "-loop", "0", "-an", dest,
         ],
         check=True,
@@ -335,15 +373,21 @@ def _duration(path: str) -> float:
     return float(probe(path).get("format", {}).get("duration", 0.0))
 
 
-def repeat_loop(path: str, min_seconds: float, max_seconds: float) -> int:
-    """Rewrite `path` in place as the fewest whole repeats of itself lasting >= min_seconds
-    (fewer if that would pass max_seconds). Stream copy: no re-encode. Returns the repeat count."""
-    loop = _duration(path)
+def loop_repeats(loop: float, min_seconds: float, max_seconds: float) -> int:
+    """The fewest whole repeats of a loop lasting >= min_seconds (fewer if that would pass max_seconds)."""
     if loop <= 0:
         return 1
     n = max(1, math.ceil(min_seconds / loop - 1e-6))
     while n > 1 and n * loop > max_seconds + 1e-6:
         n -= 1
+    return n
+
+
+def repeat_loop(path: str, min_seconds: float, max_seconds: float) -> int:
+    """Rewrite `path` in place as loop_repeats() repeats of itself. Stream copy: no re-encode.
+    Returns the repeat count."""
+    loop = _duration(path)
+    n = loop_repeats(loop, min_seconds, max_seconds)
     if n == 1:
         return 1
     tmp = path[:-4] + ".loop.mp4"
@@ -414,7 +458,7 @@ def deliver(
             mux_audio_preview(dest, track, audio_dest, start_sec=audio_start, duration_sec=duration)
         if track and promo_seconds and promo_seconds > 0:
             promo_dest = mux_promo(dest, track, f"{dest[:-4]}-promo-{int(round(promo_seconds))}s.mp4", audio_start, promo_seconds)
-        elif fmt == "youtube_16_9" and track and (not promo_seconds or promo_seconds <= 0):
+        elif fmt == "youtube_16_9" and track and (not promo_seconds or promo_seconds <= 0) and duration < 30.0:
             promo_dest = mux_promo(dest, track, f"{dest[:-4]}-promo-30s.mp4", audio_start, 30.0)
     info = probe(dest)
     vs = next((x for x in info.get("streams", []) if x.get("codec_type") == "video"), {})

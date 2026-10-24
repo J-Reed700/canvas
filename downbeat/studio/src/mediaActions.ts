@@ -1,10 +1,9 @@
 import { useStudioStore } from './store.ts';
-import { fetchJSON, shuffle, toast, detectSubject } from './utils.ts';
+import { fetchJSON, postJSON, shuffle, toast, detectSubject } from './utils.ts';
 import { LOOKS } from '../looks.ts';
 import type { ClipMeta, TrackMeta, RenderRecord, ClipPalette } from '../types.ts';
 
 export async function uploadFiles(files: File[]) {
-  const s = useStudioStore.getState();
   let n = 0;
   let stills = 0;
   for (const f of files) {
@@ -58,16 +57,9 @@ export async function uploadFiles(files: File[]) {
  * came from ~/Downloads so it stays on disk but doesn't come back. */
 export async function removeClip(id: string) {
   const c = useStudioStore.getState().clips.find((x) => x.id === id);
-  const r = await fetch('/api/clip/remove', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ id }),
-  })
-    .then((x) => x.json())
-    .catch(() => null);
-  // A 404 means the server already dropped it, so it still comes off the list.
-  if (!r?.ok && !r?.error?.includes('no longer')) {
-    toast(r?.error || "Couldn't remove the clip");
+  const r = await postJSON('/api/clip/remove', { id });
+  if (!r.ok) {
+    toast(r.error || "Couldn't remove the clip");
     return;
   }
   const without = <T>(o: Record<string, T>) => Object.fromEntries(Object.entries(o).filter(([k]) => k !== id));
@@ -153,14 +145,6 @@ export function toggleClip(id: string) {
 
 export async function fetchPalette(clipId: string) {
   if (!clipId || useStudioStore.getState().palettes[clipId]) return;
-  try {
-    const r = await fetch(`/api/palette/${encodeURIComponent(clipId)}`)
-      .then((x) => x.json())
-      .catch(() => null);
-    if (r?.ok && (r.palette || r.colors)) {
-      useStudioStore.setState((prev) => ({ palettes: { ...prev.palettes, [clipId]: (r.palette || r) as ClipPalette } }));
-    }
-  } catch (e) {
-    console.error('Failed to fetch palette for', clipId, e);
-  }
+  const r = await fetchJSON<ClipPalette & { ok?: boolean }>(`/api/palette/${encodeURIComponent(clipId)}`).catch(() => null);
+  if (r?.ok && r.colors) useStudioStore.setState((prev) => ({ palettes: { ...prev.palettes, [clipId]: r } }));
 }

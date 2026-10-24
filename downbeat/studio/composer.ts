@@ -39,7 +39,7 @@ export function layerStack(
   const out: ComposedLayer[] = [];
   look.layers.forEach((l, i) => {
     if (l.on === false || !MODULES[l.m]) return;
-    out.push({ m: l.m, key: `${prefix}${i}:${l.m}`, params: { ...resolveParams(MODULES[l.m].params, l.p, l.mods, mv, depth), uWet: wet } });
+    out.push({ m: l.m, key: `${prefix}${i}:${l.m}`, src: l, params: { ...resolveParams(MODULES[l.m].params, l.p, l.mods, mv, depth), uWet: wet } });
   });
   return out;
 }
@@ -186,7 +186,9 @@ export class VideoBank {
   }
 
   async exact(needs: VideoNeed[]): Promise<void> {
-    await Promise.all(needs.map((n) => seekExact(this.get(n.vkey, n.clipId), n.time)));
+    const els = needs.map((n) => this.get(n.vkey, n.clipId));
+    await Promise.all(needs.map((n, i) => seekExact(els[i], n.time)));
+    this._gc(new Set(els)); // exports walk every cut, so prune here too
   }
 
   _gc(active: Set<HTMLVideoElement>): void {

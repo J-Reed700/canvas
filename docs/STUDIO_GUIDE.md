@@ -25,8 +25,8 @@ This covers every panel and control in the studio and how they connect. If you r
 
 ## 1. How a canvas is built
 
-A canvas is a 3 to 8 second loop cut to a slice of your song. Three separate parts of the studio decide what
-ends up in it:
+A canvas is a loop cut to a slice of your song: 3 to 8 seconds for a Spotify Canvas, or as long as the whole
+song for a visualizer. Three separate parts of the studio decide what ends up in it:
 
 | Part | Decides | Where you set it |
 |---|---|---|
@@ -354,7 +354,7 @@ the layer tools says so. Reset clip N or Same look on all brings the main look b
 
 | Setting | Does |
 |---|---|
-| Loop length | 1, 2, 4 or 8 bars. Only lengths between 3 and 8 seconds (Spotify's limits) are available. Whole bars keep beat-synced effects lined up across the seam |
+| Loop length | The 1, 2, 4 and 8 bar presets, Whole song (from the first downbeat to the last full bar), or any length typed into the boxes: a number of bars, or a time such as 2:30, 150 or 2.5m, which rounds to the nearest bar. A loop can't run past the end of the song, and without a song the limit is 10 minutes. The note underneath says whether the length fits a Spotify Canvas (3 to 8 seconds). Lengths are whole bars so beat-synced effects stay in phase when the loop restarts |
 | Cut rhythm | Where cuts fall. Same as the buttons on the timeline |
 | Transitions | Which transitions the edit can use. Pools: All, Smooth, Kinetic, Glitch, Hard cuts. Click one to toggle it; double-click to use only that one |
 | Transition length | Cut (instant), ¼, ½, 1 or 2 beats |
@@ -391,7 +391,7 @@ loading.
 | 1.2 | Bar and beat inside the loop |
 | Loop / Listener (L) | Loop plays only the slice of the song behind the canvas. Listener lets the song play on while the canvas loops, the way a listener hears it |
 | Off-sync (Listener only) | Starts the canvas at a random offset from the song. Spotify doesn't sync a canvas to the music, so this shows how it looks out of step |
-| 1 bar / 2 / 4 / 8 (keys 1–4) | Loop length |
+| 1 bar / 2 / 4 / 8 (keys 1–4) | Loop length. A custom length gets its own button showing its bars and time; clicking it opens the Edit tab |
 | Player UI (H) | Spotify's player overlay, to check what it covers |
 | Safe zones (S) | What Spotify's interface covers (top 14%, bottom 33%) and what tall phones crop (9% each side) |
 | Sound | Mute |
@@ -412,6 +412,22 @@ Press E or Export Canvas.
 
 You can also save a copy with the audio slice, make a 15 or 30 second promo with the song (for Reels, TikTok
 or Spotify Countdown pages), and have finished files copied to Downloads.
+
+### Long videos
+
+Spotify takes 3 to 8 seconds and Apple Music motion art at most 35, and the sheet warns you when the loop
+doesn't fit the format you picked. YouTube 16:9 and Social 1:1 take any length, so use those for a
+visualizer. With "Also save a copy with the song" ticked you get a second file with the song playing from the
+loop start. YouTube's automatic 30 second promo is skipped when the video is already that long, and the GIF
+and WebP teasers use the first 10 seconds.
+
+Videos over a minute are encoded at 20 Mbps instead of 50, which is about 150 MB a minute. How fast they
+render depends on the look, the size and the machine; the progress line shows the time left. The video streams to disk as it
+renders, so length isn't limited by memory.
+
+For long videos pick a rhythm that cuts on the beat (On hits, Beat, ½ bar, Bar, 2 bars, Varied). One per clip
+and Two per clip split the whole loop between your clips, so on a long loop each cut can outlast its footage,
+and the clip holds its last frame until the next cut.
 
 Spotify asks that canvases avoid rapid cuts. The sheet warns you when the shortest cut is under 0.3 seconds or
 there are more than 2.5 cuts a second; a slower rhythm like ½ bar or Bar fixes it.
@@ -611,7 +627,8 @@ Nudge the beat grid in 10 ms steps, and check the tempo wasn't detected at half 
 
 ### Some loop lengths are grayed out
 
-At this tempo they'd fall outside Spotify's 3 to 8 second range.
+That preset is longer than the song from its first downbeat. Every other length is allowed, including ones
+outside Spotify's 3 to 8 seconds; the note under Loop length says when a length won't pass as a Canvas.
 
 ### A clip says "Preparing clip…" or has a pulsing dot
 
@@ -633,3 +650,10 @@ Its playback proxy is still being built. Big 4K files take a while.
   steps, with a snapshot taken 350 ms after each change.
 - Per-clip stacks are rendered into `frame.pre`, before the transition. Camera and Finish always come from the
   main look.
+- Exports stream to the server while they render. `/api/export/raw/begin` with `stream: "h264"` opens a
+  `delivery.ChunkSession`, which appends the WebCodecs chunks to a `.h264` file and remuxes it at the end;
+  without WebCodecs the browser sends raw RGBA frames to ffmpeg through `delivery.RawSession`. Nothing the size
+  of the whole video is held in memory on either side.
+- The export sheet's form is rendered by React. Progress and results are drawn into `#exportStatus`, which
+  React never renders into, and the form is hidden while they show. Writing into React-owned nodes from outside
+  React is what used to break the app after an export.

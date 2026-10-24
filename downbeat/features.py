@@ -8,7 +8,6 @@ import numpy as np
 
 from .audio import (
     BANDS,
-    ONSET_HOP,
     SR,
     _band,
     _beat_envelope,
@@ -78,10 +77,14 @@ def track_features(path: str, bpm_override: float | None = None) -> dict:
     vocal_mask = (freqs >= 220.0) & (freqs <= 3200.0)
     vocal_mag = mag[:, vocal_mask]
     if n > 0:
+        # A 5-frame median per bin removes drum hits. Done in blocks, so a long song never holds 5 copies.
         padded = np.pad(vocal_mag, ((2, 2), (0, 0)), mode="edge")
-        stack = np.stack([padded[i : i + n] for i in range(5)], axis=0)
-        vocal_h = np.median(stack, axis=0)
-        vocal_e = np.log1p(vocal_h.mean(axis=1) * 10.0)
+        vocal_mean = np.empty(n, dtype=vocal_mag.dtype)
+        for lo in range(0, n, 1024):
+            hi = min(n, lo + 1024)
+            block = np.stack([padded[lo + i : hi + i] for i in range(5)], axis=0)
+            vocal_mean[lo:hi] = np.median(block, axis=0).mean(axis=1)
+        vocal_e = np.log1p(vocal_mean * 10.0)
     else:
         vocal_e = np.zeros(0, dtype=np.float32)
     perc_flux = 0.5 * (_flux(snare_e) + _flux(hats_e))

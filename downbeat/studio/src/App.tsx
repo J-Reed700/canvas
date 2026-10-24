@@ -88,10 +88,7 @@ export const App: React.FC = () => {
         toast(`Loop: ${l.label}`);
       } else if ('1234'.includes(k)) {
         const b = BAR_CHOICES[+k - 1];
-        if (s.validBars().includes(b)) {
-          useStudioStore.setState({ bars: b, customCuts: null });
-          s.rebuild();
-        }
+        if (b <= s.maxBars()) s.setBars(b);
       }
     };
 

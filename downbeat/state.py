@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import glob
 import json
-import math
 import os
 import re
 import threading
@@ -29,8 +28,7 @@ class StudioState:
         self._tracks: dict[str, Track] = {}
         self.library = Library(OUT_DIR)
         self._renders: list[dict] = []
-        self.active_job: dict | None = None
-        self.raw_sessions: dict[str, tuple[delivery.RawSession, dict]] = {}
+        self.raw_sessions: dict[str, tuple[delivery.RawSession | delivery.ChunkSession, dict]] = {}
         self.framing: dict[str, dict] = {}  # clip id -> autoframe result
         self.palettes: dict[str, dict] = {}
         self._proxies: ProxyManager | None = None
@@ -63,18 +61,10 @@ class StudioState:
         self.ensure_initialized()
         return self._clips
 
-    @clips.setter
-    def clips(self, value: dict[str, Source]) -> None:
-        self._clips = value
-
     @property
     def tracks(self) -> dict[str, Track]:
         self.ensure_initialized()
         return self._tracks
-
-    @tracks.setter
-    def tracks(self, value: dict[str, Track]) -> None:
-        self._tracks = value
 
     @property
     def renders(self) -> list[dict]:
@@ -264,8 +254,7 @@ def parse_export_name(name: str) -> dict:
 
 def _export_format(meta: dict) -> str:
     fmt = str(meta.get("format") or "spotify")
-    known = ("youtube_16_9", "social_square", "cover_art", "apple_tall", "apple_square", "spotify")
-    return fmt if fmt in delivery.FORMATS or fmt in known else "spotify"
+    return fmt if fmt in delivery.FORMATS else "spotify"
 
 
 def _export_dest(meta: dict) -> str:
@@ -277,10 +266,8 @@ def _export_dest(meta: dict) -> str:
     dur, w, h = float(meta.get("duration") or 0), meta.get("width"), meta.get("height")
     if fmt in ("apple_tall", "apple_square"):
         w, h = delivery.FORMATS[fmt]["size"]
-        n = max(1, math.ceil(delivery.APPLE["safe_min_seconds"] / dur - 1e-6)) if dur > 0 else 1
-        while n > 1 and n * dur > delivery.APPLE["max_seconds"] + 1e-6:
-            n -= 1
-        dur *= n
+        # The name carries the length after the loop is repeated for Apple, as repeat_loop() will.
+        dur *= delivery.loop_repeats(dur, delivery.APPLE["safe_min_seconds"], delivery.APPLE["max_seconds"])
     elif fmt in ("youtube_16_9", "social_square", "cover_art"):
         if fmt in delivery.FORMATS:
             w, h = delivery.FORMATS[fmt].get("size", (w, h))
@@ -292,14 +279,8 @@ def _export_dest(meta: dict) -> str:
 def _abort_raw(sid: str) -> None:
     with STATE.lock:
         entry = STATE.raw_sessions.pop(sid, None)
-    if not entry:
-        return
-    proc = entry[0].encoder.proc
-    if proc.poll() is None:
-        proc.kill()
-        proc.wait()
-    if os.path.exists(entry[0].dest):
-        os.remove(entry[0].dest)
+    if entry:
+        entry[0].abort()
 
 
 def _finish_export(dest: str, meta: dict) -> dict:

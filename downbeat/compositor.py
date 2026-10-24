@@ -4,7 +4,7 @@ from __future__ import annotations
 import dataclasses
 import os
 import random
-from typing import Callable
+from collections.abc import Callable
 
 import cv2
 import numpy as np
@@ -63,7 +63,6 @@ def _blend_transition(
         flow_small = cv2.calcOpticalFlowFarneback(ga, gb, None, 0.5, 2, 13, 2, 5, 1.1, 0)
         flow = cv2.resize(flow_small, (w, h), interpolation=cv2.INTER_LINEAR)
         gx, gy = _flow_grid(h, w)
-        # Peak smear at midpoint
         surge = 4.2 * (1.0 - abs(alpha - 0.5) * 1.6)
         warped_a = cv2.remap(
             frame_a,
@@ -72,7 +71,6 @@ def _blend_transition(
             interpolation=cv2.INTER_NEAREST,
             borderMode=cv2.BORDER_REPLICATE,
         )
-        # Macroblock mask for incoming clip
         bh, bw = max(1, h // 24), max(1, w // 24)
         rng = np.random.default_rng(int(alpha * 500) + 99)
         block_mask = (rng.random((bh, bw, 1)) < (alpha ** 1.2)).astype(np.uint8)
@@ -177,14 +175,13 @@ def _blend_transition(
         luma = frame_b.mean(axis=2, keepdims=True) / 255.0
         mask = np.clip((luma - (1.0 - alpha * 1.45)) * 3.2, 0.0, 1.0).astype(np.float32)
         base = frame_a.astype(np.float32) * (1.0 - mask) + frame_b.astype(np.float32) * mask
-        # Film burn glow on midtones
         base_luma = base.mean(axis=2, keepdims=True) / 255.0
         mid_bell = float(np.sin(alpha * np.pi))
         mid_mask = 4.0 * base_luma * np.maximum(0.0, 1.0 - base_luma)
         glow_boost = 32.0 * mid_bell * mid_mask
-        base[..., 0] += glow_boost[..., 0] * 0.15  # Blue
-        base[..., 1] += glow_boost[..., 0] * 0.45  # Green
-        base[..., 2] += glow_boost[..., 0] * 1.00  # Red
+        base[..., 0] += glow_boost[..., 0] * 0.15
+        base[..., 1] += glow_boost[..., 0] * 0.45
+        base[..., 2] += glow_boost[..., 0] * 1.00
         return np.clip(base, 0, 255).astype(np.uint8)
 
     if mode == "shutter_slice":
@@ -216,7 +213,6 @@ def _blend_transition(
         blend_amt = min(0.85, 0.85 * mid)
         return cv2.addWeighted(base, 1.0 - blend_amt, kframe, blend_amt, 0)
 
-    # Default cross-dissolve
     smooth_alpha = float(alpha * alpha * (3.0 - 2.0 * alpha))
     base = cv2.addWeighted(frame_a, 1.0 - smooth_alpha, frame_b, smooth_alpha, 0)
     mid_bell = max(0.0, 1.0 - abs(alpha - 0.5) * 2.0)
@@ -343,7 +339,6 @@ class RenderPlan:
             seg_transition = getattr(seg, "transition", self.recipe.transition)
             return _blend_transition(frame_prev, frame_curr, alpha, seg_transition)
 
-        # Loop tail crossfade
         if loop_mode == "crossfade" and i_mod >= self.n_frames - 10:
             loop_tail = 10
             first_seg = self.segments[0]
@@ -352,7 +347,6 @@ class RenderPlan:
             frame_zero = fetcher(first_seg, tail_offset)
             return cv2.addWeighted(frame_curr, 1.0 - alpha, frame_zero, alpha, 0)
 
-        # Morph loop blend back to clip 0
         if loop_mode == "morph":
             loop_tail = min(14, max(6, getattr(self.recipe, "trans_frames", 12)))
             if i_mod >= self.n_frames - loop_tail:
@@ -536,7 +530,6 @@ def _compute_segment_bounds(
             lengths = _split_until_count(lengths, n_clips)
         return _lengths_to_bounds(lengths, n_frames)
 
-    # Default: "steady"
     if ensure_all and n_clips > 1 and (n_frames // max(1, cut_frames)) < n_clips:
         over = min(1.0, max(0.0, (cut_frames * n_clips / max(1, n_frames) - 1.0) * 0.55))
         weights = [1.0 + over * (1.0 - 1.6 * (k / max(1, n_clips - 1))) for k in range(n_clips)]
@@ -631,7 +624,6 @@ def _resolve_segment_effects(
         )
         return seg_effects, seg_fx_names
 
-    # filter_mode == "evolve" (or fallback)
     seg_fx_names = evolve_effect_names(base_fx_names, seg_idx, recipe.seed)
     seg_effects = build_effect_stack(
         seg_fx_names,

@@ -69,12 +69,12 @@ export function rollAll() {
       velocity: pick(['none', 'none', 'none', 'none', 'surge', 'surge', 'swell', 'hold', 'wave', 'ramp']),
     };
     nextDirection = pick(['forward', 'forward', 'forward', 'alternate', 'reverse', 'pingpong', 'random']);
-    (l.camera.p as any).speed = pick([0.6, 0.8, 1, 1, 1, 1.25, 1.5]);
+    l.camera.p.speed = pick([0.6, 0.8, 1, 1, 1, 1.25, 1.5]);
     nextSeed = Math.floor(r() * 1e6);
     nextIntensity = pick([0.85, 1, 1, 1.1, 1.25, 1.4]);
   } else {
     l.cut = JSON.parse(JSON.stringify(prev.cut));
-    (l.camera.p as any).speed = (prev.camera.p as any).speed;
+    l.camera.p.speed = prev.camera.p.speed;
   }
 
   const nextSelected = [...s.selected];
@@ -82,8 +82,9 @@ export function rollAll() {
 
   if (o.loop && s.features?.loops?.length) {
     nextLoopStart = pick(s.features.loops).start;
-    const vb = s.validBars();
-    if (vb.length) nextBars = pick(vb);
+    // Only Canvas-length loops get a new length: a roll shouldn't cut a long visualizer down to 4 bars.
+    const vb = s.canvasBars();
+    if (vb.length && s.loopLen() <= 8 + 1e-6) nextBars = pick(vb);
   }
 
   if (o.perClip) {
