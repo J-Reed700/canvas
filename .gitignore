@@ -23,6 +23,8 @@ htmlcov/
 .ruff_cache/
 .tox/
 .nox/
+coverage/
+artifacts/
 
 # ── Node / Studio build ─────────────────────────────────────────────────────
 node_modules/

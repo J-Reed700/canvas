@@ -365,7 +365,10 @@ test('the clips list filters by chip and every search word, and keeps the edit o
 // An image that loads only when the test says so.
 function images(t) {
   const made = [];
-  globalThis.Image = class { constructor() { this.naturalWidth = 0; made.push(this); } };
+  globalThis.Image = class {
+    constructor() { this.naturalWidth = 0; made.push(this); }
+    removeAttribute(name) { if (name === 'src') delete this.src; }
+  };
   TH.resetThumbs();
   t.after(() => { delete globalThis.Image; TH.resetThumbs(); });
   const load = (img) => { img.naturalWidth = 200; img.onload(); };

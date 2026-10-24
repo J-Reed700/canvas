@@ -176,6 +176,32 @@ test('a split keeps the camera where it was: the drift path, and a framing move 
   assert.ok(!('frame' in none[1]) && !('frame' in none[2]));
 });
 
+test('a split copies block look overrides to both independent halves', () => {
+  const { o, tl, blocks } = plan();
+  const seg = tl.segs[1];
+  const overrides = { macro: { a: 0.7 }, camera: { shake: 0.4 }, finish: { grain: 0.1 }, layers: { 0: { m: 'glass', p: { scale: 4 } } } };
+  const owned = patchBlock(blocks, seg.id, { overrides });
+  const ownedTl = resolve(owned, o);
+  assert.deepEqual(ownedTl.segs[1].overrides, overrides, 'the resolved segment carries its block settings');
+  const split = splitBlock(owned, ownedTl, seg.id, seg.t0 / o.beatDur + 2);
+  assert.deepEqual(split[1].overrides, overrides);
+  assert.deepEqual(split[2].overrides, overrides);
+  assert.notEqual(split[1].overrides.layers[0].p, split[2].overrides.layers[0].p, 'the halves can be edited separately');
+  assert.ok(!('overrides' in autoBlock(split, split[1].id)[1]), 'Use look clears the block styling');
+});
+
+test('a block camera speed override retimes only that segment', () => {
+  const { o, blocks } = plan();
+  let next = patchBlock(blocks, 'g1', { overrides: { camera: { speed: 1.75 } } });
+  next = patchBlock(next, 'g2', { overrides: { camera: { speed: -4 } } });
+  const tl = resolve(next, o);
+  assert.equal(tl.segs[0].speed, 1);
+  assert.equal(tl.segs[1].speed, 1.75);
+  assert.equal(tl.segs[2].speed, 0.25, 'saved data is constrained to the same range as the editor');
+  next = patchBlock(next, 'g2', { overrides: { camera: { speed: Number.NaN } } });
+  assert.equal(resolve(next, o).segs[2].speed, 1, 'invalid saved data follows the edit speed');
+});
+
 test('a split leaves the transitions after it alone, needs room on both sides, and works on the first and only block', () => {
   const { o, tl, blocks } = plan({ rhythm: 'beat' });
   const next = resolve(splitBlock(blocks, tl, 'g3', 3.5), o);

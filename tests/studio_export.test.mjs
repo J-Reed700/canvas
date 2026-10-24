@@ -10,6 +10,7 @@ dom.byId.set('exportStatus', status);
 
 const { useStudioStore: S } = await import('../downbeat/studio/src/state/store.ts');
 const X = await import('../downbeat/studio/src/state/exportController.ts');
+const { compareFrame0 } = await import('../downbeat/studio/src/engine/exporter.ts');
 const { LOOKS, cloneLook } = await import('../downbeat/studio/src/engine/looks.ts');
 const { toast } = await import('../downbeat/studio/src/lib/utils.ts');
 
@@ -108,8 +109,8 @@ test('what an export asks the server for depends on the format, the song and the
 
   let r = await render({}, { song: true });
   assert.deepEqual(
-    { w: r.meta.width, h: r.meta.height, fmt: r.meta.format, audio: r.meta.with_audio, promo: r.meta.promo_seconds, track: r.meta.track_id, start: r.meta.audio_start, dur: r.meta.duration, bpm: r.meta.bpm, look: r.meta.look },
-    { w: 1080, h: 1920, fmt: 'spotify', audio: false, promo: 0, track: 't1', start: 33.5, dur: 8, bpm: 120, look: LOOKS[0].name },
+    { w: r.meta.width, h: r.meta.height, fmt: r.meta.format, codec: r.meta.codec, streamCodec: r.meta.stream_codec, audio: r.meta.with_audio, promo: r.meta.promo_seconds, track: r.meta.track_id, start: r.meta.audio_start, dur: r.meta.duration, bpm: r.meta.bpm, look: r.meta.look },
+    { w: 1080, h: 1920, fmt: 'spotify', codec: 'h264', streamCodec: 'avc1.640033', audio: false, promo: 0, track: 't1', start: 33.5, dur: 8, bpm: 120, look: LOOKS[0].name },
   );
   assert.equal(r.bitrate, 16_000_000, 'Spotify uses the encoder default for its size');
   // the edit goes with it, so Exports can open it again
@@ -131,11 +132,26 @@ test('what an export asks the server for depends on the format, the song and the
   r = await render({ format: 'social_square', promo: 15 }, { song: true });
   assert.deepEqual([r.meta.width, r.meta.height, r.meta.promo_seconds], [1080, 1080, 15]);
 
-  r = await render({ format: 'apple_tall', promo: 15, withSong: true }, { song: true });
-  assert.deepEqual([r.meta.width, r.meta.height, r.meta.with_audio, r.meta.promo_seconds], [2048, 2732, true, 0], 'any format can have a copy with the song, but no promo');
+  r = await render({ format: 'social_vertical', promo: 30, promoTitle: 'New single', promoOutNow: true }, { song: true });
+  assert.deepEqual([r.meta.width, r.meta.height, r.meta.promo_seconds, r.meta.promo_title, r.meta.promo_out_now], [1080, 1920, 30, 'New single', true]);
+
+  r = await render({ format: 'apple_tall', codec: 'prores422', promo: 15, withSong: true }, { song: true });
+  assert.deepEqual([r.meta.width, r.meta.height, r.meta.codec, r.meta.stream, r.meta.with_audio, r.meta.promo_seconds], [2048, 2732, 'prores_422_hq', 'raw', true, 0], 'ProRes uses native raw GPU pixels; Apple has no promo');
+  r = await render({ format: 'apple_square', codec: 'prores4444' }, { song: true });
+  assert.deepEqual([r.meta.width, r.meta.height, r.meta.codec, r.meta.stream], [3840, 3840, 'prores_4444', 'raw']);
 
   r = await render({ format: 'youtube_16_9', withSong: true });
   assert.deepEqual([r.meta.with_audio, r.meta.promo_seconds, r.meta.track_id], [false, 0, null], 'no song, no audio');
+});
+
+test('Frame 0 QA is honest when absent, matching or different', () => {
+  const frame = new Uint8Array(36 * 64 * 4).fill(120);
+  const ref = { id: 'sha256:abc', name: 'cover.png', width: 1080, height: 1920, pixels: frame.slice() };
+  assert.equal(compareFrame0(frame, undefined, 1080, 1920).level, 'warn');
+  assert.deepEqual(compareFrame0(frame, ref, 1080, 1920), { level: 'ok', detail: 'cover.png: 100.0% mean RGB similarity' });
+  const other = new Uint8Array(frame.length).fill(250);
+  assert.equal(compareFrame0(other, ref, 1080, 1920).level, 'warn');
+  assert.match(compareFrame0(frame, { ...ref, width: 1000, height: 1000 }, 1080, 1920).detail, /reference is 1000×1000/);
 });
 
 test('an export pauses playback, then resumes it and puts the studio back', async () => {
@@ -155,7 +171,7 @@ test('an export pauses playback, then resumes it and puts the studio back', asyn
   st().transport.pause();
 
   fresh({ look: null });
-  await assert.rejects(X.renderOnce(), /No ctx or look/);
+  await assert.rejects(X.renderOnce(), /preview is not ready to export/);
 });
 
 test('a finished export shows its checks and downloads, lists it first and saves it', async () => {
@@ -165,7 +181,7 @@ test('a finished export shows its checks and downloads, lists it first and saves
   assert.deepEqual(st().renders.map((r) => [r.filename, r.url]), [['canvas-neon.mp4', '/out/canvas-neon.mp4'], ['older.mp4', '']]);
   assert.equal(form.hidden, true);
   assert.equal(status.find((c) => c.tagName === 'H2').text, 'Ready for Spotify');
-  assert.match(status.text, /canvas-neon\.mp4 · 2\.5 MB · rendered in \d+\.\d s \(raw-rgba\)/);
+  assert.match(status.text, /canvas-neon\.mp4 · 2\.5 MB · rendered in \d+\.\d s \(H\.264\)/);
   assert.match(status.text, /✓ Length 8 s/);
   assert.equal(lastToast(), 'Exported canvas-neon.mp4');
   assert.deepEqual(downloads, [{ href: '/out/canvas-neon.mp4', download: 'canvas-neon.mp4' }]);
@@ -225,7 +241,11 @@ test('result headers name the format, and failed checks say so', () => {
   assert.equal(header({ format: 'cover_art' }), 'Cover art and loop exported');
   assert.equal(header({ format: 'youtube_16_9' }), 'YouTube video exported');
   assert.equal(header({ format: 'social_square' }), 'Square video exported');
+  assert.equal(header({ format: 'social_vertical' }), 'Vertical social video exported');
   assert.equal(header({ format: 'apple_square' }), 'Ready for Apple Music');
+  X.showResult(r({ filename: 'x.mov', output_codec: 'prores_422_hq' }));
+  assert.match(status.text, /x\.mov · 1 MB \(ProRes 422 HQ\)/);
+  assert.equal(status.find((c) => c.tagName === 'A').text, '↓ Download MOV');
   assert.equal(header({ checks: [{ id: 'a', label: 'Size', level: 'fail' }] }), 'Exported, but some checks failed');
   X.showResult(r({ cover_url: '/out/c.jpg', audio_url: '/out/a.mp4', promo_url: '/out/p.mp4' }));
   const links = [];

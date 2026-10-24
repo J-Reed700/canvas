@@ -31,7 +31,7 @@ describe('first run', () => {
     firstRun();
     st().transport.decode = async () => ({ duration: 180 }) as any;
     renderStudio(<Welcome />);
-    expect(screen.getByRole('dialog').textContent).toContain('Where are your videos?');
+    expect(screen.getByRole('dialog').textContent).toContain('Your studio starts here.');
     expect(Array.from(welcome()!.querySelectorAll('button.btn')).map((b) => b.textContent)).toEqual(['Pick a folder']);
 
     fireEvent.click(screen.getByText('Pick a folder'));
@@ -105,7 +105,7 @@ describe('adding a folder later', () => {
     serve({ 'POST /api/library/folders': (_u, init) => ({ ...LIB, clips: [...st().clips, ...LIB.clips], added: JSON.parse(String(init.body)).add }) });
     resetStudio();
     renderStudio(<MediaPanel />);
-    fireEvent.click(screen.getByText('+ Add a folder'));
+    fireEvent.click(screen.getByRole('button', { name: 'Add a folder' }));
     const input = screen.getByLabelText('Folder path') as HTMLInputElement;
     fireEvent.change(input, { target: { value: FOLDER } });
     fireEvent.submit(input.form!);

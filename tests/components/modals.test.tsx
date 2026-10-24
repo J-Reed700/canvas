@@ -30,6 +30,7 @@ describe('export sheet', () => {
     expect(summary()).toEqual({
       Look: LOOKS[0].name,
       Size: '1080 × 1920 · Spotify Canvas',
+      Codec: 'H.264 MP4',
       Length: '8.000 s · 240 frames @ 30 fps',
       Tempo: '120.00 BPM · 4 bars',
       Edit: `${st().ctx!.tl.segs.length} cuts · 3 clips`,
@@ -52,7 +53,10 @@ describe('export sheet', () => {
     expect(screen.queryByText('720 × 1280 · Lite'), 'size choices are for Spotify only').toBeNull();
 
     fireEvent.click(fmtButton('Apple 1:1'));
-    expect(summary().Size).toBe('3840 × 3840 (rendered at 2048)');
+    expect(summary().Size).toBe('3840 × 3840 · Apple Music · 1:1');
+    fireEvent.click(screen.getByText('ProRes 422 HQ'));
+    expect(st().exportOpts.codec).toBe('prores422');
+    expect(summary().Codec).toBe('ProRes 422 HQ MOV');
     expect(screen.queryByText(/Promo copy with the song/), 'Apple motion art is silent').toBeNull();
     expect(screen.getByLabelText('Also save a copy with the song'), 'but a copy with the song can be made for a demo').toBeTruthy();
 
@@ -218,7 +222,7 @@ describe('shortcuts', () => {
     resetStudio({ helpOpen: true });
     render(<Modals />);
     const keys = Array.from(document.querySelectorAll('#helpModal .keys .kbd')).map((k) => k.textContent);
-    expect(keys).toEqual(['Space', '← →', 'M', 'D', '⇧ D', 'R', 'E', '[ ]', '1–4', 'H', 'S', 'O', 'L', 'T', 'B', '⌘ D', 'Delete', 'N', '⌘ S', '⌘ O', '⌘ Z', '?', 'Esc', 'Drag', '⇧ Drag', '⌥ Drag', 'Dbl-click']);
+    expect(keys).toEqual(['Space', ', .', '⌘ K', '⇧ F', '← →', 'M', 'D', '⇧ D', 'R', 'E', '[ ]', '1–4', 'H', 'S', 'O', 'L', 'T', 'B', '⌘ D', 'Delete', 'N', '⌘ S', '⌘ O', '⌘ Z', '?', 'Esc', 'Drag', '⇧ Drag', '⌥ Drag', 'Dbl-click']);
     fireEvent.click(within(document.getElementById('helpModal')!).getByTitle('Close (Esc)'));
     expect(st().helpOpen).toBe(false);
   });

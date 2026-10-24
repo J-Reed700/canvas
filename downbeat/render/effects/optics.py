@@ -121,12 +121,13 @@ def tilt_shift(frame: np.ndarray, t: float, beat_dur: float, **kw) -> np.ndarray
     blur_small = cv2.GaussianBlur(small, (25, 25), 0)
     blurred = cv2.resize(blur_small, (w, h), interpolation=cv2.INTER_LINEAR)
     key = (h, round(cy, 2), round(focus_h, 2))
-    if key not in _TILT_CACHE:
+
+    def build_mask() -> np.ndarray:
         y = np.linspace(-1.0, 1.0, h, dtype=np.float32)[:, None, None]
         cy_norm = cy * 2.0 - 1.0
-        mask = np.clip((np.abs(y - cy_norm) - focus_h) / 0.38, 0.0, 1.0)
-        _TILT_CACHE[key] = mask
-    mask = _TILT_CACHE[key]
+        return np.clip((np.abs(y - cy_norm) - focus_h) / 0.38, 0.0, 1.0)
+
+    mask = _TILT_CACHE.get_or_create(key, build_mask)
     out = frame.astype(np.float32) * (1.0 - mask) + blurred.astype(np.float32) * mask
     return np.clip(out, 0, 255).astype(np.uint8)
 

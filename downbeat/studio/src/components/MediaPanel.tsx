@@ -5,6 +5,7 @@ import { MOD_SOURCES } from '../engine/modules.ts';
 import { ExportsSection } from './Exports.tsx';
 import { ClipsSection } from './Clips.tsx';
 import { TrackPicker } from './TrackPicker.tsx';
+import './media-polish.css';
 
 export const MediaPanel: React.FC = () => {
   useVersion();
@@ -29,7 +30,7 @@ export const MediaPanel: React.FC = () => {
   };
 
   return (
-    <aside className="panel media">
+    <aside className="panel media" aria-label="Media library">
       <input
         type="file"
         id="fileInput"
@@ -39,10 +40,28 @@ export const MediaPanel: React.FC = () => {
         accept="video/*,audio/*,image/*,.avi,.mts,.m2ts,.wmv,.mp4,.mov,.m4v,.webm,.mkv,.wav,.mp3,.m4a,.aac,.flac,.aif,.aiff,.ogg,.opus,.jpg,.jpeg,.png,.webp,.heic"
         onChange={handleFileInput}
       />
+      <header className="media-head">
+        <div className="media-title">
+          <h2>Library</h2>
+          <span>Media &amp; output</span>
+        </div>
+        <button
+          className="btn sm media-import"
+          id="btnAddMedia"
+          type="button"
+          title="Import video, audio, or still images"
+          onClick={pickFiles}
+        >
+          <svg className="stroke-ico" viewBox="0 0 16 16" aria-hidden="true">
+            <path d="M8 2.25v8.5M3.75 6.5H12.25M3 13.5h10" />
+          </svg>
+          Import
+        </button>
+      </header>
       <div className="scroll">
         <section className="sec sec-track">
           <div className="sec-h">
-            <h3>Track</h3>
+            <h3>Audio</h3>
             <span className="meta" id="trackState">
               {trackStateText}
             </span>

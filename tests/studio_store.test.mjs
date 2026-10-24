@@ -276,6 +276,16 @@ test('ctx.clipLook reads live state instead of the state it was built from', () 
   assert.equal(st().ctx.clipDur('unknown'), 10);
 });
 
+test('rebuilding the edit releases stale clip-duration entries', () => {
+  fresh();
+  assert.equal(st().clipDur.size, 3);
+  S.setState({ clips: CLIPS.filter((clip) => clip.id !== 'b'), selected: ['a', 'c'] });
+  st().rebuild();
+  assert.equal(st().clipDur.size, 2);
+  assert.equal(st().clipDur.has('b'), false);
+  assert.equal(st().ctx.clipDur('a'), 12);
+});
+
 test('opening one clip for editing gives it its own copy and applies looks to that clip only', () => {
   fresh();
   st().editClipLook('b');
@@ -545,6 +555,8 @@ test('undo and redo step through settled changes', async (t) => {
 
 test('snapshots carry the look and edit, and applying one rebuilds the timeline', () => {
   fresh();
+  const overrides = { macro: { a: 0.8 }, camera: { shake: 0.4 }, finish: { exposure: 1 }, layers: { 0: { m: 'glass', p: { scale: 5 } } } };
+  st().setBlock('g1', { overrides });
   const snap = st().snapshot();
   st().setLook(LOOKS[8]);
   S.setState({ bars: 2, selected: ['b'] });
@@ -552,12 +564,26 @@ test('snapshots carry the look and edit, and applying one rebuilds the timeline'
   assert.equal(st().lookId, LOOKS[0].id);
   assert.equal(st().bars, 4);
   assert.deepEqual(st().selected, ['a', 'b', 'c']);
+  assert.deepEqual(st().blocks.find((b) => b.id === 'g1').overrides, overrides);
+  assert.deepEqual(st().ctx.tl.segs[1].overrides, overrides);
   assert.equal(st().ctx.L, 8);
   assert.deepEqual(Object.keys(JSON.parse(snap)).sort(), [
     'bars', 'blocks', 'bpmManual', 'bpmOverride', 'clipFrame', 'clipLooks', 'clipMode', 'direction', 'editClip', 'evolveAmt',
     'evolveCuts', 'exportOpts', 'fitAll', 'gridNudge', 'intensity', 'lockEdit', 'look', 'lookId', 'loopStart', 'rebound', 'seed',
     'selected', 'trackId',
   ]);
+});
+
+test('restoring a snapshot removes damaged LUTs before the render loop sees them', () => {
+  fresh();
+  const data = JSON.parse(st().snapshot());
+  const broken = { name: 'Broken', size: 2, domainMin: [0, 0, 0], domainMax: [1, 1, 1], data: '' };
+  data.look.finish.lut = broken;
+  data.clipLooks = { a: cloneLook(LOOKS[1]) };
+  data.clipLooks.a.finish.lut = broken;
+  st().applySnapshot(JSON.stringify(data));
+  assert.equal(st().look.finish.lut, undefined);
+  assert.equal(st().clipLooks.a.finish.lut, undefined);
 });
 
 test('undo also covers the screen, the beat grid, the tempo and the song', async (t) => {
@@ -894,6 +920,13 @@ test('videos not in the edit stay unloaded until one is put in, which asks for i
   assert.equal(media.isLoaded(st().clips.find((c) => c.id === 'b'), st().selected), true, 'taken out of the edit, it stays loaded');
 });
 
+test('proxy requests retain the edit order when it differs from library order', async () => {
+  fresh({ clips: CLIPS.map((clip) => ({ ...clip, proxy: 'none' })), selected: ['c', 'a'] });
+  const requests = stubFetch({ 'POST /api/proxies': () => ({ ok: true, proxies: { c: 'queued', a: 'queued' } }) });
+  await media.requestProxies();
+  assert.deepEqual(JSON.parse(requests[0].body).ids, ['c', 'a']);
+});
+
 test('removing a clip drops it everywhere, and the message says whether the file was deleted', async () => {
   let reply = { ok: true, deleted: true };
   const reqs = stubFetch({ 'POST /api/clip/remove': () => reply });
@@ -940,7 +973,7 @@ test('auto-frame moves wide clips onto their subject and recenters the rest', as
 
 test('uploads add videos to the edit, switch images to an album-art look and pick up songs', async () => {
   const added = [];
-  stubFetch({
+  const requests = stubFetch({
     'POST /api/upload': (_u, init) => {
       const name = decodeURIComponent(init.headers['X-Filename']);
       if (name === 'broken.mov') return { ok: false };
@@ -963,6 +996,30 @@ test('uploads add videos to the edit, switch images to an album-art look and pic
   assert.equal(st().trackId, 'song1');
   assert.equal(st().features.id, 'song1');
   assert.equal(lastToast(), 'Added 2 files. For images, try the Album art & stills looks.');
+  assert.equal(requests.filter((r) => r.path === '/api/state').length, 2, 'one legacy refresh per batch, not per file');
+});
+
+test('metadata uploads update the library incrementally without full-library requests', async () => {
+  fresh();
+  st().transport.decode = async () => FAKE_BUFFER;
+  const requests = stubFetch({
+    'POST /api/upload': (_url, init) => {
+      const name = decodeURIComponent(init.headers['X-Filename']);
+      if (name === 'broken.mov') return new Response('not JSON', { status: 500 });
+      if (name === 'song.wav') return { ok: true, kind: 'audio', id: 'new-song', track: { id: 'new-song', name, source: 'added' } };
+      if (name === 'cover.png') assert.ok(st().clips.some((c) => c.id === 'new.mp4'), 'each completed upload appears immediately');
+      return { ok: true, kind: 'video', id: name, still: name.endsWith('.png'), clip: { id: name, name, duration: 4, proxy: 'queued', still: name.endsWith('.png') } };
+    },
+    '/api/features/new-song': () => ({ ...SONG, id: 'new-song' }),
+  });
+  await st().uploadFiles(['new.mp4', 'cover.png', 'broken.mov', 'song.wav'].map((name) => new File(['x'], name)));
+  assert.equal(requests.filter((r) => r.path === '/api/state').length, 0);
+  assert.deepEqual(st().selected, ['a', 'b', 'c', 'new.mp4', 'cover.png']);
+  assert.equal(st().clips.length, 5);
+  assert.equal(st().trackId, 'new-song');
+  assert.equal(st().tracks[0].name, 'song.wav');
+  assert.match(st().lookId, /^art-/);
+  assert.equal(lastToast(), 'Added 3 files. For images, try the Album art & stills looks.');
 });
 
 test('clip palettes are fetched once per clip', async () => {

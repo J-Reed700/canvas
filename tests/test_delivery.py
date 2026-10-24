@@ -48,6 +48,7 @@ class TestDeliveryHelpers(TempDirCase):
         self.assertEqual(levels({"seam_ratio": 1.0, "max_flashes_per_sec": 3}), {"seam": "ok", "flash": "ok"})
         self.assertEqual(levels({"seam_ratio": 2.0, "max_flashes_per_sec": 4}), {"seam": "warn", "flash": "fail"})
         self.assertEqual(levels({"seam_ratio": 3.0}), {"seam": "fail"})
+        self.assertEqual(levels({"frame0_reference": {"level": "warn", "detail": "No reference"}}), {"frame0": "warn"})
 
     def test_the_studios_footage_check_is_listed_as_it_graded_it(self) -> None:
         out: list[dict] = []
@@ -108,6 +109,9 @@ class TestDelivery(TempDirCase):
         self.assertEqual((apple["aspect"], apple["size"], apple["length"], apple["fps"], apple["bitrate"], apple["silent"]),
                          ("ok", "warn", "fail", "ok", "warn", "ok"))
         self.assertEqual(self.levels(square, "apple_square")["aspect"], "ok")
+        vertical = self.clip("vertical.mp4", "36x64", 1.0, extra=["-movflags", "+faststart"])
+        social = self.levels(vertical, "social_vertical")
+        self.assertEqual([social[k] for k in ("aspect", "codec", "fps", "faststart")], ["ok"] * 4)
         big = self.clip("canvas.mp4", "720x1280", 3.0, extra=["-movflags", "+faststart"])
         canvas = self.levels(big, "spotify")
         self.assertEqual(canvas["tall"], "warn", "1280 px is over Spotify's listed 1080")
@@ -169,7 +173,7 @@ class TestDelivery(TempDirCase):
 
         apple = self.copy(src, "apple-tall.mp4")
         res = delivery.deliver(apple, song, 0.0, 2.0, None, fmt="apple_tall")
-        self.assertAlmostEqual(res["duration"], 16.0, delta=0.1)
+        self.assertAlmostEqual(res["duration"], 8.0, delta=0.1)
         self.assertIsNone(res["audio_path"], "the copy with the song is only made when asked for")
         res = delivery.deliver(self.copy(src, "apple-song.mp4"), song, 0.0, 2.0, None, fmt="apple_tall", with_audio=True)
         self.assertTrue(res["audio_path"].endswith("apple-song-audio.mp4"))
@@ -179,7 +183,7 @@ class TestDelivery(TempDirCase):
         square = self.copy(src, "apple-square.mp4")
         with mock.patch.object(delivery, "upscale_to") as up, mock.patch.object(delivery, "repeat_loop") as rep:
             delivery.deliver(square, None, 0.0, 2.0, None, fmt="apple_square")
-        up.assert_called_once_with(square, 3840, 3840)
+        up.assert_not_called()
         rep.assert_called_once_with(square, delivery.APPLE["safe_min_seconds"], delivery.APPLE["max_seconds"])
 
         cover = self.copy(src, "cover.mp4")
@@ -295,6 +299,47 @@ class TestExportPipeline(TempDirCase):
         self.assertGreater(img[150:, :, 0].mean(), 200, "...must end up at the bottom of the video")
         self.assertLess(img[:40, :, 0].mean(), 40)
 
+    def test_raw_prores_sessions_are_native_mov_profiles_from_opaque_rgba(self) -> None:
+        frame = np.full((64, 64, 4), (30, 90, 180, 255), dtype=np.uint8).tobytes()
+        expected = {
+            "prores_422_hq": ("apch", "yuv422p10le"),
+            "prores_4444": ("ap4h", "yuv444p12le"),
+        }
+        for codec, (tag, pix_fmt) in expected.items():
+            dest = os.path.join(self.tmp, f"{codec}.mov")
+            with delivery.RawSession(dest, 64, 64, 30, codec=codec) as session:
+                session.write(frame * 3)
+            info = _ffprobe(dest)
+            video = _video(info)
+            self.assertEqual(info["format"]["format_name"].split(",")[0], "mov")
+            self.assertEqual(video["codec_name"], "prores")
+            self.assertEqual(video["codec_tag_string"], tag)
+            self.assertEqual(video["pix_fmt"], pix_fmt)
+            self.assertEqual(int(video["nb_frames"]), 3)
+            checks = {c["id"]: c for c in delivery.verify(dest, None, "apple_square")}
+            self.assertEqual(checks["codec"]["level"], "ok")
+            if codec == "prores_4444":
+                self.assertIn("opaque 8-bit RGB", checks["codec"]["detail"])
+
+        with self.assertRaisesRegex(ValueError, r"\.mov"):
+            delivery.RawSession(os.path.join(self.tmp, "wrong.mp4"), 64, 64, 30, codec="prores_422_hq")
+
+    def test_prores_audio_companion_stays_in_mov_without_reencoding_video(self) -> None:
+        dest = os.path.join(self.tmp, "apple-master.mov")
+        frame = np.full((64, 64, 4), (30, 90, 180, 255), dtype=np.uint8).tobytes()
+        with delivery.RawSession(dest, 64, 64, 30, codec="prores_422_hq") as session:
+            session.write(frame * 30)
+        # This test targets the audio mux. Avoid turning the tiny fixture into an eight-second file.
+        with mock.patch.object(delivery, "repeat_loop", return_value=1):
+            result = delivery.deliver(
+                dest, self._sine_wav(2), 0.0, 1.0, None, fmt="apple_square", with_audio=True,
+            )
+        self.assertEqual(result["audio_path"], os.path.join(self.tmp, "apple-master-audio.mov"))
+        info = _ffprobe(result["audio_path"])
+        self.assertEqual(sorted(stream["codec_type"] for stream in info["streams"]), ["audio", "video"])
+        video = _video(info)
+        self.assertEqual((video["codec_name"], video["codec_tag_string"]), ("prores", "apch"))
+
     def test_chunk_session_rebuilds_a_stream_sent_in_pieces(self) -> None:
         h264 = os.path.join(self.tmp, "chunks.h264")
         subprocess.run(
@@ -332,6 +377,20 @@ class TestExportPipeline(TempDirCase):
         delivery.mux_promo(loop, self._sine_wav(10), short, 6.0, 15)
         self.assertAlmostEqual(float(_ffprobe(short)["format"]["duration"]), 4.0, delta=0.1)
 
+        card = os.path.join(self.tmp, "promo-card.mp4")
+        delivery.mux_promo(loop, self._sine_wav(10), card, 1.0, 3, promo_title="New Single", promo_out_now=True)
+        self.assertEqual(_video(_ffprobe(card))["codec_name"], "h264")
+        cap = cv2.VideoCapture(card)
+        ok, frame = cap.read()
+        cap.release()
+        self.assertTrue(ok)
+        base_cap = cv2.VideoCapture(dest)
+        base_ok, base = base_cap.read()
+        base_cap.release()
+        self.assertTrue(base_ok)
+        delta = np.abs(frame[-80:].astype(np.int16) - base[-80:].astype(np.int16)).mean()
+        self.assertGreater(delta, 5.0, "the title card visibly changes the bottom of the promo")
+
     def test_apple_formats_repeat_whole_loops_and_check_their_own_spec(self) -> None:
         dest = self._silent_loop("apple.mp4", "240x320", 4)
         result = delivery.deliver(dest, self._sine_wav(10), 0.0, 4.0, {"seam_ratio": 0.8, "max_flashes_per_sec": 0},
@@ -339,8 +398,8 @@ class TestExportPipeline(TempDirCase):
         self.assertIsNone(result["audio_path"])
         self.assertIsNone(result["promo_path"])
         info = _ffprobe(dest)
-        self.assertAlmostEqual(float(info["format"]["duration"]), 16.0, delta=0.05)  # 4 loops: first count >= 15 s
-        self.assertEqual(int(info["streams"][0]["nb_frames"]), 480)
+        self.assertAlmostEqual(float(info["format"]["duration"]), 8.0, delta=0.05)  # 2 loops: first count >= 8 s
+        self.assertEqual(int(info["streams"][0]["nb_frames"]), 240)
         checks = {c["id"]: (c["level"], c["label"]) for c in result["checks"]}
         self.assertEqual(checks["aspect"], ("ok", "Apple Music motion art · 3:4"))
         self.assertEqual(checks["size"][0], "warn")  # 240×320 is far below 2048×2732

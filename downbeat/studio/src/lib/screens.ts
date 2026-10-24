@@ -17,7 +17,7 @@ export interface Screen {
 }
 
 export const SCREENS: Screen[] = [
-  { id: 'phone', name: 'Phone', ratio: '9:16', aspect: 9 / 16, use: 'Spotify Canvas', formats: ['spotify'] },
+  { id: 'phone', name: 'Phone', ratio: '9:16', aspect: 9 / 16, use: 'Canvas, Reels, TikTok, Shorts', formats: ['spotify', 'social_vertical'] },
   { id: 'landscape', name: 'Landscape', ratio: '16:9', aspect: 16 / 9, use: 'YouTube visualizer', formats: ['youtube_16_9'] },
   { id: 'tablet', name: 'Tablet', ratio: '3:4', aspect: 3 / 4, use: 'Apple Music motion art', formats: ['apple_tall'] },
   { id: 'square', name: 'Square', ratio: '1:1', aspect: 1, use: 'Social feeds, Apple square art, cover art', formats: ['social_square', 'apple_square', 'cover_art'] },

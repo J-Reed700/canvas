@@ -4,6 +4,7 @@ import { historyDepth, subscribeHistory } from '../state/historyController.ts';
 import { openPop, closePop, h, ROLL_OPTS, fmtLength } from '../lib/utils.ts';
 import { Icon, ICONS } from './ui.tsx';
 import { ProjectButton } from './Projects.tsx';
+import { useWorkspaceStore } from '../state/workspaceStore.ts';
 
 export const TopBar: React.FC = () => {
   const trackId = useStudioStore((s) => s.trackId);
@@ -70,8 +71,8 @@ export const TopBar: React.FC = () => {
   return (
     <header className="top">
       <div className="brand">
-        <span className="logo" />
-        Downbeat <small>Studio</small>
+        <span className="studio-logo" aria-hidden="true"><i /><i /><i /><i /></span>
+        <span>downbeat<small>STUDIO</small></span>
       </div>
       <ProjectButton />
 
@@ -95,6 +96,9 @@ export const TopBar: React.FC = () => {
       </div>
 
       <div className="top-actions">
+        <button className="btn command-trigger" aria-label="Search commands" title="Search commands (⌘K / Ctrl+K)" disabled={exporting} onClick={() => useWorkspaceStore.getState().setCommands(true)}>
+          <Icon d={ICONS.search} /><span>Commands</span><kbd>⌘ K</kbd>
+        </button>
         <div className="split hist">
           <button className="btn icon" id="btnUndo" title="Undo (⌘Z)" aria-label="Undo" disabled={exporting || !history.undo} onClick={undo}>
             <Icon d={ICONS.undo} />
@@ -106,6 +110,7 @@ export const TopBar: React.FC = () => {
         <button
           className="btn icon hide-sm"
           id="btnHelp"
+          aria-label="Keyboard shortcuts"
           title="Keyboard shortcuts (?)"
           onClick={() => useStudioStore.setState({ helpOpen: true })}
         >
@@ -117,8 +122,9 @@ export const TopBar: React.FC = () => {
             id="btnRoll"
             title="Roll everything: look, layers, edit and per-clip FX (D) · Shift+D undoes"
             onClick={rollAll}
+            disabled={exporting}
           >
-            🎲 Roll <span className="kbd">D</span>
+            <svg className="studio-stroke" viewBox="0 0 20 20" aria-hidden="true"><path d="m4 16 9-9M11 3v4m-2-2h4m3 7v4m-2-2h4M4 3v4M2 5h4" /></svg> Remix <span className="kbd">D</span>
           </button>
           <button
             className="btn roll caret"
@@ -130,8 +136,8 @@ export const TopBar: React.FC = () => {
             ▾
           </button>
         </div>
-        <button className="btn primary" id="btnExport" onClick={openExport}>
-          Export<span className="hide-sm"> Canvas</span> <span className="kbd">E</span>
+        <button className="btn primary" id="btnExport" onClick={openExport} disabled={exporting}>
+          <Icon d={ICONS.download} />Export <span className="kbd">E</span>
         </button>
       </div>
     </header>

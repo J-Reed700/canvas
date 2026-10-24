@@ -1,0 +1,59 @@
+{
+  "schema": 1,
+  "timestamp": "2026-10-24T22:32:05.563Z",
+  "runtime": "v26.8.1",
+  "host": {
+    "platform": "darwin",
+    "arch": "arm64",
+    "cpu": "Apple M3 Max"
+  },
+  "workload": "600-second loop; 8 clips; mixed cut/dissolve/zoom; deterministic random seeks; batch-amortized CPU times",
+  "cases": [
+    {
+      "cuts": 8,
+      "sample": {
+        "median_ms": 0.00006146000000001095,
+        "p95_ms": 0.0003237500000000182
+      },
+      "selection": {
+        "median_ms": 0.00007062500000003525,
+        "p95_ms": 0.00020375000000001365
+      },
+      "compose": {
+        "median_ms": 0.014818544999999971,
+        "p95_ms": 0.08525521000000012
+      }
+    },
+    {
+      "cuts": 256,
+      "sample": {
+        "median_ms": 0.0004962499999999182,
+        "p95_ms": 0.005221459999999923
+      },
+      "selection": {
+        "median_ms": 0.0001537500000000591,
+        "p95_ms": 0.0009179149999999935
+      },
+      "compose": {
+        "median_ms": 0.011149790000000053,
+        "p95_ms": 0.1214527099999998
+      }
+    },
+    {
+      "cuts": 4096,
+      "sample": {
+        "median_ms": 0.009302920000000086,
+        "p95_ms": 0.14536520999999994
+      },
+      "selection": {
+        "median_ms": 0.015545829999999795,
+        "p95_ms": 0.09775417000000061
+      },
+      "compose": {
+        "median_ms": 0.039346044999999774,
+        "p95_ms": 0.19831666999999925
+      }
+    }
+  ],
+  "checksum": 95679318
+}

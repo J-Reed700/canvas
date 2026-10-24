@@ -11,7 +11,7 @@ const cards = () => Array.from(document.querySelectorAll<HTMLElement>('.card'));
 const titleOf = (card: HTMLElement) => card.querySelector('.ct')?.firstChild?.textContent || '';
 const cardFor = (title: string) => cards().find((c) => titleOf(c) === title) as HTMLElement;
 const layerTitles = () => st().look!.layers.map((l) => MODULES[l.m].name);
-const shownLayers = () => cards().map(titleOf).filter((t) => !['Master', 'Modulators', 'Camera', 'Finish', 'Color palette'].includes(t));
+const shownLayers = () => cards().map(titleOf).filter((t) => !['Master', 'Modulators', 'Camera', 'Finish', 'Color palette', 'Color studio'].includes(t));
 const sliderIn = (row: HTMLElement) => row.querySelector('input[type=range]') as HTMLInputElement;
 const rowFor = (label: string, root: HTMLElement = document.body) =>
   Array.from(root.querySelectorAll<HTMLElement>('.prm')).find((r) => r.querySelector('label')?.textContent === label) as HTMLElement;
@@ -75,11 +75,11 @@ describe('layer cards', () => {
     expect(pop().className).toBe('pop');
   });
 
-  test('🎲 Random adds a layer the stack does not have yet, at its pipeline stage', () => {
+  test('Random layer adds an effect the stack does not have yet, at its pipeline stage', () => {
     resetStudio();
     renderStudio(<LayersPane />);
     vi.spyOn(Math, 'random').mockReturnValue(0);
-    fireEvent.click(screen.getByText('🎲 Random'));
+    fireEvent.click(screen.getByText('Random layer'));
     const added = Object.keys(MODULES).find((id) => !['glass', 'chrome', 'bloom'].includes(id))!;
     const ms = st().look!.layers.map((l) => l.m);
     expect(ms).toContain(added);
@@ -93,13 +93,13 @@ describe('layer cards', () => {
     resetStudio();
     renderStudio(<LayersPane />);
     vi.spyOn(Math, 'random').mockReturnValue(0);
-    fireEvent.click(screen.getByText('⇅ Shuffle'));
+    fireEvent.click(screen.getByText('Shuffle'));
     expect(layerTitles()).toEqual(['Liquid Chrome', 'Bloom', 'Liquid Glass']);
     expect(shownLayers()).toEqual(layerTitles());
     expect(toastText()).toBe('Shuffled the stack');
     fireEvent.click(within(cardFor('Bloom')).getByTitle('Remove'));
     fireEvent.click(within(cardFor('Liquid Glass')).getByTitle('Remove'));
-    expect(screen.getByText('⇅ Shuffle').closest('button')!.disabled).toBe(true);
+    expect(screen.getByText('Shuffle').closest('button')!.disabled).toBe(true);
   });
 
   test('Clear empties the stack and Revert brings the look back', () => {
@@ -127,7 +127,7 @@ describe('layer cards', () => {
   test('Save as look asks for a name and adds the look to Your looks', () => {
     resetStudio();
     renderStudio(<LayersPane />);
-    fireEvent.click(screen.getByText('★ Save as look'));
+    fireEvent.click(screen.getByText('Save as look'));
     const input = pop().querySelector('input') as HTMLInputElement;
     expect(input.value).toBe(LOOKS[0].name);
     input.value = '   ';
@@ -141,6 +141,26 @@ describe('layer cards', () => {
 });
 
 describe('folding cards', () => {
+  test('section navigation isolates effects and color without unmounting either toolset', () => {
+    resetStudio();
+    renderStudio(<LayersPane />);
+    const nav = screen.getByRole('navigation', { name: 'Layer inspector sections' });
+    const effects = document.getElementById('layer-effects-section') as HTMLElement;
+    const color = document.getElementById('layer-color-section') as HTMLElement;
+    expect(effects.hidden).toBe(false);
+    expect(color.hidden).toBe(false);
+
+    fireEvent.click(within(nav).getByRole('button', { name: 'Color' }));
+    expect(effects.hidden).toBe(true);
+    expect(color.hidden).toBe(false);
+    expect(cardFor('Master'), 'the effect controls stay mounted').toBeTruthy();
+
+    fireEvent.click(within(nav).getByRole('button', { name: /^Effects/ }));
+    expect(effects.hidden).toBe(false);
+    expect(color.hidden).toBe(true);
+    expect(cardFor('Color studio'), 'the color tools stay mounted').toBeTruthy();
+  });
+
   test('clicking a card header folds it, but not when the click is on a control in it', () => {
     resetStudio();
     renderStudio(<LayersPane />);
@@ -246,7 +266,7 @@ describe('master card', () => {
     resetStudio();
     renderStudio(<LayersPane />);
     expect(screen.queryByText('Same look on all')).toBeNull();
-    fireEvent.click(screen.getByText('🎲 Roll FX per clip'));
+    fireEvent.click(screen.getByText('Roll FX per clip'));
     expect(st().clipMode).toBe('custom');
     expect(Object.keys(st().clipLooks).sort()).toEqual(['a', 'b', 'c']);
     expect(document.querySelector('.stack-scope')!.textContent).toMatch(/every clip has its own stack right now/);
@@ -331,6 +351,23 @@ describe('parameter rows', () => {
     expect(pop().textContent).toContain('Audio (synthetic beat, no track)');
     fireEvent.click(popButton('Macro A'));
     expect(st().look!.camera.mods.drift).toEqual({ src: 'macroA', amt: 0.5 });
+  });
+
+  test('a modulation route exposes attack, decay, gate and sidechain ducking controls', () => {
+    withSong();
+    renderStudio(<LayersPane />);
+    fireEvent.click(rowFor('Shake', cardFor('Camera')).querySelector('.modbtn')!);
+    fireEvent.click(popButton('Kick'));
+    fireEvent.input(within(pop()).getByLabelText('Attack'), { target: { value: '120' } });
+    fireEvent.input(within(pop()).getByLabelText('Decay'), { target: { value: '450' } });
+    fireEvent.input(within(pop()).getByLabelText('Gate'), { target: { value: '0.3' } });
+    fireEvent.change(within(pop()).getByLabelText('Sidechain source'), { target: { value: 'bass' } });
+    fireEvent.input(within(pop()).getByLabelText('Duck amount'), { target: { value: '0.65' } });
+    expect(st().look!.camera.mods.shake).toEqual({
+      src: 'kick', amt: 0.25, attack: 120, decay: 450, gate: 0.3, duck: { src: 'bass', amount: 0.65 },
+    });
+    fireEvent.click(popButton('Step sequencer'));
+    expect(st().look!.camera.mods.shake.attack, 'shape follows the route when its source changes').toBe(120);
   });
 
   test('each slider registers a marker that reads the live value from the frame on screen', () => {

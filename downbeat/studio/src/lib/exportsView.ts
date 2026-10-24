@@ -22,6 +22,7 @@ const KIND_OF_FORMAT: Record<string, string> = {
   apple_tall: 'apple',
   apple_square: 'apple',
   youtube_16_9: 'youtube',
+  social_vertical: 'social',
   social_square: 'social',
   cover_art: 'cover',
 };
@@ -31,6 +32,7 @@ const FORMAT_LABEL: Record<string, string> = {
   apple_tall: 'Apple Music 3:4',
   apple_square: 'Apple Music 1:1',
   youtube_16_9: 'YouTube 16:9',
+  social_vertical: 'Social 9:16',
   social_square: 'Social 1:1',
   cover_art: 'Cover art',
 };
@@ -42,7 +44,7 @@ export const formatLabel = (r: RenderRecord): string => FORMAT_LABEL[r.format ||
 
 export function titleOf(r: RenderRecord): string {
   if (r.look) return r.look;
-  const slug = r.filename.replace(/\.mp4$/, '').replace(/^canvas-/, '').split(/-\d+bpm-/)[0];
+  const slug = r.filename.replace(/\.[^.]+$/, '').replace(/^canvas-/, '').split(/-\d+bpm-/)[0];
   return slug.replace(/-/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
 }
 

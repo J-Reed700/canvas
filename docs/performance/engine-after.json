@@ -1,0 +1,65 @@
+{
+  "schema": 1,
+  "timestamp": "2026-10-24T22:52:48.214Z",
+  "runtime": "v26.8.1",
+  "host": {
+    "platform": "darwin",
+    "arch": "arm64",
+    "cpu": "Apple M3 Max"
+  },
+  "workload": "600-second loop; 8 clips; mixed cut/dissolve/zoom; deterministic random seeks; batch-amortized CPU times",
+  "cases": [
+    {
+      "cuts": 8,
+      "sample_segment_reads": 6,
+      "selection_segment_reads": 4,
+      "sample": {
+        "median_ms": 0.0002783349999999984,
+        "p95_ms": 0.001559790000000021
+      },
+      "selection": {
+        "median_ms": 0.00011166500000001634,
+        "p95_ms": 0.0011897900000001015
+      },
+      "compose": {
+        "median_ms": 0.011827499999999845,
+        "p95_ms": 0.03777437499999991
+      }
+    },
+    {
+      "cuts": 256,
+      "sample_segment_reads": 11,
+      "selection_segment_reads": 9,
+      "sample": {
+        "median_ms": 0.00016874999999998862,
+        "p95_ms": 0.00040562499999992953
+      },
+      "selection": {
+        "median_ms": 0.00014562500000010913,
+        "p95_ms": 0.0006110400000000027
+      },
+      "compose": {
+        "median_ms": 0.010322500000000047,
+        "p95_ms": 0.02149854000000005
+      }
+    },
+    {
+      "cuts": 4096,
+      "sample_segment_reads": 15,
+      "selection_segment_reads": 13,
+      "sample": {
+        "median_ms": 0.0003689600000001292,
+        "p95_ms": 0.0026329150000000824
+      },
+      "selection": {
+        "median_ms": 0.00021354000000002317,
+        "p95_ms": 0.00037458499999985405
+      },
+      "compose": {
+        "median_ms": 0.013143959999999878,
+        "p95_ms": 0.04793312500000013
+      }
+    }
+  ],
+  "checksum": 95679318
+}

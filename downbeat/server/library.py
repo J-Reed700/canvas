@@ -14,6 +14,7 @@ import dataclasses
 import json
 import os
 import subprocess
+import tempfile
 
 from ..media import file_id
 from ..media.encoder import ffmpeg_path
@@ -172,13 +173,19 @@ def playable_path(track: Track, cache_dir: str, keep: int = 20) -> str:
     os.makedirs(cache_dir, exist_ok=True)
     dest = os.path.join(cache_dir, f"{track.id}.wav")
     if not os.path.isfile(dest) or os.path.getmtime(dest) < os.path.getmtime(track.path):
-        tmp = dest + ".part"
-        subprocess.run(
-            [ffmpeg_path(), "-v", "error", "-y", "-i", track.path, "-vn", "-acodec", "pcm_s16le", "-f", "wav", tmp],
-            check=True,
-            capture_output=True,
-        )
-        os.replace(tmp, dest)
+        fd, tmp = tempfile.mkstemp(prefix=f".{track.id}-", suffix=".part.wav", dir=cache_dir)
+        os.close(fd)
+        try:
+            subprocess.run(
+                [ffmpeg_path(), "-v", "error", "-y", "-i", track.path, "-vn", "-acodec", "pcm_s16le", "-f", "wav", tmp],
+                check=True,
+                capture_output=True,
+                timeout=300,
+            )
+            os.replace(tmp, dest)
+        finally:
+            if os.path.exists(tmp):
+                os.remove(tmp)
         cached = sorted((os.path.join(cache_dir, f) for f in os.listdir(cache_dir) if f.endswith(".wav")), key=os.path.getmtime)
         for old in cached[:-keep]:
             os.remove(old)

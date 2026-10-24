@@ -1,9 +1,13 @@
-import React, { useRef, useEffect, useSyncExternalStore } from 'react';
+import React, { useRef, useEffect, useState, useSyncExternalStore } from 'react';
 import { useStudioStore, useVersion } from '../state/store.ts';
 import { clamp } from '../engine/looks.ts';
-import { room, toast, BAR_CHOICES, fmtLength, openPop, closePop, h } from '../lib/utils.ts';
+import { room, toast, BAR_CHOICES, fmtLength, openPop, closePop, h, FORMATS, SIZES } from '../lib/utils.ts';
 import { getLastFrame } from '../canvas/renderLoop.ts';
 import { SCREENS, screenOf, type Screen } from '../lib/screens.ts';
+import { useWorkspaceStore } from '../state/workspaceStore.ts';
+import { stepFrame } from '../lib/playback.ts';
+import { Icon, ICONS } from './ui.tsx';
+import { SAFE_GUIDES, guideFor } from '../lib/safeGuides.ts';
 
 const PlayIcon: React.FC<{ playing: boolean }> = ({ playing }) => (
   <svg viewBox="0 0 24 24">
@@ -45,7 +49,12 @@ export const StagePanel: React.FC = () => {
   const setTab = useStudioStore((s) => s.setTab);
   const setScreen = useStudioStore((s) => s.setScreen);
   const screen = useStudioStore((s) => screenOf(s.exportOpts.format));
-  const phone = screen.id === 'phone';
+  const format = useStudioStore((s) => s.exportOpts.format);
+  const size = useStudioStore((s) => s.exportOpts.size);
+  const focus = useWorkspaceStore((s) => s.focus);
+  const [outputW, outputH] = FORMATS[format || 'spotify']?.size || SIZES[size || 'master'] || SIZES.master;
+  const [guideId, setGuideId] = useState('');
+  const guide = guideFor(screen.id, guideId, format);
   const [iconW, iconH] = iconSize(screen);
   const bars = Math.round(loopLen / barDur);
   const playing = useSyncExternalStore(transport.subscribe, () => transport.playing);
@@ -205,7 +214,51 @@ export const StagePanel: React.FC = () => {
   };
 
   return (
-    <main className="stage">
+    <main className="stage" aria-label="Video viewer">
+      <div className="viewer-bar">
+        <div className="viewer-title"><span className="viewer-mark" aria-hidden="true" /><b>Viewer</b><span className="viewer-format">{FORMATS[format || 'spotify']?.short}</span></div>
+        <div className="viewer-actions">
+        <button
+          className="toggle screen-btn"
+          id="tScreen"
+          data-pop
+          disabled={exporting}
+          title={`Screen: ${screen.name} ${screen.ratio} (O)`}
+          aria-label={`Screen: ${screen.name} ${screen.ratio}`}
+          aria-haspopup="menu"
+          onClick={handleScreenMenu}
+        >
+          <i className="scr-ic" style={{ width: iconW, height: iconH }} />
+          <span className="ratio">{screen.ratio}</span>
+        </button>
+        <button
+          className={`toggle ${hud ? 'on' : ''}`}
+          id="tHud"
+          aria-pressed={hud}
+          title="Spotify player overlay (H)"
+          onClick={() => {
+            useStudioStore.setState({ hud: !hud });
+            save();
+          }}
+        >
+          Player UI
+        </button>
+        <button
+          className={`toggle ${safe ? 'on' : ''}`}
+          id="tSafe"
+          aria-pressed={safe}
+          title="Platform composition guides (S) · preview only"
+          onClick={() => {
+            useStudioStore.setState({ safe: !safe });
+            save();
+          }}
+        >
+          Safe zones
+        </button>
+          <button className={`toggle viewer-focus ${focus ? 'on' : ''}`} aria-label={focus ? 'Restore workspace' : 'Focus viewer'} aria-pressed={focus} title="Focus viewer (Shift+F)" onClick={() => useWorkspaceStore.getState().toggleFocus()}><Icon d={ICONS.expand} /></button>
+        </div>
+      </div>
+
       <div className="stage-badge" id="stageBadge" style={{ display: 'none' }} />
 
       <div className="phone-wrap">
@@ -213,18 +266,17 @@ export const StagePanel: React.FC = () => {
           <div className="screen">
             <canvas id="view" ref={viewRef} width="540" height="960" />
 
-            <div className={`safe ${safe && phone ? 'on' : ''}`} id="safe">
-              <div style={{ top: 0, height: '14%' }}>TOP UI · 14%</div>
-              <div style={{ bottom: 0, height: '33%' }}>PLAYER CONTROLS · 33%</div>
+            <div className={`safe ${safe ? 'on' : ''}`} id="safe" data-guide={guide.id} aria-label={`${guide.name} approximate safe areas`}>
+              <div style={{ top: 0, height: `${guide.top}%` }}>{guide.topLabel} · {guide.top}%</div>
+              <div style={{ bottom: 0, height: `${guide.bottom}%` }}>{guide.bottomLabel} · {guide.bottom}%</div>
               <div
                 className="side"
-                style={{ top: '14%', bottom: '33%', left: 0, right: 'auto', width: '9%' }}
-                title="Taller phones (19.5:9) fill the screen by cropping about 9% off each side"
+                style={{ top: `${guide.top}%`, bottom: `${guide.bottom}%`, left: 0, right: 'auto', width: `${guide.left}%` }}
               >
-                CROPPED ON TALL PHONES
+                {guide.id === 'spotify' ? guide.sideLabel : 'EDGE MARGIN'}
               </div>
-              <div className="side" style={{ top: '14%', bottom: '33%', right: 0, left: 'auto', width: '9%' }}>
-                CROPPED ON TALL PHONES
+              <div className="side" style={{ top: `${guide.top}%`, bottom: `${guide.bottom}%`, right: 0, left: 'auto', width: `${guide.right}%` }}>
+                {guide.sideLabel}
               </div>
             </div>
 
@@ -279,14 +331,28 @@ export const StagePanel: React.FC = () => {
               </div>
             ) : (
               <div className="empty-stage" id="emptyStage" hidden={selected.length > 0}>
-                <b>Pick a few clips</b>Select clips on the left to build your canvas.
+                <span className="empty-viewer-symbol" aria-hidden="true"><svg viewBox="0 0 48 48"><rect x="7" y="9" width="34" height="30" rx="3" /><path d="m20 18 11 6-11 6Z" /></svg></span><b>Your next visual starts here</b><span>Add footage or artwork to your library, then select a clip to begin.</span><button className="btn" onClick={() => document.getElementById('fileInput')?.click()}>Import media</button>
               </div>
             )}
           </div>
         </div>
       </div>
 
+      {safe && <div className="safe-guide-bar">
+        <label htmlFor="safeGuide">Preview guide</label>
+        <select id="safeGuide" value={guide.id} onChange={(e) => setGuideId(e.target.value)}>
+          {SAFE_GUIDES.filter((g) => g.screen === screen.id).map((g) => <option value={g.id} key={g.id}>{g.name}</option>)}
+        </select>
+        <span title="Conservative composition guides. Actual interface, captions and cropping vary by device and placement. These guides are never exported.">Approximate · preview only</span>
+        <a href={guide.source} target="_blank" rel="noreferrer">Platform guide ↗</a>
+      </div>}
+
+      <div className="viewer-meta"><span>{outputW} × {outputH}<i />30 fps<i />Fit</span><span className="viewer-reframe">Drag to reframe · scroll to zoom</span><span id="fps" className="viewer-fps" title="Live preview frame rate" /></div>
       <div className="transport">
+        <div className="transport-readout"><span id="viewerTimecode">00:00:00:00</span><small> / <span id="viewerDuration">00:00:08:00</span></small><span id="timeNow" hidden>0.00</span><span id="timeLen" hidden>0.00</span></div>
+        <div className="transport-playback">
+          <button className="transport-step" aria-label="Go to start" title="Go to start" disabled={exporting} onClick={() => transport.seek(0)}><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 5v14M19 5 8 12l11 7Z" /></svg></button>
+          <button className="transport-step" aria-label="Previous frame" title="Previous frame (,)" disabled={exporting} onClick={() => stepFrame(transport, -1)}><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 5v14M17 6l-8 6 8 6" /></svg></button>
         <button
           className="play"
           id="btnPlay"
@@ -296,14 +362,9 @@ export const StagePanel: React.FC = () => {
         >
           <PlayIcon playing={playing} />
         </button>
-        <div className="time">
-          <span id="timeNow">0.00</span> <small>/ <span id="timeLen">0.00</span></small>
+          <button className="transport-step" aria-label="Next frame" title="Next frame (.)" disabled={exporting} onClick={() => stepFrame(transport, 1)}><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 5v14M7 6l8 6-8 6" /></svg></button>
         </div>
-        <div className="bbt" id="bbt">
-          1.1
-        </div>
-        <div className="tdiv" />
-
+        <div className="transport-audition">
         <div className="seg" id="modeSeg" style={{ display: features ? '' : 'none' }}>
           <button
             className={transport.mode === 'loop' ? 'on' : ''}
@@ -333,6 +394,19 @@ export const StagePanel: React.FC = () => {
           {transport.phase ? `Off-sync +${transport.phase.toFixed(2)}s` : 'Off-sync'}
         </button>
 
+        <button
+          className={`toggle ${!muted ? 'on' : ''}`}
+          id="tMute"
+          aria-pressed={!muted}
+          style={{ display: features ? '' : 'none' }}
+          title="Mute"
+          onClick={handleMuteToggle}
+        >
+          Sound
+        </button>
+        </div>
+      </div>
+      <div className="viewer-loop"><span className="viewer-loop-label">Loop length</span>
         <div className="seg" id="barsSeg">
           {BAR_CHOICES.map((b) => (
             <button
@@ -352,54 +426,7 @@ export const StagePanel: React.FC = () => {
           )}
         </div>
 
-        <div className="tdiv" />
-
-        <button
-          className="toggle screen-btn"
-          id="tScreen"
-          data-pop
-          disabled={exporting}
-          title={`Screen: ${screen.name} ${screen.ratio} (O)`}
-          aria-label={`Screen: ${screen.name} ${screen.ratio}`}
-          aria-haspopup="menu"
-          onClick={handleScreenMenu}
-        >
-          <i className="scr-ic" style={{ width: iconW, height: iconH }} />
-          <span className="ratio">{screen.ratio}</span>
-        </button>
-        <button
-          className={`toggle ${hud ? 'on' : ''}`}
-          id="tHud"
-          title="Spotify player overlay (H)"
-          onClick={() => {
-            useStudioStore.setState({ hud: !hud });
-            save();
-          }}
-        >
-          Player UI
-        </button>
-        <button
-          className={`toggle ${safe && phone ? 'on' : ''}`}
-          id="tSafe"
-          disabled={!phone}
-          title={phone ? 'Safe zones (S)' : "Safe zones follow Spotify's Canvas guidelines, so they show on the 9:16 phone"}
-          onClick={() => {
-            useStudioStore.setState({ safe: !safe });
-            save();
-          }}
-        >
-          Safe zones
-        </button>
-        <button
-          className={`toggle ${!muted ? 'on' : ''}`}
-          id="tMute"
-          style={{ display: features ? '' : 'none' }}
-          title="Mute"
-          onClick={handleMuteToggle}
-        >
-          Sound
-        </button>
-        <span className="fps" id="fps" />
+        <span className="viewer-beat"><span id="bbt">1.1</span> <small>BAR · BEAT</small></span>
       </div>
     </main>
   );

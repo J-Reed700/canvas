@@ -5,7 +5,7 @@ import { EditPane } from '../../downbeat/studio/src/components/EditPane.tsx';
 import { RHYTHMS, DIRECTIONS, VELOCITY } from '../../downbeat/studio/src/engine/timeline.ts';
 import { TRANSITIONS } from '../../downbeat/studio/src/engine/shaders.ts';
 import { POOLS } from '../../downbeat/studio/src/lib/utils.ts';
-import { LOOKS, SONG, renderStudio, resetStudio, screen, st, update, withSong } from './studio.tsx';
+import { LOOKS, SONG, cloneLook, renderStudio, resetStudio, screen, st, update, withSong } from './studio.tsx';
 
 const field = (label: string) =>
   Array.from(document.querySelectorAll<HTMLElement>('.field')).find((f) => f.querySelector(':scope > label')?.textContent === label) as HTMLElement;
@@ -52,6 +52,41 @@ describe('loop and cuts', () => {
     fireEvent.click(box);
     expect(clipsShown()).toBe(3);
     expect(screen.getByText(/the longest cuts are split in two until each clip has one/)).toBeTruthy();
+  });
+});
+
+describe('block look overrides', () => {
+  test('the selected block can own macros, camera, finish and indexed layer parameters, then follow the look again', () => {
+    resetStudio();
+    update(() => st().selectBlock(st().ctx!.tl.segs[1].id));
+    renderStudio(<EditPane />);
+    fireEvent.click(screen.getByLabelText('Override Block Macro A'));
+    fireEvent.change(screen.getByLabelText('Block Macro A'), { target: { value: '0.7' } });
+    fireEvent.click(screen.getByLabelText('Override Camera Shake'));
+    fireEvent.change(screen.getByLabelText('Camera Shake'), { target: { value: '0.4' } });
+    fireEvent.click(screen.getByLabelText('Override Finish Exposure'));
+    fireEvent.change(screen.getByLabelText('Finish Exposure'), { target: { value: '1.2' } });
+    fireEvent.click(screen.getByLabelText('Override Layer 1 Scale'));
+    fireEvent.change(screen.getByLabelText('Layer 1 Scale'), { target: { value: '5' } });
+    fireEvent.click(screen.getByLabelText('Override Layer 2 Metal'));
+    fireEvent.change(screen.getByLabelText('Layer 2 Metal'), { target: { value: '2' } });
+    const block = st().blocks!.find((b) => b.id === st().selectedBlock)!;
+    expect(block.overrides).toEqual({
+      macro: { a: 0.7 }, camera: { shake: 0.4 }, finish: { exposure: 1.2 },
+      layers: { 0: { m: 'glass', p: { scale: 5 } }, 1: { m: 'chrome', p: { tint: 2 } } },
+    });
+    expect(st().ctx!.tl.segs[1].overrides).toEqual(block.overrides);
+    fireEvent.click(screen.getByText('Use look for all'));
+    expect(st().blocks, 'clearing the last hand setting returns the edit to its rolled blocks').toBeNull();
+    expect(screen.queryByText('Use look for all')).toBeNull();
+  });
+
+  test('indexed controls follow the effect stack that the selected clip actually uses', () => {
+    resetStudio({ clipMode: 'custom', clipLooks: { b: cloneLook(LOOKS[1]) } });
+    update(() => st().selectBlock(st().ctx!.tl.segs.find((seg) => seg.clipId === 'b')!.id));
+    renderStudio(<EditPane />);
+    expect(screen.getByLabelText('Override Layer 1 Slices')).toBeTruthy();
+    expect(screen.queryByLabelText('Override Layer 1 Refraction')).toBeNull();
   });
 });
 

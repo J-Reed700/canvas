@@ -8,7 +8,16 @@
     "typecheck": "tsc --noEmit",
     "test": "node --test tests/*.test.mjs && vitest run",
     "test:components": "vitest run",
-    "test:e2e": "node --test tests/e2e/*.test.mjs"
+    "test:e2e": "node --test tests/e2e/*.test.mjs",
+    "test:coverage:engine": "node --experimental-test-coverage --test-coverage-include=\"downbeat/studio/src/**\" --test-coverage-lines=89 --test-coverage-branches=89 --test-coverage-functions=86 --test tests/*.test.mjs",
+    "test:coverage:components": "vitest run --coverage",
+    "test:coverage": "npm run test:coverage:engine && npm run test:coverage:components",
+    "test:python": "node scripts/python.mjs -m unittest discover -s tests -v",
+    "test:python:coverage": "node scripts/python.mjs -m coverage run && node scripts/python.mjs -m coverage report && node scripts/python.mjs -m coverage json",
+    "perf:engine": "node tests/performance/engine.bench.mjs",
+    "perf:check": "node --expose-gc --test tests/performance/retention.test.mjs && node tests/performance/engine.bench.mjs --check",
+    "perf:studio": "npm run build && node tests/performance/studio.bench.mjs --check",
+    "quality": "node scripts/quality.mjs"
   },
   "dependencies": {
     "react": "^19.3.1",

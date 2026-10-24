@@ -132,6 +132,12 @@ class TestProjectStore(unittest.TestCase):
         # projects never list the exports folder
         self.assertEqual(self.store.list(), [])
 
+    def test_mov_exports_keep_a_separate_edit_sidecar(self) -> None:
+        mov = "canvas-master-120bpm-8.0s-3840x3840-20261024-120000.mov"
+        self.store.save_export_edit(mov, EDIT)
+        self.assertEqual(self.store.export_edit(mov), EDIT)
+        self.assertTrue(os.path.isfile(os.path.join(self.root, "exports", os.path.splitext(mov)[0] + ".mov.json")))
+
 
 if __name__ == "__main__":
     unittest.main()

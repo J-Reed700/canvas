@@ -1,8 +1,10 @@
+import { timecode } from '../lib/playback.ts';
 import { useStudioStore } from '../state/store.ts';
 import { compose } from '../engine/composer.ts';
 import { clamp } from '../engine/looks.ts';
 import { fetchJSON, METERS } from '../lib/utils.ts';
 import type { ClipMeta, ComposedFrame } from '../engine/types.ts';
+import type { Engine } from '../engine/engine.ts';
 
 const THUMBS_PER_FRAME = 3;
 
@@ -22,7 +24,7 @@ function setText(id: string, text: string) {
   if (el && el.textContent !== text) el.textContent = text;
 }
 
-export function fitView(viewCanvas: HTMLCanvasElement, engineObj: any, force = false) {
+export function fitView(viewCanvas: HTMLCanvasElement, engineObj: Engine, force = false) {
   const r = viewCanvas.getBoundingClientRect();
   if (!r.width) return;
   const dpr = Math.min(2, window.devicePixelRatio || 1);
@@ -79,6 +81,10 @@ export function startRenderLoop(viewCanvas: HTMLCanvasElement, ambientCanvas?: H
     const bankObj = s.bank;
     const transportInstance = s.transport;
     if (!engineObj || !bankObj || s.exporting) return;
+    if (engineObj.gl?.isContextLost?.()) {
+      if (!s.glError) useStudioStore.setState({ glError: 'The graphics context was lost. Reload the studio to restart the preview' });
+      return;
+    }
 
     fitView(viewCanvas, engineObj);
 
@@ -139,7 +145,7 @@ export function startRenderLoop(viewCanvas: HTMLCanvasElement, ambientCanvas?: H
         const job = jobs[(thumbCursorIdx + k) % jobs.length];
         const f = compose(ctx, tt, job.look);
         const src = f.needs.map((n) => ({ ...(texBy.get(n.vkey) || srcs[0]), cam: n.cam }));
-        engineObj.renderThumb(job.id, { ...f, sources: src }, job.ctx2d, false);
+        if (job.ctx2d) engineObj.renderThumb(job.id, { ...f, sources: src }, job.ctx2d, false);
       }
       engineObj.present();
       thumbCursorIdx += per;
@@ -171,6 +177,8 @@ export function startRenderLoop(viewCanvas: HTMLCanvasElement, ambientCanvas?: H
 
     setText('timeNow', t.toFixed(2));
     setText('timeLen', ctx.L.toFixed(2));
+    setText('viewerTimecode', timecode(t));
+    setText('viewerDuration', timecode(ctx.L));
 
     const beat = Math.floor(t / ctx.beatDur + 1e-6);
     setText('bbt', `${Math.floor(beat / 4) + 1}.${(beat % 4) + 1}`);

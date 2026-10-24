@@ -2,8 +2,8 @@
 // the plan they resolve to, and returns new blocks, or null when the edit can't be made. A split is a
 // through edit: the footage, the camera and a framing move all carry on across the new cut, so nothing
 // changes on screen until one half is changed.
-import { editTime, footageUsed, frameAt, generateBlocks, moveAt, rng } from './timeline.ts';
-import type { Block, BlockPatch, Segment, SegmentFrame, SegmentOverride, TimelinePlan, TimelinePlanOptions } from './types.ts';
+import { editTime, footageUsed, frameAt, generateBlocks, moveAt, rng, segmentIndexAt } from './timeline.ts';
+import type { Block, BlockOverrides, BlockPatch, Segment, SegmentFrame, SegmentOverride, TimelinePlan, TimelinePlanOptions } from './types.ts';
 
 /** The shortest block an edit leaves, in beats. */
 export const MIN_BEATS = 1 / 8;
@@ -31,10 +31,18 @@ const tidy = <T extends object>(o: T): T => {
   return o;
 };
 
+const copyOverrides = (o: BlockOverrides | undefined): BlockOverrides | undefined => o ? {
+  ...(o.macro && { macro: { ...o.macro } }),
+  ...(o.camera && { camera: { ...o.camera } }),
+  ...(o.finish && { finish: { ...o.finish } }),
+  ...(o.layers && { layers: Object.fromEntries(Object.entries(o.layers).map(([i, layer]) => [i, { m: layer.m, p: { ...layer.p } }])) }),
+} : undefined;
+
 /** The segment playing at loop time t. */
 export function segAt(tl: TimelinePlan, t: number): Segment | undefined {
   const x = editTime(tl, t).t;
-  return tl.segs.find((s) => x >= s.t0 - 1e-9 && x < s.t1 - 1e-9) || tl.segs.at(-1);
+  const seg = tl.segs[segmentIndexAt(tl.segs, x)];
+  return seg && x >= seg.t0 - 1e-9 && x < seg.t1 - 1e-9 ? seg : tl.segs.at(-1);
 }
 
 /** In-points for the two halves of a segment split `local` seconds in, so the right half starts on the
@@ -73,6 +81,7 @@ function halves(b: Block, seg: Segment, local: number, id: string): [Block, Bloc
     vel: b.vel,
     dir: b.dir,
     frame: fR,
+    overrides: copyOverrides(b.overrides),
   });
   return [left, right];
 }
@@ -143,7 +152,7 @@ export function patchBlock(blocks: Block[], id: string, patch: BlockPatch): Bloc
 
 /** What `patchBlock` can set that the look would otherwise decide. Clip and in-point aren't in it: once
  * the edit is in blocks they are each block's own. */
-export const OWN: (keyof BlockPatch)[] = ['trans', 'transBeats', 'vel', 'dir', 'frame'];
+export const OWN: (keyof BlockPatch)[] = ['trans', 'transBeats', 'vel', 'dir', 'frame', 'overrides'];
 
 /** Hands a block's transition, length, ramp, direction and framing back to the look. */
 export function autoBlock(blocks: Block[], id: string): Block[] {

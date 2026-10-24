@@ -3,6 +3,7 @@ import { toast } from '../lib/utils.ts';
 import { LOOKS, cloneLook } from '../engine/looks.ts';
 import { MODULES } from '../engine/modules.ts';
 import { defaultEnv, defaultLfos, defaultSeq } from '../engine/audio.ts';
+import { lutValues } from '../engine/lut.ts';
 import { firstClips } from './mediaActions.ts';
 import { flushProject, syncProject } from './projectController.ts';
 import type { ClipMeta, Look, TrackMeta } from '../engine/types.ts';
@@ -13,9 +14,37 @@ const LEGACY_KEY = 'canvasforge.studio.v1';
 
 const histList: string[] = [];
 const futList: string[] = [];
+const HISTORY_BYTES = 32 * 1024 * 1024;
 let histLastSnap: string | null = null;
 let histTimerId: ReturnType<typeof setTimeout> | undefined;
 let histMutedFlag = false;
+
+// JavaScript strings are UTF-16 in memory. Keep at least the newest step even when one unusually large
+// LUT makes that step exceed the normal history budget.
+const trimHistory = (list: string[]) => {
+  let bytes = list.reduce((n, snap) => n + snap.length * 2, 0);
+  while (list.length > 1 && (list.length > 100 || bytes > HISTORY_BYTES)) bytes -= list.shift()!.length * 2;
+};
+
+let warnedInvalidLut = false;
+export function sanitizeLutLook(look: Look): Look {
+  const lut = look?.finish?.lut;
+  if (!lut) return look;
+  try {
+    lutValues(lut);
+    return look;
+  } catch {
+    const finish = { ...look.finish };
+    delete finish.lut;
+    if (!warnedInvalidLut) {
+      warnedInvalidLut = true;
+      toast('A damaged saved LUT was removed from the edit.', 5000);
+    }
+    return { ...look, finish };
+  }
+}
+
+export const sanitizeLutLooks = (looks: Look[]): Look[] => looks.map(sanitizeLutLook);
 
 // The undo and redo buttons follow the history through useSyncExternalStore, like the play button follows the transport.
 const histListeners = new Set<() => void>();
@@ -36,6 +65,7 @@ export function subscribeHistory(fn: () => void): () => void {
 export const historyDepth = (): { undo: number; redo: number } => histDepth;
 
 let saveTimer: ReturnType<typeof setTimeout> | undefined;
+let sessionSaveFailed = false;
 
 /** The edit itself, without the studio's own settings: what a project file, an export's copy of its edit,
  * undo and a batch export save and put back. */
@@ -80,7 +110,7 @@ export function editFields(saved: any, clips: ClipMeta[], tracks: TrackMeta[]) {
   return {
     selected: kept.length ? kept : firstClips(clips),
     trackId,
-    look: saved.look && Array.isArray(saved.look.layers) ? (saved.look as Look) : cloneLook(LOOKS[0]),
+    look: sanitizeLutLook(saved.look && Array.isArray(saved.look.layers) ? (saved.look as Look) : cloneLook(LOOKS[0])),
     lookId: (saved.lookId as string) || LOOKS[0].id,
     bars: saved.bars ?? 4,
     loopStart: saved.loopStart ?? 0,
@@ -91,7 +121,7 @@ export function editFields(saved: any, clips: ClipMeta[], tracks: TrackMeta[]) {
     lockEdit: saved.lockEdit ?? false,
     intensity: saved.intensity ?? 1,
     clipMode: saved.clipMode || 'one',
-    clipLooks: saved.clipLooks || {},
+    clipLooks: Object.fromEntries(Object.entries(saved.clipLooks || {}).map(([id, look]) => [id, sanitizeLutLook(look as Look)])),
     editClip: null,
     evolveAmt: saved.evolveAmt ?? 0.45,
     evolveCuts: !!saved.evolveCuts,
@@ -129,8 +159,10 @@ function writeSession() {
         rollOpts: s.rollOpts,
       }),
     );
+    sessionSaveFailed = false;
   } catch {
-    /* session storage only */
+    if (!sessionSaveFailed) toast('This edit is too large for browser session storage. Save it as a named project to keep it.', 6000);
+    sessionSaveFailed = true;
   }
   // the open project's file follows the session
   void syncProject();
@@ -173,7 +205,7 @@ function commitHistory() {
   const snap = snapshot();
   if (histLastSnap !== null && snap !== histLastSnap) {
     histList.push(histLastSnap);
-    if (histList.length > 100) histList.shift();
+    trimHistory(histList);
     futList.length = 0;
   }
   histLastSnap = snap;
@@ -212,6 +244,10 @@ export function snapshot(): string {
 export function applySnapshot(snap: string) {
   histMutedFlag = true;
   const data = JSON.parse(snap);
+  if (data.look) data.look = sanitizeLutLook(data.look);
+  if (data.clipLooks && typeof data.clipLooks === 'object') {
+    data.clipLooks = Object.fromEntries(Object.entries(data.clipLooks).map(([id, look]) => [id, sanitizeLutLook(look as Look)]));
+  }
   const before = useStudioStore.getState();
   // Another song, or another tempo for this one, means analysing the song again.
   const reanalyze = data.trackId !== before.trackId || data.bpmOverride?.[data.trackId] !== before.bpmOverride[data.trackId];
@@ -220,7 +256,9 @@ export function applySnapshot(snap: string) {
   if (s.engine?.main) s.engine.main.reset();
   s.rebuild();
   histMutedFlag = false;
-  histLastSnap = snap;
+  // Sanitizing damaged imported history changes the state we actually restored, so remember that
+  // valid state rather than letting the rejected bytes become the base of the next undo step.
+  histLastSnap = snapshot();
   if (reanalyze) void reloadSong(data);
 }
 
@@ -243,6 +281,7 @@ export function undo() {
     return;
   }
   futList.push(snap);
+  trimHistory(futList);
   const prev = histList.pop()!;
   applySnapshot(prev);
   histChanged();
@@ -257,6 +296,7 @@ export function redo() {
     return;
   }
   histList.push(snap);
+  trimHistory(histList);
   const next = futList.pop()!;
   applySnapshot(next);
   histChanged();

@@ -36,6 +36,18 @@ describe('inspector tabs', () => {
     renderStudio(<InspectorPanel />);
     expect(document.getElementById('lookCount')!.textContent).toBe(String(LOOKS.length + 1));
   });
+
+  test('the tablist supports arrow-key navigation and reports the active tab', () => {
+    resetStudio({ tab: 'looks' });
+    renderStudio(<InspectorPanel />);
+    const looks = screen.getByRole('tab', { name: /^Looks/ });
+    expect(looks.getAttribute('aria-selected')).toBe('true');
+    fireEvent.keyDown(looks, { key: 'ArrowRight' });
+    expect(st().tab).toBe('layers');
+    expect(screen.getByRole('tab', { name: /^Layers/ }).getAttribute('aria-selected')).toBe('true');
+    fireEvent.keyDown(screen.getByRole('tab', { name: /^Layers/ }), { key: 'End' });
+    expect(st().tab).toBe('edit');
+  });
 });
 
 describe('looks grid', () => {
@@ -97,5 +109,27 @@ describe('looks grid', () => {
     expect(jobs).toHaveLength(LOOKS.length);
     expect(jobs[0].id).toBe(`look:${LOOKS[0].id}`);
     expect(jobs[0].card).toBe(lookCard(LOOKS[0].id));
+  });
+
+  test('search and collection filters update both the tiles and thumbnail jobs', () => {
+    resetStudio({ tab: 'looks' });
+    renderStudio(<LooksPane />);
+    const search = screen.getByLabelText('Search looks');
+
+    fireEvent.change(search, { target: { value: 'VHS Afterhours' } });
+    expect(Array.from(document.querySelectorAll<HTMLElement>('[data-look-id]')).map((el) => el.dataset.lookId)).toEqual(['vhs']);
+    expect(st().lookJobs.map((job) => job.id)).toEqual(['look:vhs']);
+
+    // The result count stays at one; the job still has to follow the new filtered ID.
+    fireEvent.change(search, { target: { value: 'Glyph Terminal' } });
+    expect(Array.from(document.querySelectorAll<HTMLElement>('[data-look-id]')).map((el) => el.dataset.lookId)).toEqual(['matrix']);
+    expect(st().lookJobs.map((job) => job.id)).toEqual(['look:matrix']);
+
+    fireEvent.click(screen.getByLabelText('Clear look search'));
+    fireEvent.click(screen.getByRole('button', { name: /^Album art/ }));
+    const artIds = Array.from(document.querySelectorAll<HTMLElement>('[data-look-id]')).map((el) => el.dataset.lookId);
+    expect(artIds).toHaveLength(LOOKS.filter((look) => look.group === 'art').length);
+    expect(artIds.every((id) => id?.startsWith('art-'))).toBe(true);
+    expect(st().lookJobs.map((job) => job.id)).toEqual(artIds.map((id) => `look:${id}`));
   });
 });

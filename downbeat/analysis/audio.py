@@ -2,12 +2,14 @@
 from __future__ import annotations
 
 import dataclasses
+import math
 import os
 import re
 import subprocess
 
 import numpy as np
 
+from .._cache import BoundedCache, file_version
 from ..media.encoder import ffmpeg_path
 from ..media import file_id
 
@@ -59,18 +61,20 @@ class FrameAudioCurves:
     start_sec: float
 
 
-_PCM_CACHE: dict[str, np.ndarray] = {}
-_PROFILE_CACHE: dict[str, AudioProfile] = {}
+_PCM_CACHE = BoundedCache(16, max_bytes=128 << 20, weigh=lambda y: y.nbytes)
+_PROFILE_CACHE = BoundedCache(64)
 
 
 def _decode_pcm(path: str, max_seconds: float = 180.0) -> np.ndarray:
     """Decode audio file to 22050Hz mono float32 numpy array via ffmpeg."""
     path = os.path.abspath(os.path.expanduser(path))
-    if path in _PCM_CACHE:
-        return _PCM_CACHE[path]
-    if not os.path.isfile(path):
-        raise FileNotFoundError(path)
+    if not math.isfinite(max_seconds) or not 0 < max_seconds <= 1800:
+        raise ValueError("audio decode duration must be between 0 and 1800 seconds")
+    key = (*file_version(path), float(max_seconds))
+    return _PCM_CACHE.get_or_create(key, lambda: _read_pcm(path, max_seconds))
 
+
+def _read_pcm(path: str, max_seconds: float) -> np.ndarray:
     cmd = [
         ffmpeg_path(),
         "-v",
@@ -88,13 +92,11 @@ def _decode_pcm(path: str, max_seconds: float = 180.0) -> np.ndarray:
         "f32le",
         "pipe:1",
     ]
-    raw = subprocess.check_output(cmd)
+    raw = subprocess.check_output(cmd, timeout=max(60.0, max_seconds * 2))
     y = np.frombuffer(raw, dtype=np.float32).copy()
     if y.size < SR:
         y = np.pad(y, (0, SR - y.size))
-    if len(_PCM_CACHE) >= 16:
-        _PCM_CACHE.pop(next(iter(_PCM_CACHE)))
-    _PCM_CACHE[path] = y
+    y.setflags(write=False)
     return y
 
 
@@ -202,9 +204,10 @@ def estimate_bpm(y: np.ndarray, lo: float = 70.0, hi: float = 180.0) -> float:
 def analyze_track(path: str) -> AudioProfile:
     """Analyze audio track for tempo, drop window, and UI waveform peaks."""
     path = os.path.abspath(os.path.expanduser(path))
-    if path in _PROFILE_CACHE:
-        return _PROFILE_CACHE[path]
+    return _PROFILE_CACHE.get_or_create(file_version(path), lambda: _analyze_track(path))
 
+
+def _analyze_track(path: str) -> AudioProfile:
     y = _decode_pcm(path)
     duration = float(y.size / SR)
     aid = file_id(path)  # path is already absolute, so this matches library.track_id()
@@ -247,7 +250,6 @@ def analyze_track(path: str) -> AudioProfile:
         best_start_sec=best_start_sec,
         waveform_peaks=peaks_norm.tolist(),
     )
-    _PROFILE_CACHE[path] = prof
     return prof
 
 
@@ -258,42 +260,43 @@ def extract_frame_curves(
     start_sec: float | None = None,
 ) -> FrameAudioCurves:
     """Extract 30fps sub-bass, transient, high-air, and RMS curves for n_frames."""
+    if n_frames < 0 or fps <= 0:
+        raise ValueError("frame count must be non-negative and fps must be positive")
     prof = analyze_track(path)
     y = _decode_pcm(path)
-    duration_sec = n_frames / fps
     if start_sec is None:
         start_sec = prof.best_start_sec
+    if not math.isfinite(start_sec):
+        raise ValueError("audio start must be finite")
 
     start_sample = int(max(0.0, start_sec) * SR)
-    need_samples = int(duration_sec * SR) + 2048
-    if start_sample + need_samples > y.size:
-        reps = (need_samples // max(1, y.size)) + 2
-        y_tiled = np.tile(y, reps)
-        seg = y_tiled[start_sample : start_sample + need_samples]
-    else:
-        seg = y[start_sample : start_sample + need_samples]
-
     n_fft = 1024
+    samples_per_frame = SR / fps
+    start_sample %= y.size
+
     window = np.hanning(n_fft).astype(np.float32)
     freqs = np.fft.rfftfreq(n_fft, d=1.0 / SR)
 
     sub_mask = (freqs >= 25.0) & (freqs <= 145.0)
     air_mask = (freqs >= 2400.0) & (freqs <= 10000.0)
 
+    # A circular source view avoids tiling the song to the entire export duration. Batch the FFTs so
+    # a long CLI render does not allocate an n_frames × n_fft matrix (plus complex FFT temporaries).
+    circular = np.concatenate((y, y[:n_fft - 1]))
+    windows = np.lib.stride_tricks.sliding_window_view(circular, n_fft)
     sub_arr = np.zeros(n_frames, dtype=np.float32)
     air_arr = np.zeros(n_frames, dtype=np.float32)
     rms_arr = np.zeros(n_frames, dtype=np.float32)
-
-    samples_per_frame = SR / fps
-    for i in range(n_frames):
-        center = int(i * samples_per_frame)
-        chunk = seg[center : center + n_fft]
-        if chunk.size < n_fft:
-            chunk = np.pad(chunk, (0, n_fft - chunk.size))
-        rms_arr[i] = float(np.sqrt(np.mean(chunk * chunk)))
-        mag = np.abs(np.fft.rfft(chunk * window))
-        sub_arr[i] = float(mag[sub_mask].mean()) if np.any(sub_mask) else 0.0
-        air_arr[i] = float(mag[air_mask].mean()) if np.any(air_mask) else 0.0
+    for first in range(0, n_frames, 1024):
+        end = min(first + 1024, n_frames)
+        starts = (np.arange(first, end, dtype=np.float64) * samples_per_frame).astype(np.int64)
+        chunks = windows[(starts + start_sample) % y.size]
+        rms_arr[first:end] = np.sqrt(np.mean(chunks * chunks, axis=1))
+        mag = np.abs(np.fft.rfft(chunks * window, axis=1))
+        if np.any(sub_mask):
+            sub_arr[first:end] = mag[:, sub_mask].mean(axis=1)
+        if np.any(air_mask):
+            air_arr[first:end] = mag[:, air_mask].mean(axis=1)
 
     flux = _flux(sub_arr * 1.4 + rms_arr)
 

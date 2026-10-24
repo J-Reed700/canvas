@@ -1,5 +1,5 @@
 import { useStudioStore } from './store.ts';
-import { exportLoop } from '../engine/exporter.ts';
+import { exportLoop, type Frame0Reference } from '../engine/exporter.ts';
 import { ClipFrames } from '../engine/clipFrames.ts';
 import { cloneLook } from '../engine/looks.ts';
 import { FORMATS, SIZES, toast, h, postJSON, saveToDownloads, siblingTracks, fmt as fmtTime } from '../lib/utils.ts';
@@ -8,6 +8,58 @@ import { CHECK_ICONS } from '../lib/exportsView.ts';
 import { editState } from './historyController.ts';
 
 let exportAbortCtrl: AbortController | null = null;
+let frame0Reference: Frame0Reference | undefined;
+let frame0ReferenceRequest = 0;
+const MAX_REFERENCE_BYTES = 20 * 1024 * 1024;
+
+const hex = (bytes: ArrayBuffer): string => Array.from(new Uint8Array(bytes), (b) => b.toString(16).padStart(2, '0')).join('');
+async function fingerprint(file: File): Promise<string> {
+  const data = await file.arrayBuffer();
+  if (globalThis.crypto?.subtle) return `sha256:${hex(await globalThis.crypto.subtle.digest('SHA-256', data))}`;
+  // WebCrypto may be absent on a non-secure LAN origin. Two independent 32-bit hashes still make
+  // filename collisions unable to silently reuse another project's decoded reference.
+  let a = 0x811c9dc5, b = 0x9e3779b9;
+  for (const byte of new Uint8Array(data)) {
+    a = Math.imul(a ^ byte, 0x01000193) >>> 0;
+    b = Math.imul(b ^ byte, 0x85ebca6b) >>> 0;
+  }
+  return `fnv:${a.toString(16).padStart(8, '0')}${b.toString(16).padStart(8, '0')}:${data.byteLength}`;
+}
+
+/** Decode the user's local QA still once. Only its tiny pixels stay in memory; the file is never uploaded. */
+export async function setFrame0Reference(file?: File | null): Promise<Frame0Reference | undefined> {
+  const request = ++frame0ReferenceRequest;
+  if (!file) {
+    frame0Reference = undefined;
+    return undefined;
+  }
+  if (file.size > MAX_REFERENCE_BYTES) throw new Error('Reference stills must be 20 MB or smaller');
+  if (typeof createImageBitmap !== 'function') throw new Error('This browser cannot decode a reference still');
+  const id = await fingerprint(file);
+  if (request !== frame0ReferenceRequest) return undefined;
+  const image = await createImageBitmap(file);
+  try {
+    if (image.width * image.height > 100_000_000) throw new Error('Reference stills must be 100 megapixels or smaller');
+    const canvas = document.createElement('canvas');
+    canvas.width = 36;
+    canvas.height = 64;
+    const context = canvas.getContext('2d', { willReadFrequently: true });
+    if (!context) throw new Error('This browser cannot read a reference still');
+    context.drawImage(image, 0, 0, 36, 64);
+    const topDown = context.getImageData(0, 0, 36, 64).data;
+    const bottomUp = new Uint8Array(topDown.length);
+    const row = 36 * 4;
+    for (let y = 0; y < 64; y++) bottomUp.set(topDown.subarray(y * row, (y + 1) * row), (63 - y) * row);
+    if (request !== frame0ReferenceRequest) return undefined;
+    frame0Reference = { id, name: file.name, width: image.width, height: image.height, pixels: bottomUp };
+    return frame0Reference;
+  } finally {
+    image.close();
+  }
+}
+
+export const hasFrame0Reference = (id?: string): boolean => !!id && frame0Reference?.id === id;
+export const frame0ReferenceLabel = (id?: string): string => hasFrame0Reference(id) ? frame0Reference?.name || 'Reference ready' : 'Reference needs re-selection';
 
 /** The footage check failed: the clips came out as stills. */
 export const froze = (r: RenderRecord): boolean => (r.checks || []).some((c) => c.id === 'footage' && c.level === 'fail');
@@ -40,11 +92,15 @@ function closeSheet(): void {
 export function showResult(r: RenderRecord) {
   const checks = r.checks || [];
   const fails = checks.filter((c) => c.level === 'fail').length;
+  const codec = r.output_codec
+    ? ({ h264: 'H.264', prores_422_hq: 'ProRes 422 HQ', prores_4444: 'ProRes 4444' } as const)[r.output_codec]
+    : r.codec;
 
   let headerText = 'Ready for Spotify';
   if (r.format === 'cover_art') headerText = 'Cover art and loop exported';
   else if (r.format === 'youtube_16_9') headerText = 'YouTube video exported';
   else if (r.format === 'social_square') headerText = 'Square video exported';
+  else if (r.format === 'social_vertical') headerText = 'Vertical social video exported';
   else if (r.format && r.format.startsWith('apple_')) headerText = 'Ready for Apple Music';
 
   sheetStatus(
@@ -61,7 +117,7 @@ export function showResult(r: RenderRecord) {
     h(
       'div',
       { class: 'note' },
-      `${r.filename} · ${r.size_mb} MB${r.seconds ? ` · rendered in ${r.seconds.toFixed(1)} s` : ''}${r.codec ? ` (${r.codec})` : ''}`,
+      `${r.filename} · ${r.size_mb} MB${r.seconds ? ` · rendered in ${r.seconds.toFixed(1)} s` : ''}${codec ? ` (${codec})` : ''}`,
     ),
     h(
       'div',
@@ -79,7 +135,7 @@ export function showResult(r: RenderRecord) {
     h(
       'div',
       { class: 'actions', style: 'flex-wrap: wrap; gap: 8px;' },
-      h('a', { class: 'btn primary', href: r.url, download: r.filename }, '↓ Download MP4'),
+      h('a', { class: 'btn primary', href: r.url, download: r.filename }, `↓ Download ${r.filename.toLowerCase().endsWith('.mov') ? 'MOV' : 'MP4'}`),
       r.cover_url ? h('a', { class: 'btn primary', href: r.cover_url, download: '' }, '↓ 3000×3000 Cover JPG') : null,
       r.audio_url ? h('a', { class: 'btn', href: r.audio_url, download: '' }, '↓ With audio') : null,
       r.promo_url ? h('a', { class: 'btn', href: r.promo_url, download: '' }, '↓ Promo with song') : null,
@@ -92,13 +148,17 @@ export function showResult(r: RenderRecord) {
 
 export async function renderOnce(onProgress?: (progress: any) => void): Promise<RenderRecord> {
   const s = useStudioStore.getState();
-  if (!s.ctx || !s.look) throw new Error('No ctx or look');
+  if (!s.ctx || !s.look || !s.engine) throw new Error('The preview is not ready to export');
   const o = s.exportOpts;
   const fmt = o.format || 'spotify';
-  const isAudioFmt = fmt === 'spotify' || fmt === 'youtube_16_9' || fmt === 'social_square';
+  const isAudioFmt = fmt === 'spotify' || fmt === 'youtube_16_9' || fmt === 'social_vertical' || fmt === 'social_square';
   const promoSeconds = s.features && isAudioFmt ? o.promo || 0 : 0;
   const withAudio = !!s.features && o.withSong === true;
   const [W, H] = (o.format && FORMATS[o.format]?.size) || (o.size && SIZES[o.size]) || SIZES.master;
+  const outputCodec = fmt.startsWith('apple_')
+    ? o.codec === 'prores422' ? 'prores_422_hq' : o.codec === 'prores4444' ? 'prores_4444' : 'h264'
+    : 'h264';
+  const reference = hasFrame0Reference(o.coverRefId) ? frame0Reference : undefined;
 
   const wasPlaying = s.transport.playing;
   s.transport.pause();
@@ -140,6 +200,11 @@ export async function renderOnce(onProgress?: (progress: any) => void): Promise<
         format: fmt,
         with_audio: withAudio,
         promo_seconds: promoSeconds,
+        promo_title: promoSeconds ? o.promoTitle || '' : '',
+        promo_out_now: promoSeconds ? o.promoOutNow === true : false,
+        codec: outputCodec,
+        // Removed before begin JSON; only the comparison result is sent to the server at /raw/end.
+        frame0Reference: reference,
         // saved with the export, so Exports can open the edit it was made from
         edit: editState(),
       },

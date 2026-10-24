@@ -1,13 +1,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { planTimeline, sampleTimeline, clipTime, cameraFor, moveAt, loopBeats, velocityAt, RHYTHMS, DIRECTIONS, VELOCITY } from '../downbeat/studio/src/engine/timeline.ts';
+import { planTimeline, resolve, sampleTimeline, clipTime, cameraFor, moveAt, loopBeats, velocityAt, RHYTHMS, DIRECTIONS, VELOCITY } from '../downbeat/studio/src/engine/timeline.ts';
 import { segAt } from '../downbeat/studio/src/engine/blocks.ts';
 import { compose, resolveParams } from '../downbeat/studio/src/engine/composer.ts';
 import { flashesPerSecond } from '../downbeat/studio/src/engine/exporter.ts';
 import { LOOKS, chaosLook, evolveLook, mutate, randomLook } from '../downbeat/studio/src/engine/looks.ts';
 import { CAMERA, FINISH_DEF, MODULES, moduleSource, buildStageSource } from '../downbeat/studio/src/engine/modules.ts';
 import { TRANSITIONS } from '../downbeat/studio/src/engine/shaders.ts';
-import { makeSampler, withLook, lfoAt, lfoCycles, LFO_SHAPES, LFO_RATES } from '../downbeat/studio/src/engine/audio.ts';
+import { makeSampler, modulationAt, withLook, lfoAt, lfoCycles, LFO_SHAPES, LFO_RATES } from '../downbeat/studio/src/engine/audio.ts';
 import { MOD_SOURCES } from '../downbeat/studio/src/engine/modules.ts';
 
 const FPS = 30;
@@ -187,6 +187,94 @@ test('modulation adds to the base value and respects the param range', () => {
   const out = resolveParams(defs, { x: 1.8, n: 4 }, { x: { src: 'kick', amt: 0.5 }, n: { src: 'kick', amt: 1 } }, { kick: 1 });
   assert.equal(out.p_x, 2, 'clamped to max');
   assert.equal(out.p_n, 4, 'stepped params are never modulated (they would break seamless loops)');
+});
+
+test('route shaping is periodic and deterministic across seeks, with gate and sidechain ducking', () => {
+  const L = 2, beatDur = 0.25;
+  const sampler = (t) => {
+    const u = ((t % L) + L) % L / L;
+    return { kick: u < 0.2 ? 1 : 0.1, bass: u >= 0.45 && u < 0.8 ? 1 : 0 };
+  };
+  const look = LOOKS[0];
+  const current = (t) => withLook(sampler(t), look, t / L, t / beatDur, L / beatDur);
+  const shaped = { src: 'kick', amt: 0.5, attack: 80, decay: 300, gate: 0.2, duck: { src: 'bass', amount: 0.75 } };
+  const plain = { ...shaped, duck: undefined };
+  const at = (route, t) => modulationAt(route, sampler, look, t, L, beatDur, current(t));
+  const times = [1.7, 0, 0.03, 0.5, 0.92, 1.2, 0.2];
+  const outOfOrder = new Map(times.map((t) => [t, at(shaped, t)]));
+  for (const t of [...times].sort((a, b) => a - b)) assert.equal(at(shaped, t), outOfOrder.get(t), `seek at ${t}`);
+  assert.equal(at(shaped, 0), at(shaped, L), 'the shaped envelope closes exactly at the loop');
+  assert.ok(at(shaped, 0.03) < 1, 'attack softens the leading edge');
+  assert.ok(at(shaped, 0.5) > 0, 'decay holds the falling edge after the gated source closes');
+  assert.ok(at(shaped, 1.2) < at(plain, 1.2), 'the bass sidechain ducks the route');
+  assert.equal(modulationAt({ src: 'kick', amt: 1 }, sampler, look, 1, L, beatDur, current(1)), current(1).kick, 'old routes read the exact old source');
+});
+
+test('a dense look keeps more than 24 shaped routes hot between rendered frames', () => {
+  let reads = 0;
+  const L = 0.5, beatDur = 0.125;
+  const sampler = (t) => { reads++; return { kick: ((t % L) + L) % L < L / 2 ? 1 : 0 }; };
+  const routes = Array.from({ length: 40 }, (_, i) => ({ src: 'kick', amt: 0.2, attack: 10 + i * 5, decay: 80 }));
+  const current = withLook(sampler(0.2), LOOKS[0], 0.4, 0.2 / beatDur, L / beatDur);
+  for (const route of routes) modulationAt(route, sampler, LOOKS[0], 0.2, L, beatDur, current);
+  const afterFirstFrame = reads;
+  for (const route of routes) modulationAt(route, sampler, LOOKS[0], 0.21, L, beatDur, current);
+  assert.equal(reads, afterFirstFrame, 'the next frame reuses the whole active route working set');
+});
+
+test('audio motion clocks only advance, seek deterministically and close their normalized loop', () => {
+  const L = base.L;
+  const make = () => makeSampler({ features: null, loopStart: 0, beatDur: base.beatDur, seed: 19, L });
+  const sampler = make();
+  const ordered = Array.from({ length: 193 }, (_, i) => sampler(i * L / 192));
+  for (let i = 1; i < ordered.length; i++) {
+    assert.ok(ordered[i].audioTime > ordered[i - 1].audioTime, `audio clock ${i}`);
+    assert.ok(ordered[i].bassTime > ordered[i - 1].bassTime, `bass clock ${i}`);
+  }
+  assert.equal(ordered[0].audioTime, 0);
+  assert.equal(ordered.at(-1).audioTime, L);
+  assert.equal(ordered.at(-1).bassTime, L);
+  assert.equal(ordered.at(-1).audioPhase, 0);
+  assert.equal(ordered.at(-1).bassPhase, 0);
+  const bassSteps = ordered.slice(1).map((v, i) => v.bassTime - ordered[i].bassTime);
+  assert.ok(Math.max(...bassSteps) > Math.min(...bassSteps) * 1.1, 'bass changes speed instead of multiplying time and reversing');
+  const randomOrder = [4.9, 0.2, 3.1, 6.2, 1.4];
+  const a = randomOrder.map((t) => sampler(t).bassTime);
+  const fresh = make();
+  const b = randomOrder.map((t) => fresh(t).bassTime);
+  assert.deepEqual(a, b, 'render invocation order does not affect the clock');
+});
+
+test('block overrides reach macros, indexed layers, camera, finish and shader clocks', () => {
+  const look = structuredClone(LOOKS[0]);
+  const baseTl = planTimeline({ ...base, rhythm: 'bar' });
+  const blocks = baseTl.blocks.map((b, i) => i === 1 ? {
+    ...b,
+    overrides: {
+      macro: { a: 0.8 },
+      camera: { drift: 0.91 },
+      finish: { exposure: 1.25 },
+      layers: {
+        0: { m: look.layers[0].m, p: { scale: 5.5 } },
+        1: { m: 'wrong-module', p: { mix: 0 } },
+      },
+    },
+  } : b);
+  const tl = resolve(blocks, { ...base, rhythm: 'bar' });
+  const lut = { name: 'Test', size: 2, domainMin: [0, 0, 0], domainMax: [1, 1, 1], data: '' };
+  look.finish.lut = lut;
+  const sampler = makeSampler({ features: null, loopStart: 0, beatDur: base.beatDur, seed: 1, L: base.L });
+  const ctx = { look, tl, sampler, clipDur: () => 20, L: base.L, beatDur: base.beatDur, seed: 1 };
+  const seg = tl.segs[1];
+  const fr = compose(ctx, seg.t0 + seg.dur * 0.6);
+  assert.equal(fr.mv.macroA, 0.8);
+  assert.equal(fr.camera.p_drift, 0.91);
+  assert.equal(fr.finish.p_exposure, 1.25);
+  assert.equal(fr.layers.length, 0, 'the block stack runs on its clip before transitions');
+  assert.equal(fr.pre[0][0].params.p_scale, 5.5);
+  assert.equal(fr.pre[0][1].params.p_mix, look.layers[1].p.mix, 'a module identity mismatch is ignored');
+  assert.equal(fr.lut, lut);
+  for (const key of ['uAudioTime', 'uBassTime', 'uAudioPhase', 'uBassPhase']) assert.ok(Number.isFinite(fr.globals[key]), key);
 });
 
 test('compose() builds valid frames for every curated look', () => {

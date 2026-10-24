@@ -59,34 +59,43 @@ Preview and export use the same renderer, so an export matches the preview frame
 ## 2. The screen
 
 ```
-┌ project · track · BPM · loop length · look · clip count ······················ ?  🎲 Roll ▾  Export ┐
-├──────────────┬─────────────────────────────────────────┬───────────────────────────────────────────┤
-│ Track        │ Phone preview                           │ Looks | Layers | Edit                      │
-│ BPM, grid    │                                         │                                           │
-│ Meters       │ Transport bar                           │ Looks:  pick a look                       │
-│ Clips        │                                         │ Layers: effect stack, modulators          │
-│ Exports      ├─────────────────────────────────────────┤ Edit:   cuts, transitions, direction      │
-│              │ Timeline: loop chips, rhythm buttons,   │                                           │
-│              │ song waveform, cut lane                 │                                           │
-└──────────────┴─────────────────────────────────────────┴───────────────────────────────────────────┘
+┌ downbeat · project · track ··········· Commands · Undo/Redo · Remix · Export ┐
+├────────────────────┬─────────────────────────────────┬─────────────────────┤
+│ Library            │ Viewer · shape · guides · Focus │ Inspector           │
+│ Audio, tempo, grid │                                 │ Looks | Layers | Edit│
+│ Clips              │ Canvas                          │                     │
+│ Exports            │ Timecode · transport · loop      │ Active look/clip    │
+├────────────────────┴─────────────────────────────────┤ Effects and color   │
+│ Timeline · song waveform · video cuts · audio        │                     │
+├──────────────────────────────────────────────────────┴─────────────────────┤
+│ Local workspace · clips · look                 format · dimensions · fps   │
+└────────────────────────────────────────────────────────────────────────────┘
 ```
 
 The button next to the Downbeat name is the open project and whether it's saved; click it for
-[Projects](#13-projects). The chips after it are a summary: track, tempo, loop length, the main look's name and
-how many clips are in the edit. On the right, the ↶ and ↷ buttons undo and redo your last change (⌘Z, ⇧⌘Z), ? lists the
-shortcuts, 🎲 Roll (D) randomizes the canvas (the ▾ beside it sets what a roll changes and has Undo last roll),
-and Export Canvas (E) opens the export sheet.
+[Projects](#13-projects). On the right, Commands (⌘K, or Ctrl+K) searches workspace actions, ↶ and ↷ undo
+and redo your last change, ? lists shortcuts, Remix (D) randomizes the canvas, and Export (E) opens the
+export sheet. The arrow beside Remix chooses what a roll changes and offers Undo last roll.
+
+Drag the dividers to resize the Library, Inspector and timeline. Double-click a divider to reset it; a
+focused divider also accepts arrow keys, Shift+arrow for larger steps, and Home to reset. Sizes stay in
+this browser. Focus viewer (Shift+F, or the expand icon) gives the viewer the workspace; Escape restores
+the panels. Commands also offers Reset workspace layout. Narrow windows stack the panels vertically.
+
+The Inspector's Looks gallery has search and collection filters. In Layers, All, Effects and Color switch
+between the full stack and focused editing sections. The footer keeps the current format and output
+dimensions visible.
 
 ## 3. A first canvas
 
 1. Pick a folder. The first time you open the studio it shows one button, Pick a folder. Choose the folder
    your clips are in, and the studio lists its videos and songs, puts up to five clips in the edit and picks
    the newest song. To add files from elsewhere, drop video clips, album art (JPG/PNG) or songs anywhere on
-   the window, or use + Add files.
+   the window, or use Import in the Library.
 2. Choose the song in the Track menu if it isn't the one you want. The studio analyzes its tempo, beats, sections and drum hits when you
    pick it.
 3. Choose which part of the song loops. The chips above the timeline (Drop, Peak 2, Intro…) are suggestions.
-   You can also drag the lime box on the waveform.
+   You can also drag the violet loop range on the waveform.
 4. Click clips in the Clips list to put them in the edit. The number on each clip is its position, and it's
    the same number (#1, #2…) you'll see on the timeline.
 5. Pick a look in the Looks tab, or press D until you like what you see.
@@ -133,13 +142,13 @@ are dimmed underneath. Drag a numbered clip onto another to change the order.
 
 | Button | Does |
 |---|---|
-| + Add files | Copies video clips, images or songs into the studio (`out/uploads/`). Dropping them on the window does the same. Videos the browser can't play, such as .avi, .mts or .wmv, are converted to .mp4 as they're added |
-| + Add a folder | Lists the videos and songs in a folder and its subfolders, the 50 newest videos from each folder. The files stay where they are |
-| All | Puts every loaded clip into the edit. Videos that aren't loaded yet stay out. With nothing loaded, it starts on up to five clips, stock footage first |
-| Stock | Shows when the library has stock footage. Swaps the edit for up to five stock clips |
-| Solo | Keeps only clip 1 |
-| Reverse | Reverses the order |
-| Shuffle | Shuffles the order |
+| Import | Copies video clips, images or songs into the studio (`out/uploads/`). Dropping them on the window does the same. Videos the browser can't play, such as .avi, .mts or .wmv, are converted to .mp4 as they're added |
+| + Folder | Lists the videos and songs in a folder and its subfolders, the 50 newest videos from each folder. The files stay where they are |
+| Sequence → All | Puts every loaded clip into the edit. Videos that aren't loaded yet stay out. With nothing loaded, it starts on up to five clips, stock footage first |
+| Sequence → Stock | Shows when the library has stock footage. Swaps the edit for up to five stock clips |
+| Sequence → Solo | Keeps only clip 1 |
+| Sequence → Reverse | Reverses the order |
+| Sequence → Shuffle | Shuffles the order |
 | ⌖ Auto-frame subjects | Finds a face or main subject in each clip and centers the crop on it |
 
 When per-clip FX is on, each clip gets a small label in its top-right corner: "Main" if it uses the main look,
@@ -179,10 +188,10 @@ it.
  Drop  Peak 2  Peak 3  Intro   16 cuts · from 0:27        Hits ½beat Beat ½bar Bar 2bars 3-3-2 Build …
  ✂ Split  Repeat  Put a clip in  Delete                          Snap  Beat ½ ¼ Off
  ▼  ▼          ▼                                    ← suggested loop starts (white triangles)
- ▁▃▅▇▅▃▁▂▃[████]▅▃▂▁▃▅▇▅▃▂▁▂▃▅▃▂                      ← the song; the lime box is the part that loops
+ ▁▃▅▇▅▃▁▂▃[████]▅▃▂▁▃▅▇▅▃▂▁▂▃▅▃▂                      ← the song; the violet range is the part that loops
  1         2         3         4                     ← bars inside the loop
  ◆#1 ◆#2 ◆#3 ◆#4 ◆#1 ◆#2 ◆#3 ◆#4 ◆#1 ◆#2 …            ← one block per cut
- ~~~^~~~~~~^~~~~~~^~~~~~                              ← kick (red), hats (blue), energy (green)
+ ~~~^~~~~~~^~~~~~~^~~~~~                              ← source waveform, kick (red), hats (blue), energy (green)
 ```
 
 ### What #1, #2, #3, #4 mean
@@ -199,12 +208,12 @@ Hits on the strongest drum hits, and so on (full list in [section 18](#18-rhythm
 When the rhythm gives fewer cuts than there are clips, the longest cuts are split in two until every clip has
 one. "Show every clip at least once" in the Edit tab turns that off.
 
-The diamonds are transitions. Pink ones are animated, and the pink shading shows how long they last; white
+The diamonds are transitions. Violet ones are animated, and the violet shading shows how long they last; white
 ones are hard cuts. The diamond at the far left is the loop seam, where the end of the loop joins the start.
-Each cut has its own length. Drag the edge of the pink shading to change it, or set it in the segment menu.
+Each cut has its own length. Drag the edge of the violet shading to change it, or set it in the segment menu.
 A transition can use up to 90% of the shorter block on either side, so two transitions never overlap.
 
-With Loop set to Rebound in the Edit tab, the cuts fill the first half of the lane and a dashed lime line marks
+With Loop set to Rebound in the Edit tab, the cuts fill the first half of the lane and a dashed violet line marks
 the middle. The second half plays the same blocks backward, so it's drawn as a dimmed mirror of the first. Edit
 the blocks in the first half; the mirror follows. There's no diamond at the seam, because the footage runs
 back into its own first frame there.
@@ -225,14 +234,20 @@ clip's blocks, dims the rest, and the header says which clip is highlighted.
 |---|---|---|
 | Click a loop chip | above the waveform | Moves the loop to that section. [ and ] step through them |
 | Click or drag | song waveform | Moves the loop start, snapped to a downbeat |
-| Click | cut lane | Moves the playhead and selects the block, which gets a lime outline |
+| Click | cut lane | Moves the playhead and selects the block, which gets a violet outline |
 | Drag a cut line | cut lane, cursor shows ↔ | Moves that cut, snapped to the Snap setting (the beat at first). Hold Shift to put it anywhere. The rhythm shows Custom |
-| Drag the edge of the pink shading | cut lane, cursor shows ⇹ | Sets how long that one transition lasts, in quarter beats. Hold Shift for any length |
+| Drag the edge of the violet shading | cut lane, cursor shows ⇹ | Sets how long that one transition lasts, in quarter beats. Hold Shift for any length |
 | Option-drag | a block | Slips the clip: same timing, different moment of the footage |
-| Double-click, right-click, or long-press on a touch screen | a block | Opens the segment menu. Enter, the ✎ Edit segment button above the timeline and the ✎ Edit chip on the selected block open it too. It has Split, Repeat, Put a clip in and Delete for that block, then Timing (see [Moving a cut off the bar lines](#moving-a-cut-off-the-bar-lines)), then the clip, in-point (click a frame in the filmstrip or drag the slider), direction, speed ramp, the transition into that block and its length, and its framing (see [Framing one segment](#framing-one-segment)). A lime dot marks what you've set, and Back to auto clears it. ‹ › or ← → move to the next block, and ▶ Play the cut plays the transition into it. When the menu is taller than the window it scrolls, with "More below" at its bottom edge, and its title row stays at the top |
+| Double-click, right-click, or long-press on a touch screen | a block | Opens the segment menu. Enter, the ✎ Edit segment button above the timeline and the ✎ Edit chip on the selected block open it too. It has Split, Repeat, Put a clip in and Delete for that block, then Timing (see [Moving a cut off the bar lines](#moving-a-cut-off-the-bar-lines)), then the clip, in-point (click a frame in the filmstrip or drag the slider), direction, speed ramp, the transition into that block and its length, and its framing (see [Framing one segment](#framing-one-segment)). A violet dot marks what you've set, and Back to auto clears it. ‹ › or ← → move to the next block, and ▶ Play the cut plays the transition into it. When the menu is taller than the window it scrolls, with "More below" at its bottom edge, and its title row stays at the top |
 | Click a rhythm button | top right | Re-cuts the loop and starts the cuts over, dropping any you moved, split or added |
 
 ### Cutting blocks by hand
+
+Select a block, then open **Edit → Block look** to give that cut its own macros, camera, Finish or effect
+parameters. Check the setting you want to override, then adjust it. Unchecked settings keep following the
+look. **Use look for all** clears the block's look overrides. Splitting a block preserves its treatment on
+both halves. Layer overrides apply to the matching effect at that stack position; changing the effect does
+not apply the old effect's values to its replacement.
 
 The buttons under the rhythm buttons edit the blocks. Each one works on the selected block, or on the block
 under the playhead when nothing is selected, and each is one ⌘Z step.
@@ -249,18 +264,18 @@ The segment menu has the same four actions for its own block. Its Split cuts at 
 is in that block, and in the middle otherwise; its Put a clip in fills the second half.
 
 A hand-cut edit keeps going through changes to the tempo, the beat grid, the transitions the edit uses and
-their order, the default transition length, clip speed, direction and speed ramp, and a 🎲 Roll that only
+their order, the default transition length, clip speed, direction and speed ramp, and a Remix that only
 changes the look. It starts over when the cuts would no longer make sense: see the list in
 [Where each clip starts](#where-each-clip-starts).
 
 
 ### Moving a cut off the bar lines
 
-The Timing section at the top of the segment menu shows the segment zoomed in, with a bar either side. Bar numbers run along the top, and the pink bands are the transitions.
+The Timing section at the top of the segment menu shows the segment zoomed in, with a bar either side. Bar numbers run along the top, and the violet bands are the transitions.
 
 - Drag the white handle on either cut line to move that cut. It snaps to the grid you pick with Snap (Beat, ½, ¼ or Off). Hold Shift to place it anywhere.
 - Starts and Ends have ‹ › buttons that move a cut one step of the grid. The readout says where it sits, such as "Bar 2, beat 3½".
-- Drag the edge of a pink band to change how long that transition lasts, or pick a length under Transition length.
+- Drag the edge of a violet band to change how long that transition lasts, or pick a length under Transition length.
 - Click the strip to move the playhead there. Double-click it to split the segment at that point.
 
 The cut at the start of segment 1 is the loop seam. It stays put, so pick another loop to move it.
@@ -294,7 +309,7 @@ cuts you moved, split or added, are cleared when you:
 - add, remove or reorder clips, including All, Solo, Reverse and Shuffle
 - click a rhythm button
 - change the edit seed or click ⚄ Re-roll in-points & order
-- 🎲 Roll with Edit, Clips or Loop ticked
+- Remix with Edit, Clips or Loop ticked
 - change the loop length or move the loop, or switch it between Repeat and Rebound
 - switch songs
 - click a look or ⚄ Surprise me, unless Keep my edit is ticked
@@ -317,7 +332,7 @@ tab has 44 built in, plus any you save. Every card plays a live preview on your 
 
 Clicking a look replaces your layers, camera and Finish. It also replaces your cut settings, unless "Keep my
 edit" is ticked in the Edit tab. While you're editing one clip's own stack, clicking a look applies it to that
-clip only; a pink banner says so, and Back to main returns to the main look.
+clip only; a highlighted banner says so, and Back to main returns to the main look.
 
 ← and → step through the list, and the gallery scrolls to keep the current look in view. The cards keep
 playing while the preview is paused.
@@ -341,7 +356,7 @@ an effect rather than set its strength, such as kaleidoscope slices or a zoom, s
 Bloom set to 0.5 glows at 0.75. Double-click the slider to go back to 100%.
 
 Per clip chooses whether clips share one look or get their own: Same look, Evolve, Look per clip or Custom
-(see [section 10](#10-per-clip-fx)). 🎲 Roll FX per clip gives every clip, clip 1 included, a random stack of
+(see [section 10](#10-per-clip-fx)). Roll FX per clip gives every clip, clip 1 included, a random stack of
 its own. Same look on all drops the per-clip looks, and Reset clip N puts one clip back on the main look.
 
 While you're editing a single clip's stack, this card's title changes to "Clip N · look name" with "plays only
@@ -409,6 +424,17 @@ The grade applied after every layer, shared by all clips: Exposure, Contrast, Sa
 opposite), Fade, Halation, Vignette, Grain and Cinema bars. A flash guard on the GPU also limits sudden
 brightness jumps between frames.
 
+### Color studio
+
+The **Color studio** card below Finish imports display-referred creative `.cube` LUTs with grids from 2 to
+65 points per axis. **LUT mix** blends the grade; 0% bypasses it. The LUT travels inside saved looks,
+projects and export edits, so reopening a project does not depend on the original file path. The LUT runs
+after the color controls and before vignette/grain. Convert Log camera footage before using a creative LUT.
+
+Turn on **Waveform** or **RGB parade** to inspect the finished preview. The scopes show sampled SDR code
+values and update five times a second while visible. They pause during exports. These compact scopes help
+with grading; they do not certify a delivery color space or measure HDR luminance.
+
 ### Save as look and Revert
 
 ★ Save as look adds the current stack, with its camera, Finish and cut settings, to Your looks. Revert puts the
@@ -418,6 +444,15 @@ long as you haven't reloaded the page since; after a reload, use ⌘Z.
 ## 9. Modulation
 
 The ● at the end of a slider opens the modulation menu.
+
+Each route can shape its source with **Attack** and **Decay**, reject low levels with **Gate**, and duck
+against another source. For example, route bass to distortion, then choose vocals as the ducking source
+to pull distortion back while the vocal is present. Attack and decay are in milliseconds; gate and duck
+amount use normalized levels. Defaults preserve the original immediate response. Shaping is sampled on a
+fixed time grid, so seeking and exporting do not depend on which frames were previewed first.
+
+Procedural motion also uses cumulative audio and bass phase clocks. Loud sections accelerate motion and
+quiet sections slow it down without reversing it; normalized phases complete a cycle over the loop.
 
 | Group | Sources |
 |---|---|
@@ -466,7 +501,7 @@ To edit one clip's stack:
 If you move a slider and nothing changes, check the Layers header. If it says "Clip N", you're editing a clip
 that isn't on screen at the moment.
 
-After 🎲 Roll FX per clip, every clip has its own stack, so the main stack isn't used anywhere. The line above
+After Roll FX per clip, every clip has its own stack, so the main stack isn't used anywhere. The line above
 the layer tools says so. Reset clip N or Same look on all brings the main look back.
 
 ## 11. The Edit tab
@@ -489,9 +524,9 @@ the layer tools says so. Reset clip N or Same look on all brings the main look b
 
 | Tool | Key | What it does |
 |---|---|---|
-| 🎲 Roll | D | Randomizes the canvas. By default that's the look (a 4 to 6 layer stack), the edit (rhythm, transitions, transition length and order, speed ramp, direction, clip speed, seed, FX intensity from 85 to 175%, a Rebound loop about one roll in five, and with no song the tempo, picked so a loop of 8 seconds or less stays between 3 and 8) and the per-clip mode. Tick Clip order or Song section under ▾ to roll those as well |
+| Remix | D | Randomizes the canvas. By default that's the look (a 4 to 6 layer stack), the edit (rhythm, transitions, transition length and order, speed ramp, direction, clip speed, seed, FX intensity from 85 to 175%, a Rebound loop about one roll in five, and with no song the tempo, picked so a loop of 8 seconds or less stays between 3 and 8) and the per-clip mode. Tick Clip order or Song section under ▾ to roll those as well |
 | Undo last roll | Shift+D | Goes back one roll at a time, up to 40 |
-| ⚄ Surprise me | R | A random look, usually two layers: one main effect plus a light or color layer, sometimes one more or one fewer. Like clicking a look, it resets your cuts unless Keep my edit is ticked |
+| Surprise me | R | A random look, usually two layers: one main effect plus a light or color layer, sometimes one more or one fewer. Like clicking a look, it resets your cuts unless Keep my edit is ticked |
 | Variations | M | Six mutations of the current look, playing live. Subtle/Wild sets how far they drift, ⟳ Mutate again (or M again) deals six more, and clicking one keeps it without touching your edit |
 | ↶ Undo, ↷ Redo | ⌘Z, ⇧⌘Z | The arrows in the top bar. Undoes any change to the work: looks, layers, sliders, modulation, palette tints, cuts, clip order and framing, the song and its tempo and beat grid, and the screen and export settings. View toggles (Player UI, Safe zones, Sound, Loop/Listener, the open tab) aren't undone. Each button is greyed out when there's nothing to step to |
 
@@ -541,8 +576,8 @@ starts.
 
 ## 14. Preview and transport
 
-The preview shows what the export will look like, on a device of the export's shape: a phone for Spotify
-9:16, a landscape screen for YouTube 16:9, a tablet for Apple 3:4, and a square screen for the 1:1 formats.
+The viewer shows the canvas in the export's shape: 9:16 for Spotify, 16:9 for YouTube, 3:4 for Apple tall,
+and 1:1 for square formats. Player UI is optional and starts off in a fresh browser session.
 Drag on it to reframe the clip on screen, scroll to zoom in (up to 3×), and double-click to reset that clip's
 framing. This framing belongs to the clip, so it applies everywhere the clip plays. A segment with its own
 framing ignores it, and dragging the preview there tells you to use the segment menu instead. "Preparing clip…"
@@ -551,14 +586,16 @@ means a clip is still loading.
 | Control | Does |
 |---|---|
 | ▶ / ⏸ (Space) | Play, pause |
-| 0.58 / 6.36 | Position and loop length, in seconds |
+| 00:00:00:17 / 00:00:06:11 | Position and loop length in hours:minutes:seconds:frames, at 30 fps |
+| Previous / next frame (, / .) | Pause and step by one frame inside the loop |
+| Focus viewer (Shift+F) | Expand the viewer; Escape restores the workspace |
 | 1.2 | Bar and beat inside the loop |
 | Loop / Listener (L) | Loop plays only the slice of the song behind the canvas. Listener lets the song play on while the canvas loops, the way a listener hears it |
 | Off-sync (Listener only) | Starts the canvas at a random offset from the song. Spotify doesn't sync a canvas to the music, so this shows how it looks out of step |
 | 1 bar / 2 / 4 / 8 (keys 1–4) | Loop length. A custom length gets its own button showing its bars and time; clicking it opens the Edit tab |
 | Screen (O) | The device to preview on: Phone 9:16, Landscape 16:9, Tablet 3:4 or Square 1:1. It also sets the export shape: picking a screen picks a format of that shape, and picking a format in the export sheet changes the screen. O steps through them |
 | Player UI (H) | Spotify's player overlay, to check what it covers |
-| Safe zones (S) | What Spotify's interface covers (top 14%, bottom 33%) and what tall phones crop (9% each side). Phone only |
+| Safe zones (S) | Preview-only composition guides. On a phone, choose Spotify, TikTok, Reels or Shorts; other shapes show compatible Apple or composition margins. These are approximate reserves: actual UI and cropping vary by device, caption and placement |
 | Sound | Mute |
 | fps | Preview frame rate |
 
@@ -584,27 +621,39 @@ when you change the clips, the rhythm or the transitions.
 
 ## 15. Exporting
 
-Press E or Export Canvas.
+Press E or Export.
 
 | Format | You get |
 |---|---|
 | Spotify 9:16 | A silent 3 to 8 second canvas. Sizes: Master 1080×1920, Lite 720×1280, or Spec-literal 608×1080 if Spotify rejects an upload |
-| Apple 3:4 | 2048×2732 motion artwork, silent, repeated to at least 15 seconds |
-| Apple 1:1 | Rendered at 2048 and delivered at 3840×3840 |
+| Apple 3:4 | Native 2048×2732 motion artwork, silent, 8–35 seconds, H.264 or ProRes |
+| Apple 1:1 | Native 3840×3840 motion artwork, silent, 8–35 seconds, H.264 or ProRes |
 | YouTube 16:9 | A 1920×1080 visualizer of any length |
 | Social 1:1 | A 1080×1080 loop of any length |
+| Social 9:16 | A 1080×1920 vertical social video |
 | Cover 3000² | A 3000×3000 sRGB cover JPEG and a square motion preview |
+
+For Apple formats, choose **H.264**, **ProRes 422 HQ** or **ProRes 4444** in the export sheet. ProRes writes
+a MOV directly from the rendered frames. It avoids an additional H.264 output encode; the current source
+pipeline still uses 8-bit playback copies (up to 2560 pixels on the long edge, or 2160 for still conversion).
+The renderer is opaque, so ProRes 4444 does not add transparency or recover extra source precision.
+
+**Frame 0 reference still** compares the opening frame to a still you choose. It reports a sampled RGB
+similarity and warns about a different aspect ratio. This is a visual aid, not a guarantee that artwork will
+be accepted. The reference is held for the current session; reselect it after reopening the studio.
 
 The export itself is silent. For a demo with sound, check Also save a copy with the song: it's off unless you
 check it, works with every format, and writes a second file, ending in `-audio.mp4`, with the song playing from
 the loop start (under the whole repeated file for Apple). With Save to my Downloads folder on, that copy is
 downloaded too. You can also make a 15 or 30 second promo with the song for Spotify, YouTube and Social (for
 Reels, TikTok or Spotify Countdown pages), and have finished files copied to Downloads.
+With a promo selected, an optional title and **OUT NOW** card are added to that social copy. The motion-art
+master stays clean.
 
 ### Long videos
 
 Spotify takes 3 to 8 seconds and Apple Music motion art at most 35, and the sheet warns you when the loop
-doesn't fit the format you picked. YouTube 16:9 and Social 1:1 take any length, so use those for a
+doesn't fit the format you picked. YouTube 16:9 and both Social formats take any length, so use those for a
 visualizer. With Also save a copy with the song checked you get a second file with the song playing from the
 loop start. The GIF and WebP teasers use the first 10 seconds.
 
@@ -619,8 +668,9 @@ and the clip holds its last frame until the next cut.
 Spotify asks that canvases avoid rapid cuts. The sheet warns you when the shortest cut is under 0.3 seconds or
 there are more than 2.5 cuts a second; a slower rhythm like ½ bar or Bar fixes it.
 
-Render & verify renders every frame on the GPU, encodes H.264 in hardware, and checks the file against the
-format's spec. While it runs, the preview shows the size being rendered and how far along it is. The result
+Render & verify renders every frame on the GPU, encodes the selected format, and checks the file against the
+format's spec. H.264 uses an available browser/hardware encoder with a software fallback; ProRes uses ffmpeg.
+While it runs, the preview shows the size being rendered and how far along it is. The result
 appears in the Exports list with a pass or fail badge.
 
 Exports take each clip frame from the server, which decodes it with ffmpeg, rather than from the browser's
@@ -646,8 +696,11 @@ it stopped if it did, and a download link for each file.
 | Key | Action |
 |---|---|
 | Space | Play / pause |
+| , / . | Pause and step one frame backward / forward |
+| ⌘K | Search workspace commands (Ctrl+K on Windows and Linux) |
+| Shift+F | Focus viewer / restore the workspace |
 | ← → | Previous / next look, or previous / next block while the segment menu is open |
-| D, Shift+D | Roll, undo roll |
+| D, Shift+D | Remix, undo roll |
 | R | Surprise me |
 | M | Variations, and six more when they're open |
 | E | Export |
@@ -663,7 +716,7 @@ it stopped if it did, and a download link for each file.
 | Delete | Delete the selected block |
 | N | Snap: beat, ½, ¼, off |
 | ? | Shortcut list |
-| Esc | Close menus and dialogs, or clear the selected block |
+| Esc | Close menus and dialogs, leave viewer focus, or clear the selected block |
 | ⌘Z, ⇧⌘Z | Undo, redo (Ctrl on Windows and Linux, where Ctrl+Y also redoes) |
 | ⌘S | Save the open project now, or name the edit to save it as one |
 | ⌘O | Projects |
@@ -675,7 +728,7 @@ it stopped if it did, and a download link for each file.
 | Drag | envelope | Draw |
 | Click | timeline block | Select it and move the playhead there |
 | Drag | cut line | Move the cut; hold Shift to leave the snap grid |
-| Drag | edge of a transition's pink shading | That transition's length |
+| Drag | edge of a transition's violet shading | That transition's length |
 | Option-drag | timeline block | Slip the footage |
 | Double-click, right-click, Enter, or long-press on a touch screen | timeline block | Segment menu: split, repeat, put a clip in, delete, timing, clip, in-point, direction, speed ramp, transition and its length, framing |
 | Drag | clip | Reorder |

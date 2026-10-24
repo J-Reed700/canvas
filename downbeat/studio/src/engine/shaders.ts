@@ -15,6 +15,7 @@ out vec4 outColor;
 uniform sampler2D uSrc;
 uniform vec2 uRes;
 uniform float uTime, uLoop, uPhase, uBeat, uBeatLen, uScale, uSeed, uFrame;
+uniform float uAudioTime, uBassTime, uAudioPhase, uBassPhase;
 uniform float uKick, uSnare, uHats, uBass, uEnergy, uBright;
 #define PI 3.14159265359
 #define TAU 6.28318530718
@@ -90,6 +91,9 @@ export const FINISH: string = PRELUDE + `
 uniform float p_exposure, p_contrast, p_saturation, p_temp, p_tint, p_fade, p_split, p_splitHue,
               p_vignette, p_grain, p_bars, p_halation;
 uniform sampler2D uGlow;
+uniform highp sampler3D uLut;
+uniform float uLutMix, uLutSize;
+uniform vec3 uLutMin, uLutMax;
 vec3 shoulder(vec3 c) { // identity below 0.8, smooth roll-off of HDR highlights
   vec3 k = vec3(0.8);
   return mix(c, k + (1.0 - k) * (1.0 - exp(-(c - k) / (1.0 - k))), step(k, c));
@@ -109,6 +113,12 @@ void main() {
   vec3 sh = hsv2rgb(vec3(p_splitHue, 0.55, 1.0)), hi = hsv2rgb(vec3(fract(p_splitHue + 0.5), 0.45, 1.0));
   s = mix(s, s * mix(sh, hi, smoothstep(0.15, 0.85, l)) * 1.2, p_split * 0.4);
   s = p_fade * vec3(0.92, 0.95, 1.0) + s * (1.0 - p_fade);
+  if (uLutMix > 0.0) {
+    vec3 uvw = clamp((s - uLutMin) / (uLutMax - uLutMin), 0.0, 1.0);
+    // Sample texel centers so the endpoints stay exact; hardware performs trilinear interpolation.
+    uvw = (uvw * (uLutSize - 1.0) + 0.5) / uLutSize;
+    s = mix(s, texture(uLut, uvw).rgb, uLutMix);
+  }
   vec2 q = (vUv - 0.5) * vec2(1.0, 1.25);
   s *= 1.0 - p_vignette * smoothstep(0.25, 0.85, length(q) * 1.15);
   vec2 gp = floor(gl_FragCoord.xy / max(uScale * 1.5, 1.0));

@@ -1,5 +1,6 @@
 // Downbeat Studio type definitions.
 import type { FrameSource } from './clipFrames.ts';
+import type { CubeLut } from './lut.ts';
 
 export type CategoryId = 'space' | 'warp' | 'time' | 'light' | 'stylize' | 'color';
 
@@ -20,6 +21,13 @@ export interface ModSourceMeta {
 export interface Modulation {
   src: string;
   amt: number;
+  /** Envelope follower times, in milliseconds. Missing/zero preserves the original route. */
+  attack?: number;
+  decay?: number;
+  /** Ignore the source below this 0..1 threshold; scale the remaining range to 0..1. */
+  gate?: number;
+  /** Attenuate this route when another source is loud. */
+  duck?: { src: string; amount: number };
 }
 
 export type ModValues = Record<string, number>;
@@ -57,6 +65,7 @@ export interface LayerSpec {
 export interface HolderSpec {
   p: Record<string, number>;
   mods?: Record<string, Modulation>;
+  lut?: CubeLut;
 }
 
 export interface CutSpec {
@@ -186,6 +195,7 @@ export interface RenderRecord {
   engine?: string;
   stats?: Record<string, unknown>;
   codec?: string;
+  output_codec?: 'h264' | 'prores_422_hq' | 'prores_4444';
   seconds?: number;
   /** The edit it was made from is saved with it, so it can be opened again. */
   has_edit?: boolean;
@@ -221,6 +231,10 @@ export interface ExportOptions {
   withSong?: boolean;
   promo?: number;
   autoSave?: boolean;
+  codec?: 'h264' | 'prores422' | 'prores4444';
+  coverRefId?: string;
+  promoTitle?: string;
+  promoOutNow?: boolean;
 }
 
 export interface RollOptions {
@@ -258,10 +272,20 @@ export interface Block {
   dir?: 'forward' | 'reverse' | 'pingpong';
   /** Frames this block its own way, in place of its clip's framing and the look's drift. */
   frame?: SegmentFrame;
+  /** Sparse values owned by this block; unset values continue to follow the look. */
+  overrides?: BlockOverrides;
+}
+
+export interface BlockOverrides {
+  macro?: Partial<{ a: number; b: number }>;
+  camera?: Record<string, number>;
+  finish?: Record<string, number>;
+  /** Index plus module identity protects overrides when a different look has a different stack. */
+  layers?: Record<string, { m: string; p: Record<string, number> }>;
 }
 
 /** What the segment menu and the lane change on one block. */
-export type BlockPatch = Partial<Pick<Block, 'clipId' | 'in' | 'trans' | 'transBeats' | 'vel' | 'dir' | 'frame'>>;
+export type BlockPatch = Partial<Pick<Block, 'clipId' | 'in' | 'trans' | 'transBeats' | 'vel' | 'dir' | 'frame' | 'overrides'>>;
 
 /** Per-segment settings as sessions saved them before blocks, keyed by segment number. Read once, when
  * such a session opens. */
@@ -303,6 +327,7 @@ export interface Segment {
   transDur: number;
   seed: number;
   span: [number, number];
+  overrides?: BlockOverrides;
 }
 
 export interface TimelinePlan {
@@ -372,6 +397,7 @@ export interface ComposedFrame {
   mv: ModValues;
   globals: Record<string, number>;
   sources?: any[];
+  lut?: CubeLut;
 }
 
 export interface ComposeContext {

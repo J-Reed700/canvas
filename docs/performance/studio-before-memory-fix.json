@@ -1,0 +1,156 @@
+{
+  "schema": 1,
+  "timestamp": "2026-10-24T22:44:08.599Z",
+  "host": {
+    "platform": "darwin",
+    "arch": "arm64",
+    "cpu": "Apple M3 Max"
+  },
+  "runtime": "v26.8.1",
+  "bundle": "assets/index-Bm8P4hQB.js",
+  "startup_ready_ms": 3459.1187500000005,
+  "soak_seconds": 300,
+  "workload": "Two generated moving clips; focused landscape viewer (resolution recorded below); live preview with a look change and undo every 250 ms; forced-GC JS heap snapshots; one actual 720×1280 H.264 export. RAF and timecode timings include browser scheduling; they are not GPU timer-query measurements.",
+  "preview": {
+    "edits": 1193,
+    "raf": {
+      "samples": 17969,
+      "median_ms": 16.69999999999709,
+      "p95_ms": 16.70000000001164,
+      "max_ms": 100
+    },
+    "timecode_updates": {
+      "samples": 8989,
+      "median_ms": 33.29999999701977,
+      "p95_ms": 34.1000000089407,
+      "max_ms": 134.20000000298023
+    },
+    "long_tasks": {
+      "samples": 0,
+      "median_ms": 0,
+      "p95_ms": 0,
+      "max_ms": 0
+    },
+    "renderer": "ANGLE (Apple, ANGLE Metal Renderer: Apple M3 Max, Unspecified Version)",
+    "resolution": [
+      1080,
+      608
+    ],
+    "look": "liquid-chrome",
+    "context_lost": false,
+    "playback_players": 4,
+    "history_depth": true
+  },
+  "memory": {
+    "initial": {
+      "js_heap_bytes": 4246996,
+      "dom_nodes": 1703,
+      "documents": 1
+    },
+    "warmed": {
+      "js_heap_bytes": 5115688,
+      "dom_nodes": 1851,
+      "documents": 1
+    },
+    "after_soak": {
+      "js_heap_bytes": 20701912,
+      "dom_nodes": 1999,
+      "documents": 1
+    },
+    "after_export": {
+      "js_heap_bytes": 20383224,
+      "dom_nodes": 2310,
+      "documents": 1
+    },
+    "retained_soak_growth_bytes": 15586224
+  },
+  "export": {
+    "resolution": "720x1280",
+    "duration": 3.767,
+    "size_mb": 4.1,
+    "codec": "avc1.640034",
+    "checks": [
+      {
+        "id": "length",
+        "label": "Length 3–8 s",
+        "level": "ok",
+        "detail": "3.767 s"
+      },
+      {
+        "id": "aspect",
+        "label": "9:16 vertical",
+        "level": "ok",
+        "detail": "720×1280"
+      },
+      {
+        "id": "height",
+        "label": "At least 720 px tall",
+        "level": "ok",
+        "detail": "1280 px"
+      },
+      {
+        "id": "codec",
+        "label": "H.264 · yuv420p",
+        "level": "ok",
+        "detail": "h264 High · yuv420p"
+      },
+      {
+        "id": "silent",
+        "label": "No audio track",
+        "level": "ok",
+        "detail": "silent"
+      },
+      {
+        "id": "fps",
+        "label": "Constant 30 fps",
+        "level": "ok",
+        "detail": "30 fps"
+      },
+      {
+        "id": "faststart",
+        "label": "Fast-start MP4",
+        "level": "ok",
+        "detail": "ftyp → moov → mdat"
+      },
+      {
+        "id": "tall",
+        "label": "Spotify lists 720–1080 px tall",
+        "level": "warn",
+        "detail": "1280 px tall; 720×1280 is a common Canvas size, but re-export at 608×1080 if an upload is rejected"
+      },
+      {
+        "id": "frame0",
+        "label": "Frame 0 matches reference",
+        "level": "warn",
+        "detail": "No reference still selected; Frame 0 was rendered but could not be compared."
+      },
+      {
+        "id": "footage",
+        "label": "Clips play, not stills",
+        "level": "ok",
+        "detail": "checked 4 cuts: every clip plays"
+      },
+      {
+        "id": "seam",
+        "label": "Loop seam",
+        "level": "ok",
+        "detail": "seam step is 0.49× the loop's own 95th-percentile frame step"
+      },
+      {
+        "id": "flash",
+        "label": "Photosensitivity (≤ 3 flashes/s)",
+        "level": "ok",
+        "detail": "max 2 full-frame flash(es) in any 1 s window"
+      }
+    ],
+    "wall_ms": 2929.914166999981
+  },
+  "errors": [],
+  "budgets": {
+    "startup_ms": 90000,
+    "raf_p95_ms": 100,
+    "retained_soak_growth_bytes": 33554432,
+    "playback_players": 20,
+    "export_wall_ms": 120000
+  }
+}

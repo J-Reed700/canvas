@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect } from 'react';
 import { useStudioStore } from './state/store.ts';
 import { BAR_CHOICES, closePop, toast } from './lib/utils.ts';
 import { nextScreen, screenOf } from './lib/screens.ts';
@@ -14,18 +14,22 @@ import { ExportsLibrary } from './components/Exports.tsx';
 import { ClipsLibrary } from './components/Clips.tsx';
 import { Welcome } from './components/Folders.tsx';
 import { ProjectsModal } from './components/Projects.tsx';
+import { useWorkspaceStore } from './state/workspaceStore.ts';
+import { PanelDivider, WorkspaceStatus } from './components/Workspace.tsx';
+import { CommandMenu } from './components/CommandMenu.tsx';
+import { stepFrame } from './lib/playback.ts';
 import { saveNow } from './state/projectController.ts';
 
 export const App: React.FC = () => {
-  const ambientRef = useRef<HTMLCanvasElement>(null);
+  const layout = useWorkspaceStore((s) => s.layout);
+  const focus = useWorkspaceStore((s) => s.focus);
   const initStudio = useStudioStore((s) => s.initStudio);
 
   useEffect(() => {
     const viewCanvas = document.getElementById('view') as HTMLCanvasElement;
     const bankContainer = document.getElementById('videoBank') as HTMLElement;
-    const ambientCanvas = ambientRef.current || (document.getElementById('ambient') as HTMLCanvasElement);
     if (viewCanvas && bankContainer) {
-      initStudio(viewCanvas, bankContainer, ambientCanvas);
+      initStudio(viewCanvas, bankContainer);
     }
   }, [initStudio]);
 
@@ -33,6 +37,14 @@ export const App: React.FC = () => {
     const onKeyDown = (e: KeyboardEvent) => {
       const s = useStudioStore.getState();
       const target = e.target as HTMLElement | null;
+      const workspace = useWorkspaceStore.getState();
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        if (!s.exporting && !s.welcome && !s.projectsOpen && !s.libraryOpen && !s.clipsOpen && !s.varOpen && !s.helpOpen && !s.exportOpen) workspace.setCommands(!workspace.commands);
+        return;
+      }
+      if (workspace.commands) return;
+
 
       if (
         (e.metaKey || e.ctrlKey) &&
@@ -75,7 +87,14 @@ export const App: React.FC = () => {
       }
 
       const k = e.key;
-      if (k === ' ') {
+      if (e.shiftKey && k.toLowerCase() === 'f') {
+        e.preventDefault();
+        workspace.toggleFocus();
+      } else if (k === ',' || k === '.') {
+        e.preventDefault();
+        stepFrame(s.transport, k === ',' ? -1 : 1);
+      } else if (k === ' ') {
+        if (target?.closest?.('button, a, summary, [role=button]')) return;
         e.preventDefault();
         s.transport.toggle();
       } else if (k === 'ArrowRight') {
@@ -126,6 +145,7 @@ export const App: React.FC = () => {
       } else if (k === '?') {
         useStudioStore.setState({ helpOpen: true });
       } else if (k === 'Escape') {
+        if (workspace.focus && !s.varOpen && !s.helpOpen && !s.exportOpen && !document.getElementById('pop')?.classList.contains('on')) { workspace.toggleFocus(); return; }
         useStudioStore.setState({ varOpen: false, helpOpen: false, exportOpen: false });
         if (!document.getElementById('pop')?.classList.contains('on')) s.selectBlock(null);
         closePop();
@@ -176,17 +196,19 @@ export const App: React.FC = () => {
 
   return (
     <>
-      <canvas id="ambient" ref={ambientRef} width="48" height="85" />
-      <div className="grain-overlay" />
-
-      <div className="app">
+      <div className={`app studio-workspace ${focus ? 'workspace-focus' : ''}`} style={{ '--library-width': `${layout.library}px`, '--inspector-width': `${layout.inspector}px`, '--timeline-height': `${layout.timeline}px` } as React.CSSProperties}>
         <TopBar />
         <MediaPanel />
         <StagePanel />
         <TimelinePanel />
         <InspectorPanel />
+        <PanelDivider panel="library" />
+        <PanelDivider panel="inspector" />
+        <PanelDivider panel="timeline" />
+        <WorkspaceStatus />
       </div>
 
+      <CommandMenu />
       <Modals />
       <ExportsLibrary />
       <ClipsLibrary />

@@ -2,12 +2,15 @@
 from __future__ import annotations
 
 import dataclasses
+import math
 import os
 import subprocess
+import tempfile
 
 import cv2
 import numpy as np
 
+from .._cache import BoundedCache, file_version
 from . import file_id
 
 
@@ -43,17 +46,22 @@ def still_to_clip(path: str) -> str:
         return dest
     # Even dimensions, long edge capped at 2160 px: plenty for a 1080x1920 crop with zoom room.
     scale = "scale='2*trunc(min(1,2160/max(iw,ih))*iw/2)':'2*trunc(min(1,2160/max(iw,ih))*ih/2)':flags=lanczos"
+    fd, tmp = tempfile.mkstemp(prefix=".still-", suffix=".mp4", dir=os.path.dirname(os.path.abspath(dest)))
+    os.close(fd)
     cmd = [
         ffmpeg_path(), "-y", "-v", "error", "-xerror", "-loop", "1", "-i", path, "-t", str(STILL_SECONDS), "-r", "30",
         "-vf", f"{scale},format=yuv420p", "-c:v", "libx264", "-preset", "veryfast", "-crf", "14",
-        "-tune", "stillimage", "-movflags", "+faststart", dest,
+        "-tune", "stillimage", "-movflags", "+faststart", tmp,
     ]
-    res = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
-    if res.returncode != 0 or not os.path.exists(dest) or os.path.getsize(dest) == 0:
-        if os.path.exists(dest):
-            os.remove(dest)
-        raise RuntimeError(f"could not read image: {res.stderr.strip()[-200:] or 'ffmpeg failed'}")
-    return dest
+    try:
+        res = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+        if res.returncode != 0 or os.path.getsize(tmp) == 0:
+            raise RuntimeError(f"could not read image: {res.stderr.strip()[-200:] or 'ffmpeg failed'}")
+        os.replace(tmp, dest)
+        return dest
+    finally:
+        if os.path.exists(tmp):
+            os.remove(tmp)
 
 
 def video_to_mp4(path: str, timeout: float = 900) -> str:
@@ -63,10 +71,9 @@ def video_to_mp4(path: str, timeout: float = 900) -> str:
     from .encoder import ffmpeg_path
 
     base = os.path.splitext(path)[0]
-    dest, n = base + ".mp4", 2
-    while os.path.exists(dest):
-        dest, n = f"{base}-{n}.mp4", n + 1
-    tmp = dest + ".part"
+    fd, tmp = tempfile.mkstemp(prefix=f".{os.path.basename(base)}-", suffix=".part.mp4",
+                               dir=os.path.dirname(os.path.abspath(path)))
+    os.close(fd)
     cmd = [
         ffmpeg_path(), "-y", "-v", "error", "-i", path, "-map", "0:v:0", "-an",
         "-vf", "yadif=deint=interlaced,scale=trunc(iw/2)*2:trunc(ih/2)*2,format=yuv420p",
@@ -81,8 +88,19 @@ def video_to_mp4(path: str, timeout: float = 900) -> str:
             os.remove(tmp)
         why = "converting it took too long" if res is None else res.stderr.strip().replace(path, os.path.basename(path))[-200:] or "ffmpeg failed"
         raise RuntimeError(f"could not read it as a video ({why})")
-    os.replace(tmp, dest)
-    return dest
+    dest, n = base + ".mp4", 2
+    try:
+        while True:
+            try:
+                # The hard-link claims the final name without overwriting a concurrent
+                # upload; temp and destination are deliberately on the same filesystem.
+                os.link(tmp, dest)
+                return dest
+            except FileExistsError:
+                dest, n = f"{base}-{n}.mp4", n + 1
+    finally:
+        if os.path.exists(tmp):
+            os.remove(tmp)
 
 
 def probe(path: str) -> Source:
@@ -99,6 +117,10 @@ def probe(path: str) -> Source:
         frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
     finally:
         cap.release()
+    if width <= 0 or height <= 0:
+        raise RuntimeError(f"video has invalid dimensions: {path}")
+    if not math.isfinite(fps) or fps <= 0:
+        fps = 30.0
     return Source(
         path=path,
         width=width,
@@ -138,9 +160,10 @@ def fit_portrait(
 class ClipSegmentCache:
     """Fast sequential frame cache for a Source window at target portrait resolution."""
 
-    def __init__(self, max_size: int = 12) -> None:
+    def __init__(self, max_size: int = 12, max_bytes: int = 256 << 20) -> None:
         self.max_size = max_size
-        self._cache: dict[tuple[str, int, int, int, int], list[np.ndarray]] = {}
+        self._cache = BoundedCache(max_size, max_bytes=max_bytes,
+                                   weigh=lambda frames: sum(frame.nbytes for frame in frames))
 
     def clear(self) -> None:
         self._cache.clear()
@@ -154,10 +177,19 @@ class ClipSegmentCache:
         target_h: int,
         pan_speed: float = 0.15,
     ) -> list[np.ndarray]:
-        key = (source.path, start_frame, count, target_w, target_h)
-        if key in self._cache:
-            return self._cache[key]
+        if count <= 0 or target_w <= 0 or target_h <= 0:
+            raise ValueError("segment count and dimensions must be positive")
+        try:
+            version = file_version(source.path)
+        except OSError as exc:
+            raise RuntimeError(f"cannot open video: {source.path}") from exc
+        key = (*version, start_frame, count, target_w, target_h, pan_speed)
+        return self._cache.get_or_create(key, lambda: self._decode_segment(
+            source, start_frame, count, target_w, target_h, pan_speed))
 
+    @staticmethod
+    def _decode_segment(source: Source, start_frame: int, count: int, target_w: int,
+                        target_h: int, pan_speed: float) -> list[np.ndarray]:
         cap = cv2.VideoCapture(source.path)
         if not cap.isOpened():
             raise RuntimeError(f"cannot open video: {source.path}")
@@ -184,10 +216,6 @@ class ClipSegmentCache:
         if not frames:
             raise RuntimeError(f"no frames decoded from {source.path}")
 
-        if len(self._cache) >= self.max_size:
-            oldest = next(iter(self._cache))
-            del self._cache[oldest]
-        self._cache[key] = frames
         return frames
 
 

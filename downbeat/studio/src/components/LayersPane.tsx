@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { useStudioStore, useVersion } from '../state/store.ts';
 import { originalLook } from '../state/historyController.ts';
 import {
@@ -13,11 +13,15 @@ import { cloneLook, insertAtStage } from '../engine/looks.ts';
 import { MODULES, CATEGORIES, CAMERA, FINISH_DEF, defaults } from '../engine/modules.ts';
 import { ModulatorsCard } from './ModulatorsCard.tsx';
 import { ParamRow } from './ParamRow.tsx';
+import { ColorGradeCard } from './ColorGradeCard.tsx';
 import { Card, SliderRow } from './ui.tsx';
 import { thumbRef } from '../lib/thumbs.ts';
 
+type LayerSection = 'all' | 'effects' | 'color';
+
 export const LayersPane: React.FC = () => {
   useVersion();
+  const [section, setSection] = useState<LayerSection>('all');
   const look = useStudioStore((s) => s.look);
   const selected = useStudioStore((s) => s.selected);
   const clipMode = useStudioStore((s) => s.clipMode);
@@ -113,9 +117,48 @@ export const LayersPane: React.FC = () => {
   };
 
   return (
-    <div className="pane on" id="pane-layers">
+    <div
+      className="pane on layers-pane"
+      id="pane-layers"
+      role="tabpanel"
+      aria-labelledby="inspector-tab-layers"
+    >
+      <nav className="layers-subnav" aria-label="Layer inspector sections">
+        {([
+          ['all', 'All', null],
+          ['effects', 'Effects', target.layers.length],
+          ['color', 'Color', target.finish.lut ? 'LUT' : null],
+        ] as const).map(([id, label, meta]) => (
+          <button
+            type="button"
+            key={id}
+            className={section === id ? 'on' : ''}
+            aria-pressed={section === id}
+            aria-controls={id === 'all' ? 'layer-effects-section layer-color-section' : `layer-${id}-section`}
+            onClick={() => setSection(id)}
+          >
+            {label}
+            {meta !== null && <span>{meta}</span>}
+          </button>
+        ))}
+      </nav>
+
+      <section
+        className="layers-section"
+        id="layer-effects-section"
+        aria-labelledby="layer-effects-heading"
+        hidden={section === 'color'}
+      >
+        <div className="layers-section-head">
+          <div>
+            <h3 id="layer-effects-heading">Effects &amp; motion</h3>
+            <p>Stack, framing, timing, and modulation</p>
+          </div>
+          <span>{target.layers.length} {target.layers.length === 1 ? 'layer' : 'layers'}</span>
+        </div>
+
       <Card
-        color="#FF7AE6"
+        color="#b9a4ff"
         title={isClipEdit ? `Clip ${clipNo} · ${target.name}` : 'Master'}
         sub={isClipEdit ? `plays only on the #${clipNo} blocks` : 'intensity · per-clip looks'}
       >
@@ -220,14 +263,16 @@ export const LayersPane: React.FC = () => {
 
         <div className="row" style={{ marginTop: '6px', flexWrap: 'wrap', gap: '6px' }}>
           <button
+            type="button"
             className="btn sm"
             title="Give every clip its own random stack"
             onClick={rollClips}
           >
-            🎲 Roll FX per clip
+            Roll FX per clip
           </button>
           {clipMode !== 'one' && (
             <button
+              type="button"
               className="btn sm"
               title="Drop the per-clip looks"
               onClick={() => {
@@ -241,6 +286,7 @@ export const LayersPane: React.FC = () => {
           )}
           {isClipEdit && (
             <button
+              type="button"
               className="btn sm"
               title="This clip follows the main look again"
               onClick={() => {
@@ -260,13 +306,14 @@ export const LayersPane: React.FC = () => {
 
       <div className="note stack-scope">{stackScope}</div>
       <div className="layer-tools">
-        <button className="btn sm" data-pop title="Add an effect layer" onClick={handleAddEffect}>
+        <button type="button" className="btn sm layer-add" data-pop title="Add an effect layer" onClick={handleAddEffect}>
           + Add effect
         </button>
-        <button className="btn sm" title="Add random effect" onClick={handleAddRandomLayer}>
-          🎲 Random
+        <button type="button" className="btn sm" title="Add random effect" onClick={handleAddRandomLayer}>
+          Random layer
         </button>
         <button
+          type="button"
           className="btn sm"
           title="Shuffle layer order"
           disabled={target.layers.length < 2}
@@ -278,9 +325,10 @@ export const LayersPane: React.FC = () => {
             toast('Shuffled the stack');
           }}
         >
-          ⇅ Shuffle
+          Shuffle
         </button>
         <button
+          type="button"
           className="btn sm"
           title="Remove every layer"
           disabled={!target.layers.length}
@@ -393,13 +441,29 @@ export const LayersPane: React.FC = () => {
 
       {!target.layers.length && (
         <div className="note" style={{ padding: '6px 16px 4px' }}>
-          No effect layers: just the camera and the grade. Add one above, or roll 🎲.
+          No effect layers: just the camera and the grade. Add one above, or choose a random layer.
         </div>
       )}
 
+      </section>
+
+      <section
+        className="layers-section layers-section-color"
+        id="layer-color-section"
+        aria-labelledby="layer-color-heading"
+        hidden={section === 'effects'}
+      >
+        <div className="layers-section-head">
+          <div>
+            <h3 id="layer-color-heading">Color &amp; finish</h3>
+            <p>Grade, texture, output safety, and scopes</p>
+          </div>
+          <span>{target.finish.lut ? 'LUT active' : 'Shared finish'}</span>
+        </div>
+
       {!isClipEdit ? (
-        <Card color="#C8FF4D" title="Finish" sub="grade · texture · safety">
-          {FINISH_DEF.params.map((p) => (
+        <Card color="#b9a4ff" title="Finish" sub="grade · texture · safety">
+          {FINISH_DEF.params.filter((p) => p.id !== 'lutMix').map((p) => (
             <ParamRow key={p.id} p={p} holder={target.finish} readLive={(fr) => fr.finish?.[`p_${p.id}`]} />
           ))}
         </Card>
@@ -409,8 +473,13 @@ export const LayersPane: React.FC = () => {
         </div>
       )}
 
-      <div className="row" style={{ padding: '2px 12px 16px', gap: '8px' }}>
+      {!isClipEdit && <ColorGradeCard />}
+
+      </section>
+
+      <div className="row layer-footer" style={{ padding: '2px 12px 16px', gap: '8px' }}>
         <button
+          type="button"
           className="btn"
           style={{ flex: 1, justifyContent: 'center' }}
           data-pop
@@ -447,9 +516,10 @@ export const LayersPane: React.FC = () => {
             });
           }}
         >
-          ★ Save as look
+          Save as look
         </button>
         <button
+          type="button"
           className="btn"
           style={{ flex: 1, justifyContent: 'center' }}
           onClick={() => {

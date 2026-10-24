@@ -3,9 +3,21 @@
 import * as S from './shaders.ts';
 import { MODULES, moduleSource } from './modules.ts';
 import { fnv } from './clipFrames.ts';
+import { IDENTITY_LUT, lutValues, type CubeLut } from './lut.ts';
 import type { ComposedFrame, ComposedLayer, ProgramInfo, RenderTarget } from './types.ts';
 
 const GUARD_LIMIT = 18 / 255; // max mean-luma change per frame (display space), same limit as the CPU engine
+const HISTORY_BYTES = 512 * 1024 * 1024;
+
+// WebGL allocation errors are flags, not JavaScript exceptions. Scope checks to a fresh allocation
+// so an unrelated earlier error cannot cause us to cache an incomplete texture or misreport its cause.
+function clearGlErrors(gl: WebGL2RenderingContext): void {
+  for (let i = 0; i < 16 && gl.getError() !== gl.NO_ERROR; i++) { /* bounded even after context loss */ }
+}
+
+function checkGlAllocation(gl: WebGL2RenderingContext, label: string): void {
+  if (gl.getError() !== gl.NO_ERROR) throw new Error(`The GPU could not allocate ${label}. Close other graphics apps or choose a smaller export.`);
+}
 
 export class GPU {
   gl: WebGL2RenderingContext;
@@ -14,6 +26,7 @@ export class GPU {
   programs: Map<string, ProgramInfo>;
   vert: WebGLShader;
   black: RenderTarget;
+  private luts = new Map<CubeLut, { tex: WebGLTexture; target: number }>();
 
   constructor(canvas: HTMLCanvasElement) {
     const gl = canvas.getContext('webgl2', {
@@ -62,42 +75,113 @@ export class GPU {
       throw new Error(`shader "${key}" failed to compile:\n${err.message}`);
     }
     const prog = gl.createProgram();
-    if (!prog) throw new Error('Failed to create program');
+    if (!prog) { gl.deleteShader(frag); throw new Error('Failed to create program'); }
     gl.attachShader(prog, this.vert);
     gl.attachShader(prog, frag);
     gl.bindAttribLocation(prog, 0, 'aPos');
     gl.linkProgram(prog);
-    if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) throw new Error(`program "${key}" failed to link: ${gl.getProgramInfoLog(prog)}`);
+    gl.detachShader(prog, frag);
+    gl.deleteShader(frag);
+    if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) {
+      const log = gl.getProgramInfoLog(prog);
+      gl.deleteProgram(prog);
+      throw new Error(`program "${key}" failed to link: ${log}`);
+    }
     const locs = new Map<string, WebGLUniformLocation | null>();
     p = { prog, loc: (n: string) => { if (!locs.has(n)) locs.set(n, gl.getUniformLocation(prog, n)); return locs.get(n) ?? null; } };
     this.programs.set(key, p);
     return p;
   }
 
+  assertSize(w: number, h: number): void {
+    if (this.gl.isContextLost()) throw new Error('The graphics context was lost. Reload the studio to restart the preview.');
+    const limit = this.gl.getParameter(this.gl.MAX_TEXTURE_SIZE);
+    if (!Number.isFinite(w) || !Number.isFinite(h) || w < 1 || h < 1 || w > limit || h > limit) {
+      throw new Error(`This GPU cannot render ${w}×${h}. Its maximum texture side is ${limit} pixels.`);
+    }
+  }
+
   target(w: number, h: number, { float = true, mips = false }: { float?: boolean; mips?: boolean } = {}): RenderTarget {
     const gl = this.gl;
     w = Math.max(1, Math.round(w)); h = Math.max(1, Math.round(h));
+    this.assertSize(w, h);
+    clearGlErrors(gl);
     const tex = gl.createTexture();
     if (!tex) throw new Error('Failed to create texture');
-    gl.bindTexture(gl.TEXTURE_2D, tex);
-    const hdr = float && this.hdr;
-    gl.texImage2D(gl.TEXTURE_2D, 0, hdr ? gl.RGBA16F : gl.RGBA8, w, h, 0, gl.RGBA, hdr ? gl.HALF_FLOAT : gl.UNSIGNED_BYTE, null);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, mips ? gl.LINEAR_MIPMAP_LINEAR : gl.LINEAR);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
-    if (mips) gl.generateMipmap(gl.TEXTURE_2D);
-    const fb = gl.createFramebuffer();
-    if (!fb) throw new Error('Failed to create framebuffer');
-    gl.bindFramebuffer(gl.FRAMEBUFFER, fb);
-    gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, tex, 0);
-    return { tex, fb, w, h, mips };
+    let fb: WebGLFramebuffer | null = null;
+    try {
+      gl.bindTexture(gl.TEXTURE_2D, tex);
+      const hdr = float && this.hdr;
+      gl.texImage2D(gl.TEXTURE_2D, 0, hdr ? gl.RGBA16F : gl.RGBA8, w, h, 0, gl.RGBA, hdr ? gl.HALF_FLOAT : gl.UNSIGNED_BYTE, null);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, mips ? gl.LINEAR_MIPMAP_LINEAR : gl.LINEAR);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+      if (mips) gl.generateMipmap(gl.TEXTURE_2D);
+      checkGlAllocation(gl, `a ${w}×${h} render target`);
+      fb = gl.createFramebuffer();
+      if (!fb) throw new Error('Failed to create framebuffer');
+      gl.bindFramebuffer(gl.FRAMEBUFFER, fb);
+      gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, tex, 0);
+      if (gl.checkFramebufferStatus(gl.FRAMEBUFFER) !== gl.FRAMEBUFFER_COMPLETE) {
+        throw new Error(`The GPU could not allocate a ${w}×${h} render target. Close other graphics apps or choose a smaller export.`);
+      }
+      return { tex, fb, w, h, mips };
+    } catch (error) {
+      if (fb) gl.deleteFramebuffer(fb);
+      gl.deleteTexture(tex);
+      gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+      throw error;
+    }
   }
 
   free(t: RenderTarget | null | undefined): void {
     if (!t) return;
     this.gl.deleteTexture(t.tex);
     this.gl.deleteFramebuffer(t.fb);
+  }
+
+  /** LUTs are shared by preview/export/thumbnail pipelines and bounded to eight GPU textures. */
+  lut(lut: CubeLut = IDENTITY_LUT): { tex: WebGLTexture; target: number } {
+    const gl = this.gl;
+    if (gl.isContextLost()) throw new Error('The graphics context was lost. Reload the studio before importing a grade.');
+    const cached = this.luts.get(lut);
+    if (cached) {
+      this.luts.delete(lut);
+      this.luts.set(lut, cached);
+      return cached;
+    }
+    const values = lutValues(lut);
+    if (lut.size > gl.getParameter(gl.MAX_3D_TEXTURE_SIZE)) throw new Error('This GPU cannot load the selected LUT size.');
+    clearGlErrors(gl);
+    const tex = gl.createTexture();
+    if (!tex) throw new Error('Failed to create LUT texture');
+    // RGB16F is filterable in WebGL2 without requiring float32-linear extensions.
+    const alignment = gl.getParameter(gl.UNPACK_ALIGNMENT);
+    const binding = gl.getParameter(gl.TEXTURE_BINDING_3D);
+    try {
+      gl.bindTexture(gl.TEXTURE_3D, tex);
+      gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
+      gl.texImage3D(gl.TEXTURE_3D, 0, gl.RGB16F, lut.size, lut.size, lut.size, 0, gl.RGB, gl.FLOAT, values);
+      gl.texParameteri(gl.TEXTURE_3D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+      gl.texParameteri(gl.TEXTURE_3D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+      for (const p of [gl.TEXTURE_WRAP_S, gl.TEXTURE_WRAP_T, gl.TEXTURE_WRAP_R]) gl.texParameteri(gl.TEXTURE_3D, p, gl.CLAMP_TO_EDGE);
+      checkGlAllocation(gl, 'the LUT texture');
+    } catch (error) {
+      gl.deleteTexture(tex);
+      throw error;
+    } finally {
+      gl.pixelStorei(gl.UNPACK_ALIGNMENT, alignment);
+      gl.bindTexture(gl.TEXTURE_3D, binding);
+    }
+    const result = { tex, target: gl.TEXTURE_3D };
+    this.luts.set(lut, result);
+    if (this.luts.size > 8) {
+      const oldest = this.luts.keys().next().value!;
+      gl.deleteTexture(this.luts.get(oldest)!.tex);
+      this.luts.delete(oldest);
+    }
+    return result;
   }
 
   // Run one full-screen pass. `target` null = default framebuffer (viewport may be given).
@@ -121,7 +205,7 @@ export class GPU {
       if (loc === null) continue;
       const s = samplers[name];
       gl.activeTexture(gl.TEXTURE0 + unit);
-      gl.bindTexture(gl.TEXTURE_2D, s && s.tex ? s.tex : s || this.black.tex);
+      gl.bindTexture(s?.target || gl.TEXTURE_2D, s && s.tex ? s.tex : s || this.black.tex);
       gl.uniform1i(loc, unit++);
     }
     for (const name in uniforms) {
@@ -201,16 +285,23 @@ export class Pipeline {
     w = Math.max(2, Math.round(w)); h = Math.max(2, Math.round(h));
     if (this.w === w && this.h === h) return;
     const g = this.g;
+    g.assertSize(w, h);
     this.dispose();
     this.w = w; this.h = h;
-    this.srcA = g.target(w, h); this.srcB = g.target(w, h); this.brollT = g.target(w, h); this.mixT = g.target(w, h);
-    this.ping = g.target(w, h); this.pong = g.target(w, h);
-    this.final = g.target(w, h, { float: false, mips: this.guard });
-    if (this.guard) {
-      this.outA = g.target(w, h, { float: false }); this.outB = g.target(w, h, { float: false });
-      this.stA = g.target(1, 1); this.stB = g.target(1, 1);
+    try {
+      this.srcA = g.target(w, h);
+      // Transition, B-roll and effect scratch targets are allocated only when used.
+      // At native Apple square resolution each unused half-float target costs 112 MiB.
+      this.final = g.target(w, h, { float: false, mips: this.guard });
+      if (this.guard) {
+        this.outA = g.target(w, h, { float: false }); this.outB = g.target(w, h, { float: false });
+        this.stA = g.target(1, 1); this.stB = g.target(1, 1);
+      }
+      this.reset();
+    } catch (error) {
+      this.dispose();
+      throw error;
     }
-    this.reset();
   }
 
   reset(): void {
@@ -221,7 +312,12 @@ export class Pipeline {
   _chain(key: string, sizes: [number, number][]): RenderTarget[] {
     this._used?.add(key);
     let c = this.chains.get(key);
-    if (!c) { c = sizes.map(([w, h]) => this.g.target(w, h)); this.chains.set(key, c); }
+    if (!c) {
+      c = [];
+      try { for (const [w, h] of sizes) c.push(this.g.target(w, h)); }
+      catch (error) { c.forEach((t) => this.g.free(t)); throw error; }
+      this.chains.set(key, c);
+    }
     return c;
   }
 
@@ -229,13 +325,30 @@ export class Pipeline {
     this._used?.add(key);
     let h = this.histories.get(key);
     if (!h) {
-      h = [this.g.target(this.w, this.h), this.g.target(this.w, this.h)];
+      const limit = this._historyLimit();
+      // Free stale pairs before allocating the next cut's feedback. A count-only bound can retain
+      // gigabytes at native 4K; never evict a pair already used by the current frame's render graph.
+      while (this.histories.size >= limit) {
+        const old = [...this.histories.keys()].find((k) => !this._used.has(k));
+        if (old === undefined || limit < 1) throw new Error('This export uses too much feedback memory. Disable a feedback effect or choose a smaller export.');
+        this.histories.get(old)!.forEach((t) => this.g.free(t));
+        this.histories.delete(old);
+        this.histFresh.delete(old);
+      }
+      const first = this.g.target(this.w, this.h);
+      try { h = [first, this.g.target(this.w, this.h)]; }
+      catch (error) { this.g.free(first); throw error; }
       this.histFresh.add(key);
     } else {
       this.histories.delete(key);
     }
     this.histories.set(key, h);
     return h;
+  }
+
+  _historyLimit(): number {
+    const pairBytes = this.w * this.h * (this.g.hdr ? 8 : 4) * 2;
+    return Math.min(16, Math.floor(HISTORY_BYTES / Math.max(1, pairBytes)));
   }
 
   _glow(input: RenderTarget, threshold: number, radius: number): RenderTarget {
@@ -260,14 +373,13 @@ export class Pipeline {
 
   // Free feedback histories / effect chains of layers that were removed, reordered or switched off.
   _prune(): void {
-    if (this.histories.size > 16) {
-      for (const [k, pair] of this.histories) {
-        if (this._used.has(k)) continue;
-        pair.forEach((t) => this.g.free(t));
-        this.histories.delete(k);
-        this.histFresh.delete(k);
-        if (this.histories.size <= 16) break;
-      }
+    // End feedback when its clip/layer leaves the graph at every resolution. Keeping idle histories
+    // only while they fit a resolution-dependent budget would make preview and export diverge.
+    for (const [k, pair] of this.histories) {
+      if (this._used.has(k)) continue;
+      pair.forEach((t) => this.g.free(t));
+      this.histories.delete(k);
+      this.histFresh.delete(k);
     }
     for (const [k, chain] of this.chains) {
       if (this._used.has(k)) continue;
@@ -279,7 +391,10 @@ export class Pipeline {
   // Common per-pass uniforms for a target size.
   U(t: { w: number; h: number }): Record<string, any> { return { ...this.frame.globals, uRes: [t.w, t.h], uScale: t.h / 1920 }; }
 
-  _next(cur: RenderTarget): RenderTarget { return cur === this.ping ? (this.pong as RenderTarget) : (this.ping as RenderTarget); }
+  _next(cur: RenderTarget): RenderTarget {
+    if (cur === this.ping) return this.pong ??= this.g.target(this.w, this.h);
+    return this.ping ??= this.g.target(this.w, this.h);
+  }
 
   _runChain(kind: string, cur: RenderTarget, p: Record<string, any>, key: string): RenderTarget {
     const g = this.g;
@@ -344,7 +459,10 @@ export class Pipeline {
   render(frame: ComposedFrame, aux?: Record<string, any>): RenderTarget {
     const g = this.g;
     this.frame = frame;
-    this._used = new Set(['down', 'up']);
+    // Protect feedback on both sides of a transition before allocating any new history: a layer
+    // visited later in this frame still owns its previous frame's pixels.
+    this._used = new Set([...frame.layers, ...(frame.pre || []).flat()]
+      .filter((layer) => MODULES[layer.m]?.feedback).map((layer) => layer.key));
     const [A, B] = frame.sources || [];
     const pre = frame.pre;
     const cam = (s: any, t: RenderTarget) => g.draw('source', S.SOURCE, t, {
@@ -363,7 +481,9 @@ export class Pipeline {
       aux = { ...aux, clipB: this.brollT };
     }
     if (pre?.[0]?.length) cur = this._layers(cur, pre[0], aux);
-    if (B && frame.trans && this.srcB && this.mixT) {
+    if (B && frame.trans) {
+      this.srcB ??= g.target(this.w, this.h);
+      this.mixT ??= g.target(this.w, this.h);
       let a = cur;
       // B's stack reuses ping/pong, so park A's result first.
       if (pre?.[1]?.length && (a === this.ping || a === this.pong)) {
@@ -382,7 +502,12 @@ export class Pipeline {
 
     const f = frame.finish as any;
     const glow = f.p_halation > 0.001 ? this._glow(cur, 0.85, 0.75) : null;
-    if (this.final) g.draw('finish', S.FINISH, this.final, { ...this.U(this.final), ...f }, { uSrc: cur, uGlow: glow });
+    const lut = frame.lut || IDENTITY_LUT;
+    if (this.final) g.draw('finish', S.FINISH, this.final, {
+      ...this.U(this.final), ...f,
+      uLutMix: frame.lut ? Math.min(1, Math.max(0, f.p_lutMix ?? 1)) : 0,
+      uLutSize: lut.size, uLutMin: lut.domainMin, uLutMax: lut.domainMax,
+    }, { uSrc: cur, uGlow: glow, uLut: g.lut(lut) });
     this._prune();
     if (!this.guard || !this.final || !this.stB || !this.stA || !this.outB || !this.outA) return this.final as RenderTarget;
 
@@ -415,6 +540,7 @@ export class Engine {
   aux: Record<string, any>;
   statsT: RenderTarget;
   printT?: RenderTarget;
+  scopeT?: RenderTarget;
   lastOut: RenderTarget | null = null;
 
   constructor(canvas: HTMLCanvasElement) {
@@ -430,6 +556,8 @@ export class Engine {
   get gl(): WebGL2RenderingContext { return this.gpu.gl; }
 
   resize(w: number, h: number): void {
+    this.gpu.assertSize(w, h);
+    if (this.main.w !== w || this.main.h !== h) this.lastOut = null;
     if (this.canvas.width !== w || this.canvas.height !== h) { this.canvas.width = w; this.canvas.height = h; }
     this.main.resize(w, h);
   }
@@ -554,6 +682,7 @@ export class Engine {
   }
 
   renderMain(frame: ComposedFrame): RenderTarget {
+    if (this.gl.isContextLost()) throw new Error('The graphics context was lost during rendering. Reload the studio and try a smaller export.');
     const out = this.main.render(frame, this.aux);
     if (this.main.brollT) this.aux.clipB = this.main.brollT;
     this.lastOut = out;
@@ -564,7 +693,7 @@ export class Engine {
   // Re-show the last rendered frame without advancing feedback or the flash guard.
   present(): boolean {
     const out = this.lastOut;
-    if (!out || out.w !== this.main.w) return false;
+    if (!out || out.w !== this.main.w || out.h !== this.main.h) return false;
     this.gpu.draw('blit', S.BLIT, null, this.main.U(out), { uSrc: out });
     return true;
   }
@@ -612,6 +741,19 @@ export class Engine {
     const px = new Uint8Array(w * h * 4);
     gl.bindFramebuffer(gl.FRAMEBUFFER, null);
     gl.readPixels(0, 0, w, h, gl.RGBA, gl.UNSIGNED_BYTE, px);
+    return px;
+  }
+
+  /** Small display-space readback for optional scopes. The visible canvas stays untouched. */
+  readScope(): Uint8Array | null {
+    if (!this.lastOut || this.gl.isContextLost()) return null;
+    const gl = this.gl;
+    this.scopeT ??= this.gpu.target(256, 144, { float: false });
+    this.gpu.draw('blit', S.BLIT, this.scopeT, this.main.U(this.scopeT), { uSrc: this.lastOut });
+    const px = new Uint8Array(256 * 144 * 4);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, this.scopeT.fb);
+    gl.readPixels(0, 0, 256, 144, gl.RGBA, gl.UNSIGNED_BYTE, px);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
     return px;
   }
 
