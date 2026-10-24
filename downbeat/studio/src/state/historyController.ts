@@ -154,18 +154,39 @@ export function snapshot(): string {
     customCuts: s.customCuts,
     segOverrides: s.segOverrides,
     clipFrame: s.clipFrame,
+    trackId: s.trackId,
+    bpmOverride: s.bpmOverride,
+    bpmManual: s.bpmManual,
+    gridNudge: s.gridNudge,
+    lockEdit: s.lockEdit,
+    exportOpts: s.exportOpts,
   });
 }
 
 export function applySnapshot(snap: string) {
   histMutedFlag = true;
   const data = JSON.parse(snap);
+  const before = useStudioStore.getState();
+  // Another song, or another tempo for this one, means analysing the song again.
+  const reanalyze = data.trackId !== before.trackId || data.bpmOverride?.[data.trackId] !== before.bpmOverride[data.trackId];
   useStudioStore.setState(data);
   const s = useStudioStore.getState();
   if (s.engine?.main) s.engine.main.reset();
   s.rebuild();
   histMutedFlag = false;
   histLastSnap = snap;
+  if (reanalyze) void reloadSong(data);
+}
+
+// Loading a song picks its own loop, so the snapshot's loop goes back on once the analysis is in.
+async function reloadSong(data: { trackId: string; loopStart: number; bars: number; customCuts: any; segOverrides: any }) {
+  await useStudioStore.getState().selectTrack(data.trackId, { keepLoop: true });
+  const s = useStudioStore.getState();
+  if (s.trackId !== data.trackId) return; // another song was picked meanwhile
+  histMutedFlag = true;
+  useStudioStore.setState({ loopStart: data.loopStart, bars: data.bars, customCuts: data.customCuts, segOverrides: data.segOverrides });
+  s.rebuild();
+  histMutedFlag = false;
 }
 
 export function undo() {

@@ -141,11 +141,14 @@ test('the studio works end to end in a real browser', { skip: missing.length ? `
   const tmp = mkdtempSync(join(tmpdir(), 'downbeat-e2e-'));
   const home = join(tmp, 'home');
   const out = join(tmp, 'out');
-  mkdirSync(join(home, 'Downloads'), { recursive: true });
+  const media = join(home, 'Movies', 'Canvas');
+  mkdirSync(media, { recursive: true });
+  mkdirSync(join(home, 'Downloads'));
   mkdirSync(out);
-  makeClip(join(home, 'Downloads', '1 bars.mp4'), 'testsrc2', '360x640');
-  makeClip(join(home, 'Downloads', '2 swirl.mp4'), 'mandelbrot', '640x360');
-  writeSong(join(home, 'Downloads', 'Test Song.wav'), 24, 120);
+  makeClip(join(media, '1 bars.mp4'), 'testsrc2', '360x640');
+  makeClip(join(media, '2 swirl.mp4'), 'mandelbrot', '640x360');
+  writeSong(join(media, 'Test Song.wav'), 24, 120);
+  makeClip(join(home, 'Downloads', '3 ignored.mp4'), 'testsrc2', '360x640'); // Downloads isn't looked in
 
   // The real server, pointed at the temporary out/ folder.
   const port = await freePort();
@@ -186,6 +189,18 @@ test('the studio works end to end in a real browser', { skip: missing.length ? `
         throw new Error(`${e.message}\nout/: ${files.join(', ') || 'empty'}\nserver: ${serverErr.slice(-800)}`);
       }
     });
+
+  await step('opens on Pick a folder, and the folder typed in loads its clips and song', `
+    await until(() => $('#btnPickFolder'), 30000, 'the Pick a folder button');
+    if (S.getState().clips.length) throw new Error('clips listed before a folder was picked');
+    // The Mac folder chooser can't be driven from here, so type the path as Linux does.
+    await tap(S.getState().canPick ? byText('.welcome button', 'Type a path instead') : $('#btnPickFolder'));
+    const input = await until(() => $('.welcome input'), 2000, 'the path box');
+    setRange(input, ${JSON.stringify(media)});
+    input.form.requestSubmit();
+    await until(() => !$('.welcome'), 30000, 'the welcome screen to close');
+    if (!$('#toast').textContent.includes('2 videos and 1 song')) throw new Error('toast: ' + $('#toast').textContent);
+  `);
 
   await step('loads the clips and the song, with every clip ready to play', `
     await until(() => window.__studio?.ctx, 30000, 'the studio to start');

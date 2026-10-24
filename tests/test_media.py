@@ -194,6 +194,23 @@ class TestProxyManager(TempDirCase):
             self.assertEqual(pm.status(src), "error")
             self.assertEqual([n for n in os.listdir(pm.root) if n.endswith(".part.mp4")], [])
 
+    @unittest.skipUnless(os.name == "posix", "nice is a POSIX tool")
+    def test_copies_are_encoded_at_low_priority(self) -> None:
+        src = source.Source(self.path("any.mp4"), 64, 112, 30.0, 30, 1.0)
+        open(src.path, "wb").close()
+        ran = []
+
+        class Done:
+            def __init__(self, cmd, **_kw) -> None:
+                ran.append(cmd)
+
+            def wait(self) -> int:
+                return 1
+
+        with proxy.ProxyManager(os.path.join(self.tmp, "proxies-nice")) as pm, mock.patch.object(proxy.subprocess, "Popen", Done):
+            pm.ensure(src, timeout=30)
+        self.assertEqual(ran[0][:3], ["nice", "-n", "10"], "song analysis and thumbnails go first")
+
     def test_a_shut_down_manager_builds_nothing(self) -> None:
         src = source.probe(self.clip("proxy-closed.mp4", "64x112", 1.0))
         pm = proxy.ProxyManager(os.path.join(self.tmp, "proxies-closed"))

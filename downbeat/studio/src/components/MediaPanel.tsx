@@ -5,8 +5,9 @@ import { MOD_SOURCES } from '../engine/modules.ts';
 import type { ClipMeta } from '../engine/types.ts';
 import { ExportsSection } from './Exports.tsx';
 import { TrackPicker } from './TrackPicker.tsx';
-import { removeClip } from '../state/mediaActions.ts';
+import { isLoaded, removeClip } from '../state/mediaActions.ts';
 import { useArmed } from './ui.tsx';
+import { ChooserNote, FolderPathForm, useFolderPicker } from './Folders.tsx';
 
 /** Needs a second click within 3 s, like deleting an export. */
 const RemoveClipButton: React.FC<{ id: string }> = ({ id }) => {
@@ -31,6 +32,7 @@ export const MediaPanel: React.FC = () => {
   useVersion();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const addSong = useCallback(() => fileInputRef.current?.click(), []);
+  const folder = useFolderPicker();
   const [dragId, setDragId] = useState<string | null>(null);
 
   const trackId = useStudioStore((s) => s.trackId);
@@ -177,12 +179,28 @@ export const MediaPanel: React.FC = () => {
             <button
               className="btn sm add"
               id="btnAddMedia"
-              title="Add video clips, album art / photos or audio tracks from disk (or drop them anywhere)"
+              title="Copy video clips, album art / photos or songs into Downbeat (or drop them anywhere)"
               onClick={() => fileInputRef.current?.click()}
             >
-              + Add clips, art or tracks
+              + Add files
             </button>
-            <button className="btn sm" id="btnAllClips" title="Use every clip" onClick={() => reorderClips('all')}>
+            <button
+              className="btn sm add"
+              id="btnAddFolder"
+              disabled={folder.waiting}
+              title="List the videos and songs in a folder and its subfolders"
+              onClick={folder.choose}
+            >
+              + Add a folder
+            </button>
+            {(folder.waiting || folder.typing || folder.err) && (
+              <div className="clip-folder">
+                {folder.waiting && <ChooserNote />}
+                {folder.typing && <FolderPathForm f={folder} />}
+                {folder.err && <div className="tp-err">{folder.err}</div>}
+              </div>
+            )}
+            <button className="btn sm" id="btnAllClips" title="Use every loaded clip" onClick={() => reorderClips('all')}>
               All
             </button>
             <button
@@ -221,16 +239,17 @@ export const MediaPanel: React.FC = () => {
           <div className="clips" id="clips">
             {orderedClips.map((c) => {
               const idx = selected.indexOf(c.id);
-              const busy = c.proxy && c.proxy !== 'ready';
+              const busy = c.proxy === 'queued' || c.proxy === 'building';
+              const idle = !isLoaded(c, selected);
               const clk = clipLookOf(c.id);
               const own = clk !== look;
 
               return (
                 <div
                   key={c.id}
-                  className={`clip ${idx >= 0 ? 'on' : 'off'}`}
+                  className={`clip ${idx >= 0 ? 'on' : 'off'}${idle ? ' idle' : ''}`}
                   draggable={idx >= 0}
-                  title={`${c.name}\n${c.width || 0}×${c.height || 0} · ${c.duration || 0}s`}
+                  title={`${c.name}\n${c.width || 0}×${c.height || 0} · ${c.duration || 0}s${idle ? '\nNot loaded yet. Click to add it to the edit.' : ''}`}
                   style={{ backgroundImage: `url(/api/thumb/${c.id}?w=240)` }}
                   onClick={() => toggleClip(c.id)}
                   onDragStart={(e) => {
@@ -255,6 +274,7 @@ export const MediaPanel: React.FC = () => {
                   }}
                 >
                   {idx >= 0 && <span className="num">{idx + 1}</span>}
+                  {idle && <span className="add-hint">+ Add</span>}
                   {busy && <span className="busy" title="Preparing playback proxy" />}
                   {idx >= 0 && clipMode !== 'one' && (
                     <button

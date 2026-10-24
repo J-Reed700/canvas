@@ -5,6 +5,7 @@ import hashlib
 import itertools
 import os
 import queue
+import shutil
 import subprocess
 import threading
 from typing import Any
@@ -119,6 +120,9 @@ class ProxyManager:
             "-an", "-sn", "-dn", "-vf", vf, *codec, "-g", "8", "-bf", "0",
             "-movflags", "+faststart", tmp,
         ]
+        # Low priority, so song analysis and thumbnails don't wait behind a 4K encode.
+        if os.name == "posix" and shutil.which("nice"):
+            cmd = ["nice", "-n", "10", *cmd]
         self._proc = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         code = self._proc.wait()
         self._proc = None

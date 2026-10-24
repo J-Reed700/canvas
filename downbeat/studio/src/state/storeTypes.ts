@@ -68,6 +68,12 @@ export interface StudioState {
   /** Exports browser: open flag, the export shown in its viewer, and the search shared with the side panel. */
   libraryOpen: boolean;
   libraryItem: string | null;
+  /** The folders the server lists videos and songs from, the ones it suggests adding, and whether it can open a folder chooser. */
+  folders: string[];
+  folderSuggestions: string[];
+  canPick: boolean;
+  /** First run: no folder picked and nothing added, so the studio waits on Pick a folder. */
+  welcome: boolean;
   exportFilter: { q: string; kind: string; sort: string };
   mutAmt: number;
   varSeed: number;

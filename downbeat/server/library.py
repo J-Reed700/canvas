@@ -1,11 +1,12 @@
-"""Song library: every audio file in the places the studio looks, listed without decoding any of them.
+"""Media library: the songs and videos in the places the studio looks, listed without decoding any of them.
 
 Tempo, beats and loop suggestions are worked out when a song is picked (/api/features), so a folder with
-hundreds of songs lists instantly. Songs come from three places, in this order:
+hundreds of songs lists instantly. Songs and videos come from two places, in this order:
 
-- out/uploads/, where songs added in the studio are copied, so they survive a restart
-- the top level of ~/Downloads
-- music folders the user chose, scanned with their subfolders and saved in out/.library.json
+- out/uploads/, where files added in the studio are copied, so they survive a restart
+- the folders the user picked, scanned with their subfolders and saved in out/.library.json
+
+Nothing is listed until the user picks a folder or adds a file.
 """
 from __future__ import annotations
 
@@ -18,10 +19,13 @@ from ..media import file_id
 from ..media.encoder import ffmpeg_path
 
 AUDIO_EXTS = (".wav", ".mp3", ".m4a", ".aac", ".flac", ".aif", ".aiff", ".ogg", ".opus")
+VIDEO_EXTS = (".mp4", ".mov", ".m4v", ".webm", ".mkv")
 # Formats every browser can decode as they are. Anything else is converted to WAV before playback.
 BROWSER_AUDIO_EXTS = (".wav", ".mp3", ".flac")
 MIN_BYTES = 250_000  # in scanned folders, skips alert sounds and clips too short to loop
 MAX_PER_FOLDER = 5000
+# Each video is probed and gets a playback proxy, so a big folder lists only its newest ones.
+MAX_VIDEOS_PER_FOLDER = 50
 _SKIP_DIR_SUFFIXES = (".app", ".photoslibrary", ".musiclibrary", ".tvlibrary", ".logicx", ".band")
 
 
@@ -30,8 +34,8 @@ class Track:
     id: str
     path: str
     name: str
-    source: str  # "added", "downloads", or the music folder it was found in
-    dir: str  # subfolder inside a music folder, "" at the top
+    source: str  # "added", or the folder it was found in
+    dir: str  # subfolder inside that folder, "" at the top
     mtime: float
 
     def to_dict(self) -> dict:
@@ -59,37 +63,48 @@ def _track(path: str, source: str, root: str, mtime: float) -> Track:
     return Track(track_id(path), path, os.path.basename(path), source, "" if rel == "." else rel, mtime)
 
 
-def scan_folder(folder: str, source: str, recursive: bool, min_bytes: int = MIN_BYTES) -> list[Track]:
-    """Audio files in a folder, newest first. Hidden folders and app bundles are skipped."""
-    found: list[Track] = []
+def is_video_name(name: str) -> bool:
+    return name.lower().endswith(VIDEO_EXTS) and not name.startswith(".")
+
+
+def scan_folder(
+    folder: str, source: str, recursive: bool, min_bytes: int = MIN_BYTES, max_videos: int | None = None
+) -> tuple[list[Track], list[str]]:
+    """The songs and the video paths in a folder, each newest first, with at most `max_videos` videos.
+    Hidden folders and app bundles are skipped."""
+    songs: list[Track] = []
+    videos: list[tuple[float, str]] = []
     if not os.path.isdir(folder):
-        return found
+        return songs, []
     walker = os.walk(folder) if recursive else [(folder, [], os.listdir(folder))]
     for dirpath, dirnames, filenames in walker:
         dirnames[:] = [d for d in dirnames if not d.startswith(".") and not d.lower().endswith(_SKIP_DIR_SUFFIXES)]
         for fn in filenames:
-            if not is_audio_name(fn):
+            audio = is_audio_name(fn)
+            if not audio and not is_video_name(fn):
                 continue
             path = os.path.join(dirpath, fn)
             try:
                 st = os.stat(path)
             except OSError:
                 continue
-            if st.st_size >= min_bytes:
-                found.append(_track(path, source, folder, st.st_mtime))
-                if len(found) >= MAX_PER_FOLDER:
+            if not audio:
+                videos.append((st.st_mtime, path))
+            elif st.st_size >= min_bytes:
+                songs.append(_track(path, source, folder, st.st_mtime))
+                if len(songs) >= MAX_PER_FOLDER:
                     break
-        if len(found) >= MAX_PER_FOLDER:
+        if len(songs) >= MAX_PER_FOLDER:
             break
-    found.sort(key=lambda t: t.mtime, reverse=True)
-    return found
+    songs.sort(key=lambda t: t.mtime, reverse=True)
+    videos.sort(reverse=True)
+    return songs, [p for _, p in videos[:max_videos]]
 
 
 class Library:
-    def __init__(self, out_dir: str, downloads: str = "~/Downloads") -> None:
+    def __init__(self, out_dir: str) -> None:
         self.uploads = os.path.join(out_dir, "uploads")
         self.config_path = os.path.join(out_dir, ".library.json")
-        self.downloads = os.path.abspath(os.path.expanduser(downloads))
 
     def folders(self) -> list[str]:
         try:
@@ -121,18 +136,19 @@ class Library:
         chosen = set(self.folders())
         return [p for p in (os.path.expanduser("~/Music"),) if os.path.isdir(p) and p not in chosen]
 
-    def scan(self) -> dict[str, Track]:
-        """Every song, keyed by id. A file reachable from two places is listed under the first."""
-        groups = [
-            # Songs added in the studio were chosen on purpose, so any length counts.
-            scan_folder(self.uploads, "added", recursive=False, min_bytes=1),
-            scan_folder(self.downloads, "downloads", recursive=False),
-        ] + [scan_folder(p, p, recursive=True) for p in self.folders()]
+    def scan(self) -> tuple[dict[str, Track], list[str]]:
+        """Every song keyed by id, and the paths of the videos to list as clips. A file reachable from two
+        places is listed under the first."""
+        # Files added in the studio were chosen on purpose, so any length and any number of them count.
+        groups = [scan_folder(self.uploads, "added", recursive=False, min_bytes=1)]
+        groups += [scan_folder(p, p, recursive=True, max_videos=MAX_VIDEOS_PER_FOLDER) for p in self.folders()]
         tracks: dict[str, Track] = {}
-        for group in groups:
-            for t in group:
+        videos: list[str] = []
+        for songs, paths in groups:
+            for t in songs:
                 tracks.setdefault(t.id, t)
-        return tracks
+            videos += paths
+        return tracks, list(dict.fromkeys(videos))
 
 
 def playable_path(track: Track, cache_dir: str, keep: int = 20) -> str:
@@ -163,7 +179,7 @@ def pick_folder_dialog() -> str | None:
     """Open the macOS folder chooser on this Mac. Returns the chosen path, or None if cancelled."""
     script = [
         "-e", "activate",
-        "-e", 'POSIX path of (choose folder with prompt "Choose a folder of songs for Downbeat" default location (path to music folder))',
+        "-e", 'POSIX path of (choose folder with prompt "Choose the folder your videos and songs are in" default location (path to home folder))',
     ]
     res = subprocess.run(["osascript", *script], capture_output=True, text=True)
     if res.returncode != 0:

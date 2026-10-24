@@ -31,7 +31,7 @@ import {
 } from './exportController.ts';
 import { surprise, rollClips, rollAll, undoRoll } from './rollController.ts';
 import { save, restore, snapshot, applySnapshot, undo, redo, resetHistory, saveLook, rememberLook } from './historyController.ts';
-import { uploadFiles, autoFrame, reorderClips, toggleClip, fetchPalette } from './mediaActions.ts';
+import { uploadFiles, autoFrame, reorderClips, toggleClip, fetchPalette, firstClips, requestProxies } from './mediaActions.ts';
 import type { StudioState } from './storeTypes.ts';
 
 export type { LookJob, GhostItem, StudioState } from './storeTypes.ts';
@@ -84,6 +84,10 @@ export const useStudioStore = create<StudioState>((set, get) => ({
   exportOpen: false,
   libraryOpen: false,
   libraryItem: null,
+  folders: [],
+  folderSuggestions: [],
+  canPick: false,
+  welcome: false,
   exportFilter: { q: '', kind: 'all', sort: 'new' },
   mutAmt: 0.45,
   varSeed: 1,
@@ -342,18 +346,17 @@ export const useStudioStore = create<StudioState>((set, get) => ({
 
     try {
       const ov = s.bpmOverride[id];
-      const [feats] = await Promise.all([
-        fetchJSON<TrackFeatures>(`/api/features/${id}${ov ? `?bpm=${ov}` : ''}`),
-        s.transport.buffer && s.transport.trackId === id
-          ? s.transport.buffer
-          : s.transport.decode(`/api/track_audio/${id}`),
-      ]).then(([f, buf]) => {
+      // The song plays as soon as it's decoded. The analysis can take much longer, for instance while
+      // playback copies of big clips are being made, and the loop moves to its suggestion when it's in.
+      const audio = (
+        s.transport.buffer && s.transport.trackId === id ? Promise.resolve(s.transport.buffer) : s.transport.decode(`/api/track_audio/${id}`)
+      ).then((buf) => {
         if (token === trackTokenVal) {
           s.transport.setBuffer(buf);
           s.transport.trackId = id;
         }
-        return [f];
       });
+      const [feats] = await Promise.all([fetchJSON<TrackFeatures>(`/api/features/${id}${ov ? `?bpm=${ov}` : ''}`), audio]);
 
       if (token !== trackTokenVal) return;
 
@@ -516,20 +519,20 @@ export const useStudioStore = create<StudioState>((set, get) => ({
 
     const bankObj = new VideoBank(
       bankContainer,
-      (id: string) => `/api/proxy/${id}`,
+      (id: string) => {
+        const c = get().clips.find((x) => x.id === id);
+        return !c?.proxy || c.proxy === 'ready' ? `/api/proxy/${id}` : null;
+      },
       (k: string) => engineObj.dropVideo(k),
     );
 
     set({ engine: engineObj, bank: bankObj });
 
-    const st = await fetchJSON<{ clips: ClipMeta[]; tracks: TrackMeta[]; renders: RenderRecord[] }>('/api/state').catch(
-      () => ({ clips: [], tracks: [], renders: [] }),
-    );
+    type ServerState = { clips: ClipMeta[]; tracks: TrackMeta[]; renders: RenderRecord[]; folders?: string[]; can_pick?: boolean };
+    const st = await fetchJSON<ServerState>('/api/state').catch((): ServerState => ({ clips: [], tracks: [], renders: [] }));
     const saved = get().restore();
 
-    const selectedClips =
-      saved.selected?.filter((id: string) => st.clips.some((c) => c.id === id)) ||
-      [...st.clips].sort((a: any, b: any) => (b.is_stock ? 1 : 0) - (a.is_stock ? 1 : 0)).slice(0, 4).map((c) => c.id);
+    const selectedClips = saved.selected?.filter((id: string) => st.clips.some((c) => c.id === id)) || firstClips(st.clips);
 
     let initialTrack = saved.trackId || (st.tracks.length ? st.tracks[0].id : '');
     if (initialTrack && !st.tracks.some((t) => t.id === initialTrack)) initialTrack = '';
@@ -541,6 +544,9 @@ export const useStudioStore = create<StudioState>((set, get) => ({
       clips: st.clips,
       tracks: st.tracks,
       renders: st.renders,
+      folders: st.folders || [],
+      canPick: !!st.can_pick,
+      welcome: !!st.folders && !st.folders.length && !st.clips.length,
       selected: selectedClips,
       trackId: initialTrack,
       look: initialLook,
@@ -576,6 +582,11 @@ export const useStudioStore = create<StudioState>((set, get) => ({
     resetHistory();
 
     startRenderLoop(viewCanvas, ambientCanvas);
+    // Clips put in the edit get their playback copies made, however they got there.
+    requestProxies();
+    useStudioStore.subscribe((s, prev) => {
+      if (s.selected !== prev.selected || s.clips !== prev.clips) requestProxies();
+    });
     pollProxies();
   },
 }));

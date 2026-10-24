@@ -120,11 +120,12 @@ export function compose(ctx: ComposeContext, t: number, look: Look = ctx.look): 
 // sync with the transport; export seeks each one frame-exactly.
 export class VideoBank {
   root: HTMLElement;
-  urlFor: (clipId: string) => string;
+  /** The clip's playback copy, or null while it's still being made. */
+  urlFor: (clipId: string) => string | null;
   onDrop?: (k: string) => void;
   els: Map<string, HTMLVideoElement>;
 
-  constructor(root: HTMLElement, urlFor: (clipId: string) => string, onDrop?: (k: string) => void) {
+  constructor(root: HTMLElement, urlFor: (clipId: string) => string | null, onDrop?: (k: string) => void) {
     this.root = root;
     this.urlFor = urlFor;
     this.onDrop = onDrop;
@@ -139,15 +140,20 @@ export class VideoBank {
       e.playsInline = true;
       e.preload = 'auto';
       e.disableRemotePlayback = true;
-      const url = this.urlFor(clipId ?? vkey.split('#')[0]);
-      e.src = url;
       // A proxy that was still building (or failed once) answers with an error: retry a few times.
       (e as any)._retries = 0;
       e.addEventListener('error', () => {
+        const url = (e as any)._url;
         if ((e as any)._retries++ < 6) setTimeout(() => { if (e?.isConnected) e.src = `${url}?retry=${(e as any)._retries}`; }, 2000 * (e as any)._retries);
       });
       this.root.appendChild(e);
       this.els.set(vkey, e);
+    }
+    // No source until the playback copy is ready: a request for one still being made would hold one of the
+    // browser's few connections to the server for minutes, and the song and the other clips wait behind it.
+    if (!(e as any)._url) {
+      const url = this.urlFor(clipId ?? vkey.split('#')[0]);
+      if (url) e.src = (e as any)._url = url;
     }
     (e as any)._used = performance.now();
     return e;

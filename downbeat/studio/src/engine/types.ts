@@ -126,9 +126,9 @@ export interface TrackMeta {
   path?: string;
   duration?: number;
   bpm?: number;
-  /** "added" (copied into out/uploads), "downloads", or the music folder it was found in. */
+  /** "added" (copied into out/uploads), or the folder it was found in. */
   source?: string;
-  /** Subfolder inside a music folder, "" at its top. */
+  /** Subfolder inside that folder, "" at its top. */
   dir?: string;
   mtime?: number;
 }

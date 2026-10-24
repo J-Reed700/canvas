@@ -65,6 +65,7 @@ function fresh(over = {}) {
     clipFrame: {},
     palettes: {},
     rollOpts: { look: true, edit: true, perClip: true, clips: false, loop: false },
+    exportOpts: { size: 'master', audio: true, format: 'spotify', promo: 0, autoSave: true },
     ...over,
   });
   st().rebuild();
@@ -327,6 +328,9 @@ test('picking a song loads its analysis and suggested loop, and ignores a slower
   st().transport.decode = async () => FAKE_BUFFER;
   const first = st().selectTrack('t1');
   assert.equal(st().trackStateText, 'Analyzing…');
+  await tick();
+  assert.equal(st().transport.buffer, FAKE_BUFFER, 'the song can be heard before its analysis is in');
+  assert.equal(st().transport.trackId, 't1');
   await st().selectTrack('t2');
   release();
   await first;
@@ -433,7 +437,61 @@ test('snapshots carry the look and edit, and applying one rebuilds the timeline'
   assert.equal(st().bars, 4);
   assert.deepEqual(st().selected, ['a', 'b', 'c']);
   assert.equal(st().ctx.L, 8);
-  assert.deepEqual(Object.keys(JSON.parse(snap)).sort(), ['bars', 'clipFrame', 'clipLooks', 'clipMode', 'customCuts', 'direction', 'editClip', 'evolveAmt', 'intensity', 'look', 'lookId', 'loopStart', 'seed', 'segOverrides', 'selected']);
+  assert.deepEqual(Object.keys(JSON.parse(snap)).sort(), [
+    'bars', 'bpmManual', 'bpmOverride', 'clipFrame', 'clipLooks', 'clipMode', 'customCuts', 'direction', 'editClip', 'evolveAmt',
+    'exportOpts', 'gridNudge', 'intensity', 'lockEdit', 'look', 'lookId', 'loopStart', 'seed', 'segOverrides', 'selected', 'trackId',
+  ]);
+});
+
+test('undo also covers the screen, the beat grid, the tempo and the song', async (t) => {
+  await tick(400);
+  const reqs = stubFetch({
+    'GET /api/features/t1': (u) => ({ ...SONG, id: 't1', bpm: u.includes('bpm=') ? +u.split('bpm=')[1] : 120 }),
+    'GET /api/features/t2': () => ({ ...SONG, id: 't2', bpm: 90, loops: [{ start: 9.5 }], loop_bars: 2 }),
+  });
+  st().transport.decode = async () => FAKE_BUFFER;
+  withSong({ loopStart: 33.5, bars: 8 });
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  history.resetHistory();
+  const settle = () => t.mock.timers.tick(400);
+
+  st().setScreen('landscape');
+  settle();
+  st().nudgeGrid(0.02);
+  settle();
+  st().undo();
+  assert.deepEqual(st().gridNudge, {});
+  st().undo();
+  assert.equal(st().exportOpts.format, 'spotify', 'the screen goes back to the phone');
+  st().redo();
+  assert.equal(st().exportOpts.format, 'youtube_16_9');
+
+  t.mock.timers.reset();
+  await st().setTempo(100);
+  await tick(400);
+  assert.deepEqual(st().bpmOverride, { t1: 100 });
+  st().undo();
+  await tick(0);
+  assert.deepEqual(st().bpmOverride, {});
+  assert.equal(reqs.at(-1).url, '/api/features/t1', 'the song is analysed again at its own tempo');
+  assert.equal(st().bpm(), 120);
+  assert.deepEqual([st().loopStart, st().bars], [33.5, 8], 'and the loop is put back');
+
+  await st().selectTrack('t2');
+  await tick(400);
+  assert.equal(st().trackId, 't2');
+  st().undo();
+  await tick(0);
+  assert.equal(st().trackId, 't1');
+  assert.equal(st().features.id, 't1');
+  assert.deepEqual([st().loopStart, st().bars], [33.5, 8]);
+  st().redo();
+  await tick(0);
+  assert.equal(st().features.id, 't2');
+  await tick(400);
+  st().undo();
+  await tick(0);
+  assert.equal(st().trackId, 't1', 'redo still works after a reload settles');
 });
 
 test('saving a look adds it to Your looks, and a clip stack keeps the main camera and edit', () => {
@@ -567,6 +625,28 @@ test('clip toggles and reordering update the selection and clear per-cut overrid
   assert.equal(st().ctx, null, 'no clips, nothing to play');
 });
 
+test('videos not in the edit stay unloaded until one is put in, which asks for its playback copy', async () => {
+  const reqs = stubFetch({ 'POST /api/proxies': () => ({ ok: true, proxies: { b: 'building' } }) });
+  fresh({ clips: CLIPS.map((c) => ({ ...c, proxy: c.id === 'a' ? 'ready' : 'none' })), selected: ['a'] });
+  assert.deepEqual(st().clips.filter((c) => !media.isLoaded(c, st().selected)).map((c) => c.id), ['b', 'c']);
+  st().reorderClips('all');
+  assert.deepEqual(st().selected, ['a'], 'All leaves out the clips that are not loaded');
+  assert.equal(lastToast(), 'Using the one loaded clip');
+  await media.requestProxies();
+  assert.equal(reqs.length, 0, 'nothing to ask for');
+
+  st().toggleClip('b');
+  const asking = media.requestProxies();
+  assert.equal(st().clips.find((c) => c.id === 'b').proxy, 'queued', 'marked at once, so it is asked for once');
+  await asking;
+  assert.deepEqual(JSON.parse(reqs[0].body), { ids: ['b'] });
+  assert.equal(st().clips.find((c) => c.id === 'b').proxy, 'building');
+  await media.requestProxies();
+  assert.equal(reqs.length, 1);
+  st().toggleClip('b');
+  assert.equal(media.isLoaded(st().clips.find((c) => c.id === 'b'), st().selected), true, 'taken out of the edit, it stays loaded');
+});
+
 test('removing a clip drops it everywhere, and the message says whether the file was deleted', async () => {
   let reply = { ok: true, deleted: true };
   const reqs = stubFetch({ 'POST /api/clip/remove': () => reply });
@@ -583,7 +663,7 @@ test('removing a clip drops it everywhere, and the message says whether the file
 
   reply = { ok: true, deleted: false };
   await media.removeClip('b');
-  assert.equal(lastToast(), 'Removed city.mp4. The file is still in your Downloads folder.');
+  assert.equal(lastToast(), 'Removed city.mp4. The file is still in its folder.');
 
   reply = { ok: false, error: 'Disk is read-only' };
   await media.removeClip('a');

@@ -239,4 +239,8 @@ test('proxy status is polled while clips are still converting', async (t) => {
   t.mock.timers.tick(2500);
   await new Promise((r) => setImmediate(r));
   assert.equal(polls, 1, 'nothing left to wait for');
+  S.setState({ clips: [{ id: 'a', duration: 12, proxy: 'none' }] });
+  t.mock.timers.tick(2500);
+  await new Promise((r) => setImmediate(r));
+  assert.equal(polls, 1, "a video that isn't loaded has nothing to wait for");
 });
