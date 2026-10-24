@@ -152,6 +152,16 @@ describe('transport', () => {
     expect(document.getElementById('safe')!.className, 'and back on the phone').toContain('on');
   });
 
+  test('without WebGL2 the stage says why the preview is empty and what to do', () => {
+    resetStudio({ glError: 'WebGL2 is not available' });
+    renderStudio(<StagePanel />);
+    const empty = document.getElementById('emptyStage') as HTMLElement;
+    expect(empty.hidden).toBe(false);
+    expect(empty.textContent).toMatch(/^The preview can't startWebGL2 is not available\. The studio needs WebGL2 to draw\. /);
+    expect(empty.textContent).toMatch(/Use graphics acceleration when available/);
+    expect(screen.queryByText('Pick a few clips')).toBeNull();
+  });
+
   test('the phone shows the song title, and a hint when no clips are picked', () => {
     withSong();
     renderStudio(<StagePanel />);

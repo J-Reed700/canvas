@@ -64,6 +64,7 @@ const server = (o = {}) => stubFetch({
 });
 const begins = (reqs) => reqs.filter((r) => r.path === '/api/export/raw/begin').map((r) => JSON.parse(r.body));
 const button = (label) => status.find((c) => c.tagName === 'BUTTON' && c.text === label);
+const within = (pred, el = status, out = []) => { for (const c of el.children) { if (pred(c)) out.push(c); within(pred, c, out); } return out; };
 const quiet = async (fn) => { const e = console.error; console.error = () => {}; try { return await fn(); } finally { console.error = e; } };
 
 test('the export sheet only opens when every selected clip is ready', () => {
@@ -275,6 +276,28 @@ test('a batch of rolls renders four variations and then restores the look', asyn
   assert.equal(begins(reqs).length, 4);
   assert.equal(new Set(begins(reqs).map((m) => m.look)).size > 1, true, 'each render is a different roll');
   assert.equal(st().snapshot(), before);
+  // the sheet ends on a summary with a link to each file
+  assert.equal(status.find((c) => c.tagName === 'H2').text, 'Batch done');
+  assert.match(status.text, /4 of 4 exported, and all of them passed every check\. They're in Exports, and the studio is back on your edit\./);
+  assert.deepEqual(within((c) => c.tagName === 'A').map((a) => a.attributes.href), Array(4).fill('/out/canvas-neon.mp4'));
+  assert.equal(lastToast(), 'Batch done: 4 of 4 exported');
+});
+
+test('a render that fails stops the batch, and the summary says where', async (t) => {
+  let n = 0;
+  const reqs = server({
+    end: () => (++n === 2
+      ? new Response(JSON.stringify({ ok: false, error: 'disk full' }), { status: 500 })
+      : { ok: true, render: { filename: `r${n}.mp4`, url: `/out/r${n}.mp4`, size_mb: 1, checks: [{ id: 'len', level: n === 1 ? 'fail' : 'ok' }] } }),
+  });
+  fresh({ bars: 1 });
+  await runOnFakeClock(t, () => quiet(() => X.runBatch('rolls')));
+  assert.equal(begins(reqs).length, 2);
+  assert.equal(status.find((c) => c.tagName === 'H2').text, 'Batch stopped');
+  assert.match(status.text, /1 of 4 exported, and 0 passed every check/);
+  assert.match(status.text, /It stopped at .+: disk full/);
+  assert.equal(within((c) => c.tagName === 'A').length, 1);
+  assert.equal(st().lookId, LOOKS[0].id, 'back on the edit from before the batch');
 });
 
 test('cancelling one render of a batch stops the rest', async (t) => {
@@ -284,6 +307,8 @@ test('cancelling one render of a batch stops the rest', async (t) => {
   await runOnFakeClock(t, () => quiet(() => X.runBatch('rolls')));
   assert.equal(begins(reqs).length, 2);
   assert.equal(st().lookId, LOOKS[0].id);
+  assert.equal(status.find((c) => c.tagName === 'H2').text, 'Batch cancelled');
+  assert.match(status.text, /1 of 4 exported/);
 });
 
 test('a batch over songs renders each song in the folder and comes back to the first one', async (t) => {

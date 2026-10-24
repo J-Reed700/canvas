@@ -210,6 +210,11 @@ test('the studio works end to end in a real browser', { skip: missing.length ? `
     if (Math.abs(S.getState().bpm() - 120) > 1) throw new Error('tempo ' + S.getState().bpm());
   `);
 
+  await step('every effect, transition and render pass compiles on this GPU', `
+    const errors = S.getState().engine.warmup();
+    if (errors.length) throw new Error(errors.join('\\n'));
+  `);
+
   await step('Layers: the step grid, a layer switch, Add effect, a macro and the palette respond', `
     byText('#tabs button', 'Layers ' + $('#layerCount').textContent).click();
     await until(() => $('#pane-layers'), 5000, 'the Layers tab');
@@ -282,6 +287,7 @@ test('the studio works end to end in a real browser', { skip: missing.length ? `
     const r = S.getState().renders[0];
     const fails = (r?.checks || []).filter((c) => c.level === 'fail').map((c) => c.label + ': ' + c.detail);
     if (h2 !== 'Ready for Spotify') throw new Error(h2 + ' ' + ($('#exportStatus .note')?.textContent || '') + ' ' + fails.join('; '));
+    if (getComputedStyle($('#exportForm')).display !== 'none') throw new Error('the export form still shows above the result');
     if (r.resolution !== '720x1280') throw new Error('size ' + r.resolution);
     if (!(r.stats.mean_luminance > 0.02)) throw new Error('the render is black: ' + JSON.stringify(r.stats));
     const foot = r.checks.find((c) => c.id === 'footage');

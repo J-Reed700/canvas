@@ -101,6 +101,10 @@ export const EditPane: React.FC = () => {
   const seed = useStudioStore((s) => s.seed);
   const bpmManual = useStudioStore((s) => s.bpmManual);
   const lockEdit = useStudioStore((s) => s.lockEdit);
+  const rebound = useStudioStore((s) => s.rebound);
+  const fitAll = useStudioStore((s) => s.fitAll);
+  const nClips = useStudioStore((s) => s.selected.length);
+  const nShown = useStudioStore((s) => new Set(s.ctx?.tl.segs.map((x) => x.clipId)).size);
   const features = useStudioStore((s) => s.features);
 
   const rebuild = useStudioStore((s) => s.rebuild);
@@ -110,6 +114,35 @@ export const EditPane: React.FC = () => {
     <div className="pane on" id="pane-edit">
       <div style={{ padding: '14px' }}>
         <LoopLength />
+
+        <div className="field">
+          <label>Loop</label>
+          <div className="seg">
+            {[
+              [false, 'Repeat', 'Plays the edit from the start again, with a transition at the seam'],
+              [true, 'Rebound', 'Plays the first half of the loop forward, then backward, so the footage turns round in the middle and meets itself at the seam'],
+            ].map(([on, label, title]) => (
+              <button
+                key={label as string}
+                className={rebound === on ? 'on' : ''}
+                title={title as string}
+                onClick={() => {
+                  if (rebound === on) return;
+                  useStudioStore.setState({ rebound: on as boolean, blocks: null });
+                  rebuild();
+                }}
+              >
+                {label as string}
+              </button>
+            ))}
+          </div>
+          {rebound && (
+            <div className="note" style={{ marginTop: '6px' }}>
+              The cuts fill the first half of the loop. The second half plays them backward, so the timeline shows it dimmed.
+              The music and the effects keep going forward.
+            </div>
+          )}
+        </div>
 
         <div className="field">
           <label>Cut rhythm</label>
@@ -128,6 +161,24 @@ export const EditPane: React.FC = () => {
                 {r.name}
               </button>
             ))}
+          </div>
+          <label className="check" style={{ marginTop: '8px' }}>
+            <input
+              type="checkbox"
+              checked={fitAll}
+              onChange={(e) => {
+                useStudioStore.setState({ fitAll: e.target.checked });
+                rebuild();
+              }}
+            />
+            Show every clip at least once
+          </label>
+          <div className="note">
+            {fitAll
+              ? 'When the rhythm gives fewer cuts than there are clips, the longest cuts are split in two until each clip has one.'
+              : nShown && nShown < nClips
+                ? `${nClips - nShown} of the ${nClips} clips ${nClips - nShown === 1 ? "doesn't" : "don't"} appear, because there are more clips than cuts.`
+                : 'Clips take turns, one per cut.'}
           </div>
         </div>
 

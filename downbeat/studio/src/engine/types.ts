@@ -285,6 +285,8 @@ export interface TimelinePlan {
   rolled: Block[];
   /** The cuts are not where the rhythm puts them. */
   handCut: boolean;
+  /** The loop plays the edit forward and then backward, so it runs twice as long as the edit. */
+  rebound?: boolean;
 }
 
 export interface TimelineSamplePart {
@@ -298,6 +300,8 @@ export interface TimelineSample {
   b: TimelineSamplePart | null;
   p: number;
   trans: string | null;
+  /** In the backward half of a Rebound loop. */
+  back?: boolean;
 }
 
 export interface CameraTransform {
@@ -349,7 +353,7 @@ export interface ComposeContext {
   beatDur: number;
   seed: number;
   intensity?: number;
-  clipLook?: ((clipId: string) => Look | null | undefined) | null;
+  clipLook?: ((clipId: string, seg?: Segment) => Look | null | undefined) | null;
   clips?: ClipMeta[];
 }
 
@@ -387,6 +391,10 @@ export interface TimelinePlanOptions {
   custom?: number[] | null;
   hitCurve?: number[] | null;
   nClips?: number;
+  /** Split the longest cuts until every clip gets at least one. */
+  fitAll?: boolean;
+  /** L is the forward half of a Rebound loop. */
+  rebound?: boolean;
 }
 
 export interface RenderTarget {

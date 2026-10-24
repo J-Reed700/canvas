@@ -21,7 +21,7 @@ from .library import AUDIO_EXTS, VIDEO_EXTS, pick_folder_dialog, playable_path
 from ..media import frames as clip_frames
 from ..media.encoder import CANVAS_FPS
 from ..media.proxy import MAX_SECONDS as PROXY_SECONDS
-from ..media.source import IMAGE_EXTS, extract_thumbnail_jpeg, still_to_clip
+from ..media.source import IMAGE_EXTS, extract_thumbnail_jpeg, still_to_clip, video_to_mp4
 from .state import (
     OUT_DIR,
     PACKAGE_DIR,
@@ -638,20 +638,28 @@ class StudioHandler(BaseHTTPRequestHandler):
         with open(dest, "wb") as f:
             f.write(body)
         ext = os.path.splitext(safe_name)[1].lower()
+        made = None
         try:
             if ext in AUDIO_EXTS:
                 track = STATE.add_track_path(dest)
                 self._send_json({"ok": True, "kind": "audio", "id": track.id, "name": track.name})
             else:
                 still = ext in IMAGE_EXTS
-                if not still and ext not in VIDEO_EXTS:
-                    # The library only lists these, so any other kind would vanish on the next rescan.
-                    raise ValueError(f"Downbeat can't use {ext or 'extensionless'} files. Videos need to be .mp4, .mov, .m4v, .webm or .mkv")
-                src = STATE.add_clip_path(still_to_clip(dest) if still else dest)
-                self._send_json({"ok": True, "kind": "video", "id": src.id, "name": src.name, "still": still})
+                converted = not still and ext not in VIDEO_EXTS
+                if still:
+                    made = still_to_clip(dest)
+                elif converted:
+                    # The library only lists the usual video types, so the others (.avi, .mts, .wmv...) become an
+                    # .mp4, which is what's kept.
+                    made = video_to_mp4(dest)
+                    os.remove(dest)
+                src = STATE.add_clip_path(made or dest)
+                self._send_json({"ok": True, "kind": "video", "id": src.id, "name": src.name, "still": still, "converted": converted})
         except Exception as exc:
             # Files in out/uploads come back on the next start, so one that can't be used isn't kept.
-            os.remove(dest)
+            for path in (dest, made):
+                if path and os.path.exists(path):
+                    os.remove(path)
             self._send_json({"ok": False, "error": str(exc)}, status=400)
 
 

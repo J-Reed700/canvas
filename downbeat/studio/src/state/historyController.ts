@@ -2,6 +2,7 @@ import { useStudioStore } from './store.ts';
 import { toast } from '../lib/utils.ts';
 import { LOOKS, cloneLook } from '../engine/looks.ts';
 import { MODULES } from '../engine/modules.ts';
+import { defaultEnv, defaultLfos, defaultSeq } from '../engine/audio.ts';
 import type { Look } from '../engine/types.ts';
 
 const KEY = 'downbeat.studio.v1';
@@ -67,6 +68,9 @@ function writeSession() {
         clipMode: s.clipMode,
         clipLooks: s.clipLooks,
         evolveAmt: s.evolveAmt,
+        evolveCuts: s.evolveCuts,
+        rebound: s.rebound,
+        fitAll: s.fitAll,
         rollOpts: s.rollOpts,
         clipFrame: s.clipFrame,
         gridNudge: s.gridNudge,
@@ -91,6 +95,7 @@ if (typeof window !== 'undefined') {
 }
 
 export function save() {
+  markEdited();
   const s = useStudioStore.getState();
   clearTimeout(saveTimer);
   saveTimer = setTimeout(writeSession, 300);
@@ -150,6 +155,9 @@ export function snapshot(): string {
     clipLooks: s.clipLooks,
     editClip: s.editClip,
     evolveAmt: s.evolveAmt,
+    evolveCuts: s.evolveCuts,
+    rebound: s.rebound,
+    fitAll: s.fitAll,
     selected: s.selected,
     loopStart: s.loopStart,
     bars: s.bars,
@@ -234,6 +242,21 @@ export function originalLook(id: string): Look | null {
   if (known) return known;
   const json = originals.get(base);
   return json ? JSON.parse(json) : null;
+}
+
+// What the gallery compares: the look's layers, camera, grade and modulators, but not its cut settings,
+// which the Edit tab changes without changing the look. The Layers tab fills in the default envelope,
+// steps and LFOs when it shows them, which doesn't count as an edit.
+const visuals = (l: Look) =>
+  JSON.stringify([l.layers, l.camera, l.finish, l.env ?? defaultEnv(), l.seq ?? defaultSeq(), l.lfos ?? defaultLfos(), l.macro ?? { a: 0, b: 0 }]);
+
+/** Once the main look no longer matches the one picked in the gallery, the gallery stops showing that
+ * look as the current one (Revert picks it again). */
+function markEdited() {
+  const s = useStudioStore.getState();
+  if (!s.look || !s.lookId || s.lookId.startsWith('edit:')) return;
+  const base = originalLook(s.lookId);
+  if (base && visuals(base) !== visuals(s.look)) useStudioStore.setState({ lookId: `edit:${s.lookId}` });
 }
 
 export function saveLook(name?: string) {

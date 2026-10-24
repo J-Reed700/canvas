@@ -87,11 +87,28 @@ describe('keyboard shortcuts', () => {
     expect(st().lookId).toBe(LOOKS.at(-1)!.id);
   });
 
+  test('the arrows keep the current look in view in the gallery', () => {
+    resetStudio({ tab: 'looks' });
+    renderApp();
+    const seen: string[] = [];
+    const scroll = vi.fn(function (this: HTMLElement) { seen.push(this.dataset.lookId!); });
+    for (const el of document.querySelectorAll<HTMLElement>('[data-look-id]')) el.scrollIntoView = scroll;
+    press('ArrowLeft');
+    expect(seen.at(-1)).toBe(LOOKS.at(-1)!.id);
+    press('ArrowRight');
+    press('ArrowRight');
+    expect(seen.at(-1)).toBe(LOOKS[1].id);
+  });
+
   test('M, ?, E and Escape open and close the dialogs', () => {
     resetStudio({ tab: 'looks' });
     renderApp();
     press('m');
     expect(st().varOpen).toBe(true);
+    // pressed again it mutates again, like the button
+    const seed = st().varSeed;
+    press('m');
+    expect([st().varOpen, st().varSeed]).toEqual([true, seed + 1]);
     press('?');
     expect(st().helpOpen).toBe(true);
     press('Escape');

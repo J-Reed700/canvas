@@ -241,6 +241,26 @@ describe('segment timing', () => {
     expect(earlier('Starts').disabled && later('Starts').disabled, 'the loop seam').toBe(true);
   });
 
+  test('in a Rebound loop the strip works in the edited half: cuts stay in it and the playhead follows the mirror', () => {
+    // the cuts fill the first 4 s of the 8 s loop, and the second half plays them backward
+    laneEdit({ rebound: true });
+    const tl = () => st().ctx!.tl;
+    expect(tl().L).toBe(4);
+    seek(6); // plays the moment at 2 s of the edit, on the way back
+    fireEvent.doubleClick(lane(), { clientX: 150, clientY: 30 });
+    const last = tl().segs.at(-1)!;
+    expect(pop().querySelector('h4')!.textContent).toBe(`Segment ${tl().segs.length} of ${tl().segs.length}`);
+    expect(val('Ends')).toBe('End of the loop');
+    const head = timing().querySelector('.zhead') as HTMLElement;
+    expect(head.hidden).toBe(false);
+    for (let i = 0; i < 20 && !later('Starts').disabled; i++) fireEvent.click(later('Starts'));
+    expect(later('Starts').disabled).toBe(true);
+    const moved = tl().segs.find((x) => x.id === last.id)!;
+    expect(moved.t0).toBeGreaterThan(last.t0);
+    expect(moved.t0, 'short of the turn in the middle of the loop').toBeLessThan(4);
+    expect(tl().segs.at(-1)!.t1).toBe(4);
+  });
+
   test('on the strip, a cut line drags to anywhere with Shift, a band edge sets the length, and a double-click splits', () => {
     laneEdit();
     fireEvent.doubleClick(lane(), { clientX: 125, clientY: 30 });

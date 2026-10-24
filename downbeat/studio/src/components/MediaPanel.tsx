@@ -203,6 +203,11 @@ export const MediaPanel: React.FC = () => {
             <button className="btn sm" id="btnAllClips" title="Use every loaded clip" onClick={() => reorderClips('all')}>
               All
             </button>
+            {clips.some((c) => c.is_stock) && (
+              <button className="btn sm" id="btnStockClips" title="Use the first 5 stock clips instead of the ones picked now" onClick={() => reorderClips('stock')}>
+                Stock
+              </button>
+            )}
             <button
               className="btn sm"
               id="btnSoloClip"
@@ -231,7 +236,7 @@ export const MediaPanel: React.FC = () => {
               ref={fileInputRef}
               multiple
               hidden
-              accept="audio/*,image/*,.mp4,.mov,.m4v,.webm,.mkv,.wav,.mp3,.m4a,.aac,.flac,.aif,.aiff,.ogg,.opus,.jpg,.jpeg,.png,.webp,.heic"
+              accept="video/*,audio/*,image/*,.avi,.mts,.m2ts,.wmv,.mp4,.mov,.m4v,.webm,.mkv,.wav,.mp3,.m4a,.aac,.flac,.aif,.aiff,.ogg,.opus,.jpg,.jpeg,.png,.webp,.heic"
               onChange={handleFileInput}
             />
           </div>

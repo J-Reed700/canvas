@@ -124,9 +124,11 @@ export function startRenderLoop(viewCanvas: HTMLCanvasElement, ambientCanvas?: H
       const srcs = getSources();
       const texBy = new Map(fr.needs.map((n, i) => [n.vkey, srcs[i]]));
       const per = Math.min(jobs.length, THUMBS_PER_FRAME);
+      // While paused, the thumbnails keep moving on a clock of their own over the paused footage.
+      const tt = transportInstance.playing ? t : (now / 1000) % ctx.L;
       for (let k = 0; k < per; k++) {
         const job = jobs[(thumbCursorIdx + k) % jobs.length];
-        const f = compose(ctx, t, job.look);
+        const f = compose(ctx, tt, job.look);
         const src = f.needs.map((n) => ({ ...(texBy.get(n.vkey) || srcs[0]), cam: n.cam }));
         engineObj.renderThumb(job.id, { ...f, sources: src }, job.ctx2d, false);
       }

@@ -1,6 +1,7 @@
 import type { StudioState } from '../state/store.ts';
 import { sizeCanvas, roundRect } from '../lib/utils.ts';
 import { MOD_SOURCES } from '../engine/modules.ts';
+import type { Segment } from '../engine/types.ts';
 
 export const thumbImgsMap = new Map<string, HTMLImageElement>();
 
@@ -96,10 +97,12 @@ export function drawLane(s: StudioState, onRedraw?: () => void) {
   // While one clip's own FX stack is open in Layers, show where that stack plays.
   const editing = !!s.editClip && s.editLook() !== s.look;
 
-  tl.segs.forEach((seg) => {
-    const span = X(seg.t1) - X(seg.t0);
+  // A block from t0 to t1. In a Rebound loop the second half plays the first backward: those blocks are
+  // drawn again, mirrored and dimmed, and aren't for editing.
+  const drawBlock = (seg: Segment, t0: number, t1: number, mirror: boolean) => {
+    const span = X(t1) - X(t0);
     const pad = span > 8 * dpr ? 1.5 * dpr : 0;
-    const a = X(seg.t0) + pad;
+    const a = X(t0) + pad;
     const W = Math.max(dpr, span - 2 * pad);
     const r = Math.min(7 * dpr, W / 2);
     x.save();
@@ -153,7 +156,12 @@ export function drawLane(s: StudioState, onRedraw?: () => void) {
       x.fillStyle = 'rgba(10,10,14,0.62)';
       x.fillRect(a, top, W, bot - top);
     }
+    if (mirror) {
+      x.fillStyle = 'rgba(10,10,14,0.5)';
+      x.fillRect(a, top, W, bot - top);
+    }
     x.restore();
+    if (mirror) return;
 
     if (editing && seg.clipId === s.editClip) {
       x.strokeStyle = '#C8FF4D';
@@ -173,11 +181,32 @@ export function drawLane(s: StudioState, onRedraw?: () => void) {
       roundRect(x, a + 3 * dpr, top + 3 * dpr, W - 6 * dpr, bot - top - 6 * dpr, Math.max(0, r - 2 * dpr));
       x.stroke();
     }
-  });
+  };
+  tl.segs.forEach((seg) => drawBlock(seg, seg.t0, seg.t1, false));
+  if (tl.rebound) {
+    tl.segs.forEach((seg) => drawBlock(seg, L - seg.t1, L - seg.t0, true));
+    // where the footage turns round
+    x.fillStyle = 'rgba(200,255,77,0.9)';
+    for (let y = top; y < bot; y += 6 * dpr) x.fillRect(Math.round(X(tl.L)) - dpr, y, 2 * dpr, 3 * dpr);
+  }
 
   // With cuts closer than ~10 px, the diamonds would overlap: keep only the cut lines, and drop
   // those too once they'd merge into a solid block.
-  const gap = w / tl.segs.length;
+  const gap = X(tl.L) / tl.segs.length;
+  if (tl.rebound) {
+    // the backward half's cuts and transitions, faint, at their mirrored times
+    tl.segs.forEach((seg) => {
+      if (seg.t0 <= 0) return;
+      const cx = X(L - seg.t0);
+      const half = (seg.transDur / 2 / L) * w;
+      x.fillStyle = 'rgba(255,79,163,0.14)';
+      if (half > 0) x.fillRect(cx - half, top, half * 2, bot - top);
+      if (gap >= 3 * dpr) {
+        x.fillStyle = 'rgba(255,255,255,0.4)';
+        x.fillRect(cx - 0.75 * dpr, top, 1.5 * dpr, bot - top);
+      }
+    });
+  }
   tl.segs.forEach((seg) => {
     const cx = X(seg.t0);
     const half = (seg.transDur / 2 / L) * w;
@@ -191,7 +220,7 @@ export function drawLane(s: StudioState, onRedraw?: () => void) {
         for (const ex of seg.t0 === 0 ? [half, w - half] : [cx - half, cx + half]) x.fillRect(ex - 0.5 * dpr, top, dpr, bot - top);
       }
     }
-    if (gap >= 10 * dpr) {
+    if (gap >= 10 * dpr && !(tl.rebound && seg.t0 === 0)) {
       x.fillStyle = seg.trans === 'cut' ? '#fff' : '#FF4FA3';
       x.save();
       x.translate(cx === 0 ? 5 * dpr : cx, top);

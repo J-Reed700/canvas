@@ -13,6 +13,7 @@ import type {
   Look,
   ComposeContext,
   TimelinePlanOptions,
+  Segment,
 } from '../engine/types.ts';
 import {
   fetchJSON,
@@ -44,7 +45,7 @@ const clipDurMap = new Map<string, number>();
 let tapTimes: number[] = [];
 let tapTimer: ReturnType<typeof setTimeout> | undefined;
 let trackTokenVal = 0;
-let clipCacheState = { v: -1, map: new Map<string, Look>() };
+let clipCacheState = { v: -1, map: new Map<string, Look>(), filled: false };
 let lastVbBd = -1;
 let lastVb: number[] = BAR_CHOICES;
 
@@ -71,6 +72,9 @@ export const useStudioStore = create<StudioState>((set, get) => ({
   clipLooks: {},
   editClip: null,
   evolveAmt: 0.45,
+  evolveCuts: false,
+  rebound: false,
+  fitAll: true,
   rollOpts: { look: true, edit: true, perClip: true, clips: false, loop: false },
   blocks: null,
   legacyEdit: null,
@@ -97,6 +101,7 @@ export const useStudioStore = create<StudioState>((set, get) => ({
   mutAmt: 0.45,
   varSeed: 1,
   trackStateText: '',
+  glError: null,
 
   engine: null,
   bank: null,
@@ -148,12 +153,22 @@ export const useStudioStore = create<StudioState>((set, get) => ({
     get().setBars(get().maxBars());
   },
 
-  clipLookOf: (id: string): Look => {
+  clipLookOf: (id: string, seg?: Segment): Look => {
     const s = get();
     if (!s.look) return LOOKS[0];
     if (s.clipMode === 'one') return s.look;
-    if (clipCacheState.v !== s.version) {
-      const m = new Map<string, Look>();
+    if (clipCacheState.v !== s.version) clipCacheState = { v: s.version, map: new Map<string, Look>(), filled: false };
+    if (s.clipMode === 'evolve' && s.evolveCuts) {
+      // every cut after the first gets its own mutation, made the first time the cut is drawn
+      if (!seg?.i) return s.look;
+      const key = `#${seg.i}`;
+      let l = clipCacheState.map.get(key);
+      if (!l) clipCacheState.map.set(key, (l = evolveLook(s.look, s.evolveAmt, s.seed * 31 + seg.i * 7919 + 17)));
+      return l;
+    }
+    if (!clipCacheState.filled) {
+      clipCacheState.filled = true;
+      const m = clipCacheState.map;
       if (s.clipMode === 'evolve') {
         s.selected.forEach((cid, i) => {
           if (i && s.look) m.set(cid, evolveLook(s.look, s.evolveAmt, s.seed * 31 + i * 7919));
@@ -174,7 +189,6 @@ export const useStudioStore = create<StudioState>((set, get) => ({
           if (s.clipLooks[cid]) m.set(cid, s.clipLooks[cid]);
         });
       }
-      clipCacheState = { v: s.version, map: m };
     }
     return clipCacheState.map.get(id) || s.look;
   },
@@ -230,7 +244,10 @@ export const useStudioStore = create<StudioState>((set, get) => ({
 
     const cut = s.look.cut;
     const opts: TimelinePlanOptions = {
-      L,
+      // a Rebound loop's edit is its first half, played forward and then backward
+      L: s.rebound ? L / 2 : L,
+      rebound: s.rebound,
+      fitAll: s.fitAll,
       beatDur: bd,
       clips,
       rhythm: cut.rhythm,
@@ -260,7 +277,7 @@ export const useStudioStore = create<StudioState>((set, get) => ({
       // Read live state, never `s`: a closure over `s` would keep every earlier state (and ctx) alive.
       clipDur: (id: string) => clipDurMap.get(id) || 10,
       intensity: s.intensity,
-      clipLook: s.clipMode === 'one' ? null : (id: string) => get().clipLookOf(id),
+      clipLook: s.clipMode === 'one' ? null : (id: string, seg?: Segment) => get().clipLookOf(id, seg),
       sampler: makeSampler({
         features: s.features,
         loopStart: s.audioStart(),
@@ -314,7 +331,8 @@ export const useStudioStore = create<StudioState>((set, get) => ({
   stepLook: (d: number) => {
     const s = get();
     const all = [...s.saved, ...LOOKS];
-    const i = all.findIndex((l) => l.id === s.lookId);
+    const id = s.lookId?.replace(/^edit:/, '');
+    const i = all.findIndex((l) => l.id === id);
     const l = all[(i + d + all.length) % all.length];
     s.setLook(l);
     toast(l.name);
@@ -527,6 +545,7 @@ export const useStudioStore = create<StudioState>((set, get) => ({
       engineObj = new Engine(viewCanvas);
     } catch (e: any) {
       console.error(e);
+      set({ glError: String(e?.message || e) });
       return;
     }
     engineObj.warmup();
@@ -546,7 +565,9 @@ export const useStudioStore = create<StudioState>((set, get) => ({
     const st = await fetchJSON<ServerState>('/api/state').catch((): ServerState => ({ clips: [], tracks: [], renders: [] }));
     const saved = get().restore();
 
-    const selectedClips = saved.selected?.filter((id: string) => st.clips.some((c) => c.id === id)) || firstClips(st.clips);
+    // an empty selection, or one whose clips are all gone, starts on a few clips instead of a blank stage
+    const kept: string[] = saved.selected?.filter((id: string) => st.clips.some((c) => c.id === id)) || [];
+    const selectedClips = kept.length ? kept : firstClips(st.clips);
 
     let initialTrack = saved.trackId || (st.tracks.length ? st.tracks[0].id : '');
     if (initialTrack && !st.tracks.some((t) => t.id === initialTrack)) initialTrack = '';
@@ -576,6 +597,9 @@ export const useStudioStore = create<StudioState>((set, get) => ({
       clipMode: saved.clipMode || 'one',
       clipLooks: saved.clipLooks || {},
       evolveAmt: saved.evolveAmt ?? 0.45,
+      evolveCuts: !!saved.evolveCuts,
+      rebound: !!saved.rebound,
+      fitAll: saved.fitAll ?? true,
       rollOpts: saved.rollOpts || { look: true, edit: true, perClip: true, clips: false, loop: false },
       blocks: saved.blocks || null,
       legacyEdit:

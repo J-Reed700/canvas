@@ -24,27 +24,59 @@ export function resolveParams(
 }
 
 // FX intensity: below 100% it fades every layer toward the dry image and calms the audio
-// modulation; above 100% the layers stay fully wet and the modulation hits harder.
-export function intensityOf(ctx: { intensity?: number }): { wet: number; depth: number } {
+// modulation; above 100% the layers stay fully wet, their strength settings go up by the same
+// factor and the modulation hits harder.
+export function intensityOf(ctx: { intensity?: number }): { wet: number; depth: number; boost: number } {
   const k = ctx.intensity ?? 1;
-  return { wet: Math.min(1, k), depth: k };
+  return { wet: Math.min(1, k), depth: k, boost: Math.max(1, k) };
+}
+
+// The settings intensity turns up past 100%: these in every effect that has them, plus the ones listed
+// for effects whose strength goes by another name. Shape settings such as size or slices stay put.
+const STRENGTH = ['amount', 'intensity', 'strength', 'glow', 'rim', 'shine', 'mist'];
+const STRENGTH_ALSO: Record<string, string[]> = {
+  lens: ['bulge', 'disperse'],
+  ribbons: ['shift'],
+  broll: ['mix'],
+  vortex: ['twist'],
+  tiltshift: ['blur'],
+  shutter: ['depth'],
+  pixelsort: ['length'],
+  crt: ['scan', 'mask'],
+  chrome: ['mix'],
+  glitch: ['split'],
+  visualizer: ['mix'],
+  hue: ['sat'],
+  posterize: ['sat'],
+};
+
+/** A layer's settings with its strength settings multiplied by `k` (held to their ranges by resolveParams). */
+export function boosted(m: string, values: Record<string, number> | undefined, k: number): Record<string, number> | undefined {
+  if (k <= 1 || !MODULES[m]) return values;
+  const out = { ...values };
+  for (const p of MODULES[m].params) {
+    if (isStepped(p) || !(STRENGTH.includes(p.id) || STRENGTH_ALSO[m]?.includes(p.id))) continue;
+    out[p.id] = (values?.[p.id] ?? p.def) * k;
+  }
+  return out;
 }
 
 export function layerStack(
   look: Look,
   mv: ModValues,
-  { wet, depth }: { wet: number; depth: number },
+  { wet, depth, boost = 1 }: { wet: number; depth: number; boost?: number },
   prefix: string = '',
 ): ComposedLayer[] {
   const out: ComposedLayer[] = [];
   look.layers.forEach((l, i) => {
     if (l.on === false || !MODULES[l.m]) return;
-    out.push({ m: l.m, key: `${prefix}${i}:${l.m}`, src: l, params: { ...resolveParams(MODULES[l.m].params, l.p, l.mods, mv, depth), uWet: wet } });
+    const params = resolveParams(MODULES[l.m].params, boosted(l.m, l.p, boost), l.mods, mv, depth);
+    out.push({ m: l.m, key: `${prefix}${i}:${l.m}`, src: l, params: { ...params, uWet: wet } });
   });
   return out;
 }
 
-// Optional ctx.clipLook(clipId) applies a per-clip stack before transitions.
+// Optional ctx.clipLook(clipId, seg) applies a per-clip (or per-cut) stack before transitions.
 // Thumbnails and variation tiles always render a single look.
 export function compose(ctx: ComposeContext, t: number, look: Look = ctx.look): ComposedFrame {
   const { tl, sampler, clipDur, L, beatDur, seed } = ctx;
@@ -56,45 +88,46 @@ export function compose(ctx: ComposeContext, t: number, look: Look = ctx.look): 
   const k = intensityOf(ctx);
   const cp = resolveParams(CAMERA.params, look.camera.p, look.camera.mods, mv, k.depth);
   const cam = { zoom: cp.p_zoom, drift: cp.p_drift, shake: cp.p_shake, sway: cp.p_sway };
-  const need = (x: TimelineSamplePart, aux?: string): VideoNeed => {
+  const need = (x: TimelineSamplePart, back: boolean | undefined, aux?: string): VideoNeed => {
     const rate = x.seg.speed * velocityAt(x.seg, x.local);
     const n: VideoNeed = {
       vkey: `${x.seg.clipId}#${x.key}`,
       clipId: x.seg.clipId,
       time: clipTime(x.seg, x.local, clipDur(x.seg.clipId)),
       rate: Math.min(16, rate),
-      // reversed, ping-pong and near-frozen footage is previewed by seeking instead of playing
-      rev: x.seg.rev || x.seg.pp || rate < 0.1,
+      // reversed, ping-pong, near-frozen and rebounding footage is previewed by seeking instead of playing
+      rev: x.seg.rev || x.seg.pp || rate < 0.1 || !!back,
       cam: cameraFor(x.seg, x.local, cam, t, L, beat, seed),
     };
     if (aux) n.aux = aux;
     return n;
   };
-  const needs: VideoNeed[] = [need(s.a)];
-  if (s.b) needs.push(need(s.b));
+  const needs: VideoNeed[] = [need(s.a, s.back)];
+  if (s.b) needs.push(need(s.b, s.back));
 
   const uniqueClips = ctx.clips ? ctx.clips.map((c) => c.id) : [...new Set(tl.segs.map((seg) => seg.clipId))];
   let broll: VideoNeed | undefined;
   if (uniqueClips.length <= 1) {
     const tBroll = (t + L * 0.5) % L;
     const sBroll = sampleTimeline(tl, tBroll);
-    broll = need({ seg: sBroll.a.seg, local: sBroll.a.local, key: 'broll' }, 'clipB');
+    broll = need({ seg: sBroll.a.seg, local: sBroll.a.local, key: 'broll' }, sBroll.back, 'clipB');
   } else {
     const nextSeg = tl.segs[(s.a.seg.i + 1) % tl.segs.length];
     const brollLocal = s.a.local % nextSeg.dur;
-    broll = need({ seg: nextSeg, local: brollLocal, key: 'broll' }, 'clipB');
+    broll = need({ seg: nextSeg, local: brollLocal, key: 'broll' }, s.back, 'clipB');
   }
 
   const perClip = look === ctx.look && ctx.clipLook;
   const hasBroll = (look.layers || []).some((l) => l.on !== false && l.m === 'broll') ||
-    (perClip && (tl.segs || []).some((seg) => ctx.clipLook?.(seg.clipId)?.layers?.some((l) => l.on !== false && l.m === 'broll')));
+    (perClip && (tl.segs || []).some((seg) => ctx.clipLook?.(seg.clipId, seg)?.layers?.some((l) => l.on !== false && l.m === 'broll')));
 
   if (hasBroll && broll) needs.push(broll);
 
   // feedback histories are per clip; the same clip on both sides of a cut gets its own for side B
+  const parts = s.b ? [s.a, s.b] : [s.a];
   const pre: ComposedLayer[][] | null = perClip
     ? needs.filter((n) => !n.aux).map((n, i) => {
-        const clk = ctx.clipLook?.(n.clipId) || look;
+        const clk = ctx.clipLook?.(n.clipId, parts[i]?.seg) || look;
         return layerStack(clk, forLook(clk), k, `c:${n.clipId}${i && n.clipId === needs[0].clipId ? 'b' : ''}:`);
       })
     : null;

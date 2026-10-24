@@ -12,6 +12,7 @@ import type {
   ComposeContext,
   ComposedFrame,
   ClipPalette,
+  Segment,
 } from '../engine/types.ts';
 import type { Transport } from '../engine/audio.ts';
 import type { SnapDiv } from '../engine/blocks.ts';
@@ -54,6 +55,12 @@ export interface StudioState {
   clipLooks: Record<string, Look>;
   editClip: string | null;
   evolveAmt: number;
+  /** Evolve gives every cut its own mutation, not every clip. */
+  evolveCuts: boolean;
+  /** The loop plays the edit forward to the middle and then backward. */
+  rebound: boolean;
+  /** Split the longest cuts until every clip in the edit gets at least one. */
+  fitAll: boolean;
   rollOpts: RollOptions;
   /** The edit's own blocks once one has been cut, split or set by hand; null while it follows the rhythm. */
   blocks: Block[] | null;
@@ -87,6 +94,8 @@ export interface StudioState {
   mutAmt: number;
   varSeed: number;
   trackStateText: string;
+  /** Why the GPU engine couldn't start, shown on the stage instead of a blank preview. */
+  glError: string | null;
 
   engine: any;
   bank: any;
@@ -116,7 +125,7 @@ export interface StudioState {
   nudgeGrid: (d: number | null) => void;
   tapTempo: () => void;
   toggleClip: (id: string) => void;
-  reorderClips: (action: 'all' | 'solo' | 'reverse' | 'shuffle' | { from: number; to: number }) => void;
+  reorderClips: (action: 'all' | 'stock' | 'solo' | 'reverse' | 'shuffle' | { from: number; to: number }) => void;
   uploadFiles: (files: File[]) => Promise<void>;
   autoFrame: () => Promise<void>;
   setClipMode: (k: string) => void;
@@ -154,7 +163,7 @@ export interface StudioState {
   loopLen: () => number;
   setBars: (bars: number) => void;
   wholeSong: () => void;
-  clipLookOf: (id: string) => Look;
+  clipLookOf: (id: string, seg?: Segment) => Look;
   editLook: () => Look;
   drawTimeline: () => void;
   drawOverview: () => void;

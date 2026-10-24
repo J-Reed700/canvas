@@ -17,6 +17,44 @@ const typeInto = (el: HTMLInputElement, text: string) => {
 };
 const note = () => field('Loop length').querySelector(':scope > .note')!.textContent;
 
+describe('loop and cuts', () => {
+  test('Rebound plans the cuts over the first half and plays them back in the second', () => {
+    resetStudio({ blocks: [{ id: 'g0', at: 0, clipId: 'a', in: 0, seed: 1, trans: 'zoom' }] });
+    renderStudio(<EditPane />);
+    const seg = field('Loop').querySelector('.seg') as HTMLElement;
+    expect(within(seg).getByText('Repeat').className).toBe('on');
+    fireEvent.click(within(seg).getByText('Rebound'));
+    expect(st().rebound).toBe(true);
+    expect(st().blocks).toBeNull();
+    expect([st().ctx!.L, st().ctx!.tl.L, st().ctx!.tl.rebound]).toEqual([8, 4, true]);
+    expect(within(seg).getByText('Rebound').className).toBe('on');
+    expect(field('Loop').querySelector('.note')!.textContent).toMatch(/^The cuts fill the first half of the loop\./);
+    fireEvent.click(within(seg).getByText('Repeat'));
+    expect([st().rebound, st().ctx!.tl.L]).toEqual([false, 8]);
+    expect(field('Loop').querySelector('.note')).toBeNull();
+  });
+
+  test('Show every clip splits cuts when there are more clips than cuts, and says who is left out when off', () => {
+    resetStudio();
+    update(() => {
+      st().look!.cut.rhythm = 'bar';
+      st().setBars(2);
+    });
+    renderStudio(<EditPane />);
+    const clipsShown = () => new Set(st().ctx!.tl.segs.map((s) => s.clipId)).size;
+    const box = screen.getByLabelText('Show every clip at least once') as HTMLInputElement;
+    expect(box.checked).toBe(true);
+    expect(clipsShown()).toBe(3);
+    fireEvent.click(box);
+    expect(st().fitAll).toBe(false);
+    expect(clipsShown()).toBe(2);
+    expect(screen.getByText("1 of the 3 clips doesn't appear, because there are more clips than cuts.")).toBeTruthy();
+    fireEvent.click(box);
+    expect(clipsShown()).toBe(3);
+    expect(screen.getByText(/the longest cuts are split in two until each clip has one/)).toBeTruthy();
+  });
+});
+
 describe('loop length', () => {
   test('presets set the bar count and light up', () => {
     resetStudio();

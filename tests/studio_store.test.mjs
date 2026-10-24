@@ -11,6 +11,7 @@ const { MODULES } = await import('../downbeat/studio/src/engine/modules.ts');
 const { RHYTHMS } = await import('../downbeat/studio/src/engine/timeline.ts');
 const { TRANSITIONS } = await import('../downbeat/studio/src/engine/shaders.ts');
 const { toast } = await import('../downbeat/studio/src/lib/utils.ts');
+const { defaultEnv, defaultSeq, defaultLfos } = await import('../downbeat/studio/src/engine/audio.ts');
 
 // The last toast's hide timer would keep Node running for up to four seconds.
 after(() => toast('', 0));
@@ -57,7 +58,10 @@ function fresh(over = {}) {
     direction: 'forward',
     lockEdit: false,
     intensity: 1,
+    rebound: false,
+    fitAll: true,
     clipMode: 'one',
+    evolveCuts: false,
     clipLooks: {},
     editClip: null,
     blocks: null,
@@ -240,6 +244,25 @@ test('per-clip looks: same, evolve, look per clip and custom', () => {
   assert.equal(st().clipLooks.b.id, cycled[0].id);
   assert.notEqual(st().clipLooks.b, cycled[0], 'custom looks are copies');
   assert.equal(st().clipLookOf('a'), st().look);
+});
+
+test('Evolve per cut gives every cut after the first its own mutation', () => {
+  fresh({ clipMode: 'evolve', evolveCuts: true });
+  const segs = st().ctx.tl.segs;
+  assert.ok(segs.length > 3);
+  const looks = segs.map((seg) => st().clipLookOf(seg.clipId, seg));
+  assert.equal(looks[0], st().look, 'the first cut keeps the main look');
+  for (const l of looks.slice(1)) assert.notDeepEqual(l.layers, st().look.layers);
+  const again = segs.findIndex((seg, i) => i > 0 && seg.clipId === segs[1].clipId && seg.i !== segs[1].i);
+  if (again > 0) assert.notDeepEqual(looks[again].layers, looks[1].layers, 'the same clip changes from cut to cut');
+  assert.equal(st().clipLookOf(segs[2].clipId, segs[2]), looks[2], 'cached until something changes');
+  assert.equal(st().ctx.clipLook(segs[2].clipId, segs[2]), looks[2]);
+  assert.equal(st().clipLookOf('b'), st().look, 'with no cut to go by, the main look');
+
+  // switched off, it goes back to one mutation per clip
+  S.setState({ evolveCuts: false });
+  st().touch();
+  assert.equal(st().clipLookOf(segs[2].clipId, segs[2]), st().clipLookOf(segs[2].clipId));
 });
 
 test('ctx.clipLook reads live state instead of the state it was built from', () => {
@@ -532,7 +555,8 @@ test('snapshots carry the look and edit, and applying one rebuilds the timeline'
   assert.equal(st().ctx.L, 8);
   assert.deepEqual(Object.keys(JSON.parse(snap)).sort(), [
     'bars', 'blocks', 'bpmManual', 'bpmOverride', 'clipFrame', 'clipLooks', 'clipMode', 'direction', 'editClip', 'evolveAmt',
-    'exportOpts', 'gridNudge', 'intensity', 'lockEdit', 'look', 'lookId', 'loopStart', 'seed', 'selected', 'trackId',
+    'evolveCuts', 'exportOpts', 'fitAll', 'gridNudge', 'intensity', 'lockEdit', 'look', 'lookId', 'loopStart', 'rebound', 'seed',
+    'selected', 'trackId',
   ]);
 });
 
@@ -643,6 +667,108 @@ test('a full roll changes look, edit and per-clip mode, and undo puts it all bac
   assert.equal(lastToast(), 'Nothing to undo');
 });
 
+test("an edited look stops being the gallery's current look until it's reverted", () => {
+  fresh();
+  const id = LOOKS[0].id;
+  // the Layers tab fills in the default modulators when it shows them, which isn't an edit
+  Object.assign(st().look, { env: defaultEnv(), seq: defaultSeq(), lfos: defaultLfos(), macro: { a: 0, b: 0 } });
+  st().save();
+  assert.equal(st().lookId, id);
+  // nor is a change in the Edit tab
+  st().look.cut.rhythm = 'beat';
+  st().save();
+  assert.equal(st().lookId, id);
+
+  st().look.camera.p.zoom += 0.2;
+  st().save();
+  assert.equal(st().lookId, `edit:${id}`);
+  st().save();
+  assert.equal(st().lookId, `edit:${id}`, 'marked once');
+  assert.equal(history.originalLook(st().lookId), LOOKS[0]);
+
+  // the arrow keys step on from the look it was
+  st().stepLook(1);
+  assert.equal(st().lookId, LOOKS[1].id);
+  st().look.layers.pop();
+  st().save();
+  assert.equal(st().lookId, `edit:${LOOKS[1].id}`);
+  st().setLook(history.originalLook(st().lookId));
+  st().save();
+  assert.equal(st().lookId, LOOKS[1].id, 'Revert makes it current again');
+
+  // a look from the last session has nothing to compare with
+  S.setState({ lookId: 'roll-gone' });
+  st().look.layers.pop();
+  st().save();
+  assert.equal(st().lookId, 'roll-gone');
+});
+
+test('a roll without a song picks a tempo too, keeping a Canvas loop within 3 to 8 seconds', () => {
+  const edit = { rollOpts: { look: false, edit: true, perClip: false, clips: false, loop: false } };
+  const tempos = new Set();
+  for (let i = 0; i < 12; i++) {
+    fresh(edit); // 4 bars at 120 BPM: 8 s, so a slower tempo would make it too long
+    st().rollAll();
+    assert.ok([120, 126, 132, 140, 152].includes(st().bpmManual), `${st().bpmManual}`);
+    if (st().bpmManual !== 120) assert.match(lastToast(), new RegExp(` · ${st().bpmManual} BPM`));
+    assert.equal(st().ctx.beatDur, 60 / st().bpmManual);
+    assert.ok(st().loopLen() >= 3 && st().loopLen() <= 8, `${st().loopLen()} s`);
+    tempos.add(st().bpmManual);
+  }
+  assert.ok(tempos.size > 2, [...tempos].join());
+
+  // 2 bars at 160 BPM is 3 s, so only slower tempos keep it a Canvas
+  for (let i = 0; i < 6; i++) {
+    fresh({ ...edit, bars: 2, bpmManual: 160 });
+    st().rollAll();
+    assert.ok(st().bpmManual <= 160 && st().loopLen() >= 3 && st().loopLen() <= 8, `${st().bpmManual} BPM`);
+  }
+  // a visualizer-length loop can take any of them
+  const long = new Set();
+  for (let i = 0; i < 40; i++) {
+    fresh({ ...edit, bars: 40 });
+    st().rollAll();
+    long.add(st().bpmManual);
+  }
+  assert.ok([...long].some((b) => b < 120), [...long].join());
+
+  withSong({ rollOpts: { look: false, edit: true, perClip: false, clips: false, loop: false } });
+  for (let i = 0; i < 5; i++) {
+    st().rollAll();
+    assert.equal(st().bpmManual, 120);
+    assert.doesNotMatch(lastToast(), /BPM/);
+  }
+});
+
+test('rolls sometimes pick a Rebound loop, and say so', () => {
+  const seen = new Set();
+  for (let i = 0; i < 40 && seen.size < 2; i++) {
+    fresh({ rollOpts: { look: false, edit: true, perClip: false, clips: false, loop: false } });
+    st().rollAll();
+    seen.add(st().rebound);
+    assert.equal(st().ctx.tl.rebound, st().rebound);
+    assert.equal(/ · Rebound/.test(lastToast()), st().rebound);
+  }
+  assert.equal(seen.size, 2);
+  S.setState({ rollOpts: { look: true, edit: false, perClip: false, clips: false, loop: false } });
+  const r = st().rebound;
+  for (let i = 0; i < 5; i++) st().rollAll();
+  assert.equal(st().rebound, r, 'a look-only roll leaves the loop alone');
+});
+
+test('a Rebound loop plans the edit over half the loop, and the loop stays as long as before', () => {
+  fresh({ rebound: true });
+  const { tl, L } = st().ctx;
+  assert.equal(L, 8);
+  assert.equal(tl.L, 4);
+  assert.equal(tl.rebound, true);
+  assert.equal(tl.segs.at(-1).t1, 4);
+  S.setState({ rebound: false });
+  st().rebuild();
+  assert.equal(st().ctx.tl.L, 8);
+  assert.equal(st().ctx.tl.rebound, false);
+});
+
 test('roll options leave alone whatever is switched off', () => {
   withSong({ rollOpts: { look: false, edit: false, perClip: false, clips: false, loop: false }, direction: 'reverse', seed: 42 });
   const look = cloneLook(st().look);
@@ -716,6 +842,34 @@ test('clip toggles and reordering update the selection and clear a hand-cut edit
   st().reorderClips('reverse');
   assert.deepEqual(st().selected, []);
   assert.equal(st().ctx, null, 'no clips, nothing to play');
+});
+
+test('All with nothing picked starts on a few clips, and Stock picks the stock footage', () => {
+  stubFetch({ 'POST /api/proxies': () => ({ ok: true }) });
+  // a folder of videos that haven't been in an edit yet, two of them stock
+  const library = Array.from({ length: 8 }, (_, i) => ({ id: `v${i}`, name: `v${i}.mp4`, duration: 10, width: 1080, height: 1920, proxy: 'none', is_stock: i >= 6 }));
+  fresh({ clips: library, selected: [] });
+  st().reorderClips('all');
+  assert.deepEqual(st().selected, ['v6', 'v7', 'v0', 'v1', 'v2']);
+  assert.equal(lastToast(), 'Using 5 clips to start. Click others to add them');
+  assert.ok(st().ctx);
+
+  st().reorderClips('stock');
+  assert.deepEqual(st().selected, ['v6', 'v7']);
+  assert.equal(lastToast(), 'Using 2 stock clips');
+  S.setState({ selected: [] });
+  st().reorderClips('stock');
+  assert.deepEqual(st().selected, ['v6', 'v7'], 'works with nothing picked too');
+
+  fresh();
+  st().reorderClips('stock');
+  assert.equal(lastToast(), 'There are no stock clips in the library');
+  assert.deepEqual(st().selected, ['a', 'b', 'c']);
+
+  fresh({ clips: [], selected: [] });
+  st().reorderClips('all');
+  assert.equal(lastToast(), 'No clips yet. Add videos or pick a folder first');
+  assert.deepEqual(st().selected, []);
 });
 
 test('videos not in the edit stay unloaded until one is put in, which asks for its playback copy', async () => {

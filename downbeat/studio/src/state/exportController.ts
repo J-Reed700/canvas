@@ -102,6 +102,14 @@ export async function renderOnce(onProgress?: (progress: any) => void): Promise<
   s.transport.pause();
   useStudioStore.setState({ exporting: true });
   document.body.classList.add('exporting');
+  // The render loop stops drawing the badge during an export, so it shows the export's progress instead.
+  const badge = document.getElementById('stageBadge');
+  const showBadge = (text: string) => {
+    if (!badge) return;
+    badge.style.display = 'block';
+    badge.textContent = text;
+  };
+  showBadge(`Rendering ${W}×${H}`);
 
   const snapshotCtx: ComposeContext = {
     ...s.ctx,
@@ -132,9 +140,13 @@ export async function renderOnce(onProgress?: (progress: any) => void): Promise<
         promo_seconds: promoSeconds,
       },
       signal: exportAbortCtrl?.signal,
-      onProgress,
+      onProgress: (p: any) => {
+        showBadge(`Rendering ${W}×${H} · ${Math.round((p.frame / p.total) * 100)}%`);
+        onProgress?.(p);
+      },
     });
   } finally {
+    if (badge) badge.style.display = 'none';
     useStudioStore.setState({ exporting: false });
     document.body.classList.remove('exporting');
     s.engine.main.reset();
@@ -162,30 +174,43 @@ export function openExport(): void {
   useStudioStore.setState({ exportOpen: true });
 }
 
-export async function runExport(): Promise<void> {
-  const s = useStudioStore.getState();
-  if (!s.ctx || !s.look) return;
-  exportAbortCtrl = new AbortController();
-
+/** The sheet's progress readout: a title, a bar, and a line under it. Returns what updates them. */
+function progressSheet(title: string) {
+  const head = h('h2', {}, title);
   const pct = h('div', { class: 'pct' }, '0%');
   const bar = h('i');
   const info = h('div', { class: 'note' }, 'Preparing clips…');
   sheetStatus(
-    h('h2', {}, 'Rendering…'),
+    head,
     h('div', { class: 'progress' }, pct, h('div', { class: 'pbar' }, bar), info),
     h('div', { class: 'actions' }, h('button', { class: 'btn', onclick: () => exportAbortCtrl?.abort() }, 'Cancel')),
   );
-
-  try {
-    const res = await renderOnce(({ frame, total, speed }) => {
+  return {
+    title: (text: string) => { head.textContent = text; },
+    progress: ({ frame, total, speed }: { frame: number; total: number; speed: number }, prefix = '') => {
       const p = Math.round((frame / total) * 100);
       pct.textContent = `${p}%`;
       bar.style.width = `${p}%`;
       const left = speed > 0 ? (total - frame) / 30 / speed : 0;
-      info.textContent = `Frame ${frame} / ${total} · ${speed.toFixed(1)}× real-time${left >= 1 ? ` · about ${fmtTime(left)} left` : ''}`;
-    });
+      info.textContent = `${prefix}Frame ${frame} / ${total} · ${speed.toFixed(1)}× real-time${left >= 1 ? ` · about ${fmtTime(left)} left` : ''}`;
+    },
+  };
+}
 
-    useStudioStore.setState((prev) => ({ renders: [res, ...prev.renders.filter((r) => r.filename !== res.filename)] }));
+function addRender(res: RenderRecord) {
+  useStudioStore.setState((prev) => ({ renders: [res, ...prev.renders.filter((r) => r.filename !== res.filename)] }));
+}
+
+export async function runExport(): Promise<void> {
+  const s = useStudioStore.getState();
+  if (!s.ctx || !s.look) return;
+  exportAbortCtrl = new AbortController();
+  const sheet = progressSheet('Rendering…');
+
+  try {
+    const res = await renderOnce((p) => sheet.progress(p));
+
+    addRender(res);
     autoSave(res);
     showResult(res);
     toast(froze(res) ? 'Export failed: the clips froze. The reason is in the export sheet.' : `Exported ${res.filename}`, froze(res) ? 6000 : undefined);
@@ -203,13 +228,16 @@ export async function runExport(): Promise<void> {
 export async function runBatch(kind: 'rolls' | 'tracks'): Promise<void> {
   const s = useStudioStore.getState();
   exportAbortCtrl = new AbortController();
+  const signal = exportAbortCtrl.signal;
   const beforeSnap = s.snapshot();
   const trackBefore = s.trackId;
   const jobs = kind === 'tracks' ? siblingTracks(s.tracks, s.trackId).map((t) => t.id) : [1, 2, 3, 4];
+  const done: RenderRecord[] = [];
+  let stopped: string | null = null;
+  const sheet = progressSheet(`Rendering 1 of ${jobs.length}`);
 
   try {
-    for (let i = 0; i < jobs.length; i++) {
-      if (exportAbortCtrl.signal.aborted) throw new DOMException('Export cancelled', 'AbortError');
+    for (let i = 0; i < jobs.length && !signal.aborted; i++) {
       if (kind === 'tracks') {
         await s.selectTrack(jobs[i] as string);
         useStudioStore.setState((prev) => ({ loopStart: prev.features?.loops?.[0]?.start ?? prev.loopStart }));
@@ -218,15 +246,57 @@ export async function runBatch(kind: 'rolls' | 'tracks'): Promise<void> {
         s.rollAll();
       }
       await new Promise((r) => setTimeout(r, 400));
-      await s.runExport();
+      const cur = useStudioStore.getState();
+      const what = kind === 'tracks' ? cur.tracks.find((t) => t.id === cur.trackId)?.name || 'this song' : cur.look?.name || 'this roll';
+      sheet.title(`Rendering ${i + 1} of ${jobs.length}`);
+      try {
+        const res = await renderOnce((p) => sheet.progress(p, `${what} · `));
+        addRender(res);
+        autoSave(res);
+        done.push(res);
+      } catch (e: any) {
+        if (e.name !== 'AbortError') {
+          console.error(e);
+          stopped = `${what}: ${e.message || e}`;
+        }
+        break;
+      }
     }
-  } catch (e: any) {
-    console.error(e);
   } finally {
     // `s` is the state from before the batch; read the song that's loaded now.
     if (kind === 'tracks' && useStudioStore.getState().trackId !== trackBefore) await s.selectTrack(trackBefore, { keepLoop: true });
     if (beforeSnap) s.applySnapshot(beforeSnap);
   }
+
+  const failed = (r: RenderRecord) => (r.checks || []).some((c) => c.level === 'fail');
+  const ok = done.filter((r) => !failed(r)).length;
+  const head = signal.aborted ? 'Batch cancelled' : stopped ? 'Batch stopped' : 'Batch done';
+  const notes = [
+    done.length
+      ? `${done.length} of ${jobs.length} exported, and ${ok === done.length ? 'all of them' : ok} passed every check. They're in Exports, and the studio is back on your edit.`
+      : 'Nothing was exported. The studio is back on your edit.',
+    stopped ? `It stopped at ${stopped}` : '',
+  ].filter(Boolean);
+  sheetStatus(
+    h('div', { class: 'row', style: 'justify-content:space-between' }, h('h2', {}, head), h('button', { class: 'btn icon', onclick: closeSheet }, '✕')),
+    ...notes.map((n) => h('div', { class: 'note' }, n)),
+    done.length
+      ? h(
+          'div',
+          { class: 'checks' },
+          ...done.map((r) =>
+            h(
+              'div',
+              { class: `ck ${failed(r) ? 'fail' : 'ok'}` },
+              h('span', { class: 'ic' }, '↓'),
+              h('a', { href: r.url, download: r.filename }, r.filename),
+              h('span', {}, `${r.size_mb} MB`),
+            ),
+          ),
+        )
+      : null,
+  );
+  toast(`${head}: ${done.length} of ${jobs.length} exported`);
 }
 
 export async function reveal(filename: string): Promise<void> {
