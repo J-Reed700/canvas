@@ -880,7 +880,17 @@ System settings, and relaunch it. `chrome://gpu` should list WebGL2 as hardware 
 - In a Rebound loop the plan covers half the loop: `tl.L` is half of `ctx.L` and `tl.rebound` is set.
   `editTime()` folds loop time into edit time, and `sampleTimeline()` returns `back` in the second half, where
   `compose()` asks for clip frames by seeking (`rev`), since a video can't play backward. Audio and effects use
-  the real loop time.
+  the real loop time. Reversed, ping-pong and stopped cuts are shown by seeking too. `canvas/renderLoop.ts`
+  copies the frame a seek landed on before it starts the next seek; the other way round, Chrome is mid-seek
+  whenever a frame is drawn and the footage looks like a run of stills.
+- `VideoBank` (`engine/composer.ts`) keeps up to 20 `<video>` elements, one per cut on screen or coming up.
+  `prime()` parks a cut's video on its first frame when the cut comes into view 0.35 s ahead, and leaves it
+  there until the cut starts. When the bank is full, a new cut takes an element of the same clip that hasn't
+  been used for a second, so an edit with more cuts than that seeks instead of loading the file again.
+- Thumbnails go through `lib/thumbs.ts`, two at a time, newest first. They come from the same server as the
+  clips' video, and Chrome opens only six connections to one server: a thumbnail for every cut at once (after
+  a roll, or opening the segment menu) used to hold all six, and a cut's video waited seconds to load. Use
+  `loadThumb()`, `thumbBackground()` or `thumbRef()` for any new thumbnail rather than a plain `url(...)`.
 - Session state is saved to `localStorage` under `downbeat.studio.v1`. Undo history is kept in memory: 100
   steps, with a snapshot taken 350 ms after each change.
 - `editState()` in `state/historyController.ts` is the edit itself, without the studio's own settings. Undo

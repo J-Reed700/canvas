@@ -7,6 +7,7 @@ import { beatName, beatsText, timingSection, segOf, chip, chips } from './segTim
 import { MOVES, VELOCITY, frameAt, moveAt } from '../engine/timeline.ts';
 import { TRANSITIONS } from '../engine/shaders.ts';
 import { screenOf } from '../lib/screens.ts';
+import { thumbBackground } from '../lib/thumbs.ts';
 import type { Block, BlockPatch, FramePoint, Segment, SegmentFrame } from '../engine/types.ts';
 
 /** A clip's name as the Clips list shows it. */
@@ -149,7 +150,7 @@ export function framingSection(id: string, seg: Segment, own: SegmentFrame | und
     {
       class: 'seg-crop',
       title: 'Drag the box to move the crop. Pinch on it, or use the Zoom slider, to zoom.',
-      style: `width:${Math.round(Math.min(300, 136 * va))}px;aspect-ratio:${va.toFixed(4)};background-image:url(/api/thumb/${seg.clipId}?w=320&t=${seg.in.toFixed(2)})`,
+      style: `width:${Math.round(Math.min(300, 136 * va))}px;aspect-ratio:${va.toFixed(4)}`,
       onpointerdown: (e: PointerEvent) => {
         const r = crop.getBoundingClientRect();
         const p0 = pt(now());
@@ -184,6 +185,7 @@ export function framingSection(id: string, seg: Segment, own: SegmentFrame | und
     wins.a,
     moving && wins.b,
   );
+  thumbBackground(crop, `/api/thumb/${seg.clipId}?w=320&t=${seg.in.toFixed(2)}`);
   // Safari reports a pinch as gesture events instead
   let pinchFrom = 1;
   crop.addEventListener('gesturestart', (e) => { e.preventDefault(); pinchFrom = pt(now())[2]; });
@@ -452,14 +454,15 @@ export function segmentMenu(box: HTMLElement, start: string) {
         { class: 'seg-strip' },
         ...Array.from({ length: FRAMES }, (_, k) => {
           const t = (maxIn * (k + 0.5)) / FRAMES;
-          return h('button', {
+          const b = h('button', {
             title: `Start at ${t.toFixed(1)} s`,
-            style: `background-image:url(/api/thumb/${seg.clipId}?w=120&t=${t.toFixed(2)})`,
             onclick: () => {
               setIn(+t.toFixed(2));
               render();
             },
           });
+          thumbBackground(b, `/api/thumb/${seg.clipId}?w=120&t=${t.toFixed(2)}`);
+          return b;
         }),
         mark,
       );

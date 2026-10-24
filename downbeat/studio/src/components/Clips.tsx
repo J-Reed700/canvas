@@ -12,6 +12,7 @@ import {
   type ClipFilter,
 } from '../lib/clipsView.ts';
 import { clipAspect, homeShort } from '../lib/utils.ts';
+import { thumbRef } from '../lib/thumbs.ts';
 import { isLoaded, removeClip, revealClip } from '../state/mediaActions.ts';
 import { ArmedButton, Icon, ICONS, Modal, useArmed } from './ui.tsx';
 import { FilterChips, FilterSearch, LibraryFoot, LibraryViewer, NoMatch, useLibraryKeys, usePage } from './Library.tsx';
@@ -154,7 +155,7 @@ export const ClipsSection: React.FC<{ onAddFiles: () => void }> = ({ onAddFiles 
               className={`clip ${idx >= 0 ? 'on' : 'off'}${idle ? ' idle' : ''}`}
               draggable={idx >= 0}
               title={`${c.name}\n${c.width || 0}×${c.height || 0} · ${c.duration || 0}s${idle ? '\nNot loaded yet. Click to add it to the edit.' : ''}`}
-              style={{ backgroundImage: `url(/api/thumb/${c.id}?w=240)` }}
+              ref={thumbRef(`/api/thumb/${c.id}?w=240`)}
               onClick={() => toggleClip(c.id)}
               onDragStart={(e) => {
                 setDragId(c.id);
@@ -213,7 +214,7 @@ const ClipThumb: React.FC<{ c: ClipMeta; n: number }> = ({ c, n }) => {
   return (
     <span
       className="clip-thumb"
-      style={{ backgroundImage: `url(/api/thumb/${c.id}?w=360)` }}
+      ref={thumbRef(`/api/thumb/${c.id}?w=360`)}
       onPointerEnter={() => setHover(true)}
       onPointerLeave={() => setHover(false)}
     >
