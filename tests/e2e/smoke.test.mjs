@@ -263,6 +263,28 @@ test('the studio works end to end in a real browser', { skip: missing.length ? `
     assert.deepEqual([s.width, s.height, +s.nb_frames], [720, 1280, 120]);
   });
 
+  await step('the screen menu and O reshape the preview, and the export takes the same shape', `
+    key('Escape');
+    const shape = () => $('#view').width / $('#view').height;
+    await tap($('#tScreen'));
+    await tap($$('#pop button').find((b) => b.textContent.startsWith('Landscape')));
+    await until(() => Math.abs(shape() - 16 / 9) < 0.02, 3000, 'a 16:9 preview');
+    if (S.getState().exportOpts.format !== 'youtube_16_9') throw new Error('format ' + S.getState().exportOpts.format);
+    key('o');
+    key('o');
+    await until(() => Math.abs(shape() - 1) < 0.02, 3000, 'a square preview');
+    key('e');
+    await until(() => S.getState().exportOpen, 2000, 'the export sheet');
+    if (byText('.fmt-seg button', 'Social 1:1')?.className !== 'on') throw new Error('the sheet should have Social 1:1 picked');
+    await tap(byText('#exportForm button', 'Render & verify'));
+    await until(() => /^(Square video exported|Exported, but some checks failed|Export failed|Export cancelled)$/.test($('#exportStatus h2')?.textContent || ''), 120000, 'the square export');
+    const r = S.getState().renders[0];
+    const fails = (r?.checks || []).filter((c) => c.level === 'fail').map((c) => c.label + ': ' + c.detail);
+    if ($('#exportStatus h2').textContent !== 'Square video exported') throw new Error($('#exportStatus h2').textContent + ' ' + fails.join('; '));
+    if (r.resolution !== '1080x1080') throw new Error('size ' + r.resolution);
+    if (!(r.stats.mean_luminance > 0.02)) throw new Error('the render is black: ' + JSON.stringify(r.stats));
+  `);
+
   await t.test('no errors in the page', () => {
     assert.deepEqual(browser.problems, []);
   });

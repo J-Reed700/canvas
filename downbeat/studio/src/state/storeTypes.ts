@@ -12,6 +12,7 @@ import type {
   ClipPalette,
 } from '../engine/types.ts';
 import type { Transport } from '../engine/audio.ts';
+import type { ScreenId } from '../lib/screens.ts';
 
 export interface LookJob {
   id: string;
@@ -93,6 +94,8 @@ export interface StudioState {
   stepLook: (d: number) => void;
   surprise: () => void;
   setTab: (tab: 'looks' | 'layers' | 'edit') => void;
+  /** Preview on another screen shape, which also picks an export format of that shape. */
+  setScreen: (id: ScreenId) => void;
   selectTrack: (id: string, opts?: { initial?: boolean; keepLoop?: boolean }) => Promise<void>;
   setTempo: (v: number | null) => Promise<void>;
   nudgeGrid: (d: number | null) => void;

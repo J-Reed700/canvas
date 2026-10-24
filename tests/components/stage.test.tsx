@@ -3,7 +3,7 @@ import { describe, expect, test, vi } from 'vitest';
 import { act, fireEvent, within } from '@testing-library/react';
 import { StagePanel } from '../../downbeat/studio/src/components/StagePanel.tsx';
 import { TopBar } from '../../downbeat/studio/src/components/TopBar.tsx';
-import { LOOKS, pop, popButton, renderStudio, resetStudio, screen, st, toastText, update, withSong } from './studio.tsx';
+import { LOOKS, S, pop, popButton, popButtons, renderStudio, resetStudio, screen, st, toastText, update, withSong } from './studio.tsx';
 
 // The preview reframes whichever clip is on screen, which the render loop reports.
 const onScreen = vi.hoisted(() => ({ frame: null as any }));
@@ -98,6 +98,60 @@ describe('transport', () => {
     expect(screen.getByText('Sound').className).not.toContain('on');
   });
 
+  test('the screen menu changes the device and picks an export format of its shape', () => {
+    resetStudio();
+    renderStudio(<StagePanel />);
+    const phone = document.getElementById('phone')!;
+    const btn = document.getElementById('tScreen') as HTMLButtonElement;
+    const pick = (name: string) => {
+      fireEvent.click(btn);
+      fireEvent.click(popButton(new RegExp(`^${name}`)));
+    };
+    expect(phone.dataset.screen).toBe('phone');
+    expect(btn.getAttribute('aria-label')).toBe('Screen: Phone 9:16');
+    fireEvent.click(btn);
+    expect(pop().className).toContain('on');
+    expect(popButtons()).toEqual([
+      'PhoneSpotify Canvas9:16',
+      'LandscapeYouTube visualizer16:9',
+      'TabletApple Music motion art3:4',
+      'SquareSocial feeds, Apple square art, cover art1:1',
+    ]);
+    expect(popButton(/^Phone/).className).toContain('on');
+    fireEvent.click(popButton(/^Landscape/));
+    expect(pop().className, 'picking closes the menu').not.toContain('on');
+    expect(st().exportOpts.format).toBe('youtube_16_9');
+    expect(phone.dataset.screen).toBe('landscape');
+    expect(btn.getAttribute('aria-label')).toBe('Screen: Landscape 16:9');
+    expect(toastText()).toBe('Landscape · exports as YouTube 16:9');
+    pick('Tablet');
+    expect(st().exportOpts.format).toBe('apple_tall');
+    pick('Square');
+    expect(st().exportOpts.format).toBe('social_square');
+    update(() => S.setState({ exportOpts: { ...st().exportOpts, format: 'cover_art' } }));
+    pick('Square');
+    expect(st().exportOpts.format, 'a square format stays picked').toBe('cover_art');
+    pick('Phone');
+    expect(st().exportOpts.format).toBe('spotify');
+    expect(phone.dataset.screen).toBe('phone');
+
+    resetStudio({ exporting: true });
+    expect(btn.disabled, 'no switching during an export').toBe(true);
+  });
+
+  test('safe zones are for the Spotify phone, so other screens turn them off', () => {
+    resetStudio({ safe: true });
+    renderStudio(<StagePanel />);
+    const btn = screen.getByText('Safe zones') as HTMLButtonElement;
+    expect(document.getElementById('safe')!.className).toContain('on');
+    update(() => st().setScreen('tablet'));
+    expect(document.getElementById('safe')!.className).not.toContain('on');
+    expect(btn.disabled).toBe(true);
+    expect(btn.title).toMatch(/9:16 phone/);
+    update(() => st().setScreen('phone'));
+    expect(document.getElementById('safe')!.className, 'and back on the phone').toContain('on');
+  });
+
   test('the phone shows the song title, and a hint when no clips are picked', () => {
     withSong();
     renderStudio(<StagePanel />);
@@ -131,6 +185,19 @@ describe('reframing on the preview', () => {
     expect(st().clipFrame.b[0]).toBeCloseTo(0.5 - (1 - frac) / 2, 9);
     fireEvent.pointerUp(view(), { pointerId: 1 });
     expect(toastText()).toBe('Reframed city.mp4 · double-click the preview to reset');
+  });
+
+  test('on a landscape screen a portrait clip pans up and down instead', () => {
+    setup();
+    update(() => st().setScreen('landscape'));
+    onScreen.frame = { needs: [{ clipId: 'a', cam: { zoom: 1 } }] };
+    vi.spyOn(view(), 'getBoundingClientRect').mockReturnValue({ left: 0, top: 0, width: 480, height: 270, right: 480, bottom: 270, x: 0, y: 0, toJSON() {} });
+    fireEvent.pointerDown(view(), { clientX: 100, clientY: 100, pointerId: 1 });
+    fireEvent.pointerMove(view(), { clientX: 100, clientY: 127, pointerId: 1 });
+    const [x, y] = st().clipFrame.a;
+    expect(x).toBe(0.5);
+    expect(y).toBeCloseTo(0.5 + (27 / 270) * ((9 / 16) / (16 / 9)), 9);
+    fireEvent.pointerUp(view(), { pointerId: 1 });
   });
 
   test('scrolling zooms between 1× and 3×, and double-click resets the framing', () => {
@@ -182,6 +249,44 @@ describe('top bar', () => {
     fireEvent.click(popButton(/Undo last roll/));
     expect(st().lookId).toBe(LOOKS[0].id);
     expect(pop().className).toBe('pop');
+  });
+
+  test('Undo and Redo step back and forward through edits, and are off with nothing to step to', () => {
+    vi.useFakeTimers();
+    resetStudio();
+    renderStudio(<TopBar />);
+    const undoBtn = document.getElementById('btnUndo') as HTMLButtonElement;
+    const redoBtn = document.getElementById('btnRedo') as HTMLButtonElement;
+    const edit = (bars: number) => {
+      update(() => st().setBars(bars));
+      act(() => vi.advanceTimersByTime(400)); // an edit becomes a step once it settles
+    };
+    expect([undoBtn.disabled, redoBtn.disabled]).toEqual([true, true]);
+    edit(8);
+    edit(2);
+    expect([undoBtn.disabled, redoBtn.disabled]).toEqual([false, true]);
+    fireEvent.click(undoBtn);
+    expect(st().bars).toBe(8);
+    expect(toastText()).toBe('↶ Undo');
+    fireEvent.click(undoBtn);
+    expect(st().bars).toBe(4);
+    expect([undoBtn.disabled, redoBtn.disabled]).toEqual([true, false]);
+    fireEvent.click(redoBtn);
+    fireEvent.click(redoBtn);
+    expect(st().bars).toBe(2);
+    expect(toastText()).toBe('↷ Redo');
+    expect([undoBtn.disabled, redoBtn.disabled]).toEqual([false, true]);
+
+    fireEvent.click(undoBtn);
+    edit(1);
+    expect(redoBtn.disabled, 'a new edit drops the steps you undid').toBe(true);
+    update(() => st().setBars(4));
+    fireEvent.click(undoBtn);
+    expect(st().bars, 'an edit made just now is undone too').toBe(1);
+
+    update(() => S.setState({ exporting: true }));
+    expect([undoBtn.disabled, redoBtn.disabled]).toEqual([true, true]);
+    vi.useRealTimers();
   });
 
   test('Export opens the export sheet and ? opens the shortcuts', () => {

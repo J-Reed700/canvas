@@ -1,4 +1,4 @@
-"""Auto-framing and release palette extraction for 9:16 crops."""
+"""Auto-framing (where to center a clip's crop) and release palette extraction."""
 from __future__ import annotations
 
 import colorsys

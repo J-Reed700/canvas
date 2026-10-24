@@ -14,6 +14,24 @@ let histLastSnap: string | null = null;
 let histTimerId: ReturnType<typeof setTimeout> | undefined;
 let histMutedFlag = false;
 
+// The undo and redo buttons follow the history through useSyncExternalStore, like the play button follows the transport.
+const histListeners = new Set<() => void>();
+let histDepth = { undo: 0, redo: 0 };
+
+function histChanged() {
+  if (histDepth.undo === histList.length && histDepth.redo === futList.length) return;
+  histDepth = { undo: histList.length, redo: futList.length };
+  histListeners.forEach((fn) => fn());
+}
+
+export function subscribeHistory(fn: () => void): () => void {
+  histListeners.add(fn);
+  return () => histListeners.delete(fn);
+}
+
+/** How many steps undo and redo can take. The same object until one of them changes. */
+export const historyDepth = (): { undo: number; redo: number } => histDepth;
+
 let saveTimer: ReturnType<typeof setTimeout> | undefined;
 
 function writeSession() {
@@ -76,16 +94,38 @@ export function save() {
   saveTimer = setTimeout(writeSession, 300);
   if (!histMutedFlag && s.look) {
     clearTimeout(histTimerId);
-    histTimerId = setTimeout(() => {
-      const snap = snapshot();
-      if (histLastSnap !== null && snap !== histLastSnap) {
-        histList.push(histLastSnap);
-        if (histList.length > 100) histList.shift();
-        futList.length = 0;
-      }
-      histLastSnap = snap;
-    }, 350);
+    histTimerId = setTimeout(commitHistory, 350);
   }
+}
+
+// An edit becomes an undo step 350 ms after it settles, so a slider drag is one step, not hundreds.
+function commitHistory() {
+  histTimerId = undefined;
+  const snap = snapshot();
+  if (histLastSnap !== null && snap !== histLastSnap) {
+    histList.push(histLastSnap);
+    if (histList.length > 100) histList.shift();
+    futList.length = 0;
+  }
+  histLastSnap = snap;
+  histChanged();
+}
+
+/** Starts the undo history over at the current state. */
+export function resetHistory() {
+  clearTimeout(histTimerId);
+  histTimerId = undefined;
+  histList.length = 0;
+  futList.length = 0;
+  histLastSnap = snapshot();
+  histChanged();
+}
+
+/** Undo and redo right after an edit should see it, so they commit a pending step first. */
+function flushHistory() {
+  if (histTimerId === undefined) return;
+  clearTimeout(histTimerId);
+  commitHistory();
 }
 
 export function restore(): any {
@@ -129,6 +169,7 @@ export function applySnapshot(snap: string) {
 }
 
 export function undo() {
+  flushHistory();
   const snap = snapshot();
   if (!histList.length) {
     toast('Nothing to undo');
@@ -137,10 +178,12 @@ export function undo() {
   futList.push(snap);
   const prev = histList.pop()!;
   applySnapshot(prev);
+  histChanged();
   toast('↶ Undo');
 }
 
 export function redo() {
+  flushHistory();
   const snap = snapshot();
   if (!futList.length) {
     toast('Nothing to redo');
@@ -149,6 +192,7 @@ export function redo() {
   histList.push(snap);
   const next = futList.pop()!;
   applySnapshot(next);
+  histChanged();
   toast('↷ Redo');
 }
 

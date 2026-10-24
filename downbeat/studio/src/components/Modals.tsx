@@ -2,6 +2,7 @@ import React, { useRef, useEffect, useMemo } from 'react';
 import { useStudioStore, type LookJob } from '../state/store.ts';
 import { FORMATS, SIZES, fmt, fmtLength, siblingTracks, sourceLabel } from '../lib/utils.ts';
 import { mutate } from '../engine/looks.ts';
+import { screenOf, thumbSize } from '../lib/screens.ts';
 import { MODULES } from '../engine/modules.ts';
 
 export const Modals: React.FC = () => {
@@ -72,6 +73,8 @@ export const Modals: React.FC = () => {
   const currentSizeKey = exportOpts.size || 'master';
   const sizeArr = FORMATS[currentFormat]?.size || SIZES[currentSizeKey] || SIZES.master;
   const [W, H] = sizeArr;
+  const screen = screenOf(currentFormat);
+  const [varW, varH] = thumbSize(screen, 384);
 
   const L = ctx?.L || 8;
   const frames = Math.round(L * 30);
@@ -133,7 +136,7 @@ export const Modals: React.FC = () => {
               ✕
             </button>
           </div>
-          <div className="vars" id="vars" ref={varsContainerRef}>
+          <div className="vars" id="vars" data-screen={screen.id} ref={varsContainerRef}>
             {Array.from({ length: 6 }, (_, k) => {
               const l = variations[k];
               return (
@@ -147,7 +150,7 @@ export const Modals: React.FC = () => {
                     }
                   }}
                 >
-                  <canvas width={216} height={384} />
+                  <canvas width={varW} height={varH} />
                   <div className="lbl">
                     <b>{l?.name}</b>
                     <span>{l?.layers.map((x) => MODULES[x.m]?.name).filter(Boolean).join(' + ')}</span>
@@ -198,6 +201,8 @@ export const Modals: React.FC = () => {
             <span>Toggle the Spotify player overlay</span>
             <span className="kbd">S</span>
             <span>Toggle safe zones</span>
+            <span className="kbd">O</span>
+            <span>Next screen: phone, landscape, tablet, square</span>
             <span className="kbd">L</span>
             <span>Loop / Listener audition</span>
             <span className="kbd">T</span>
