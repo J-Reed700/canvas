@@ -90,12 +90,8 @@ export async function renderOnce(onProgress?: (progress: any) => void): Promise<
   const o = s.exportOpts;
   const fmt = o.format || 'spotify';
   const isAudioFmt = fmt === 'spotify' || fmt === 'youtube_16_9' || fmt === 'social_square';
-  let promoSeconds = 0;
-  if (s.features && isAudioFmt) {
-    // YouTube gets a 30 s promo by default, unless the video is already that long
-    promoSeconds = fmt === 'youtube_16_9' && s.ctx.L < 30 ? (o.promo || 30) : (o.promo || 0);
-  }
-  const withAudio = !!s.features && isAudioFmt && (fmt === 'youtube_16_9' || o.audio !== false);
+  const promoSeconds = s.features && isAudioFmt ? o.promo || 0 : 0;
+  const withAudio = !!s.features && isAudioFmt && o.audio !== false;
   const [W, H] = (o.format && FORMATS[o.format]?.size) || (o.size && SIZES[o.size]) || SIZES.master;
 
   const wasPlaying = s.transport.playing;

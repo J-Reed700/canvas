@@ -263,7 +263,7 @@ export const ModulatorsCard: React.FC = () => {
         <Card
           color={palette.colors[0]?.hex || '#C8FF4D'}
           title="Color palette"
-          sub="from clip #1 · click a color to tint the look"
+          sub="from clip #1 · click one to tint"
           bodyStyle={{ padding: '8px 12px' }}
         >
           <div className="pal-grad" style={{ background: palette.css_gradient }} title="Palette gradient preview" />
@@ -308,7 +308,7 @@ export const ModulatorsCard: React.FC = () => {
         </Card>
       )}
 
-      <Card color="#FFD36E" title="Modulators" sub="LFOs · macros · envelope · step sequencer">
+      <Card color="#FFD36E" title="Modulators" sub="LFOs, macros, envelope, steps">
         {lfos.slice(0, 2).map((lfo, i) => {
           const key = LFO_KEYS[i];
           const color = MOD_SOURCES[key].color;
@@ -399,7 +399,7 @@ export const ModulatorsCard: React.FC = () => {
           );
         })}
 
-        <div className="mod-h">
+        <div className="mod-h stack">
           <span>Envelope · whole loop</span>
           <div className="mini-presets">
             {Object.entries(ENV_PRESETS).map(([name, fn]) => (
@@ -426,7 +426,7 @@ export const ModulatorsCard: React.FC = () => {
           title="Drag to draw · double-click for default arc"
         />
 
-        <div className="mod-h">
+        <div className="mod-h stack">
           <span>Step sequencer · 1 bar</span>
           <div className="mini-presets">
             {Object.entries(SEQ_PRESETS).map(([name, fn]) => (

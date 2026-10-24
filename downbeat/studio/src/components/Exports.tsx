@@ -206,7 +206,7 @@ const ExportsList: React.FC = () => {
       )}
 
       <div className="exports" id="exports">
-        {!renders.length && <div className="note">Exports appear here, each checked against the Spotify Canvas spec.</div>}
+        {!renders.length && <div className="note">Exports appear here, each checked against its format's spec.</div>}
         {renders.length > 0 && !list.length && <NoMatch />}
         {list.slice(page * SIDE_PAGE, page * SIDE_PAGE + SIDE_PAGE).map((r) => (
           <div

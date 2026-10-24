@@ -44,11 +44,13 @@ describe('layer cards', () => {
   test('move up, move down and remove change the stack', () => {
     resetStudio();
     renderStudio(<LayersPane />);
+    expect((within(cardFor('Liquid Glass')).getByTitle('Move up') as HTMLButtonElement).disabled, 'the top layer cannot go up').toBe(true);
     fireEvent.click(within(cardFor('Liquid Glass')).getByTitle('Move up'));
     expect(layerTitles()).toEqual(['Liquid Glass', 'Liquid Chrome', 'Bloom']);
     fireEvent.click(within(cardFor('Liquid Glass')).getByTitle('Move down'));
     expect(layerTitles()).toEqual(['Liquid Chrome', 'Liquid Glass', 'Bloom']);
     expect(shownLayers()).toEqual(['Liquid Chrome', 'Liquid Glass', 'Bloom']);
+    expect((within(cardFor('Bloom')).getByTitle('Move down') as HTMLButtonElement).disabled, 'nor the bottom one down').toBe(true);
     fireEvent.click(within(cardFor('Bloom')).getByTitle('Move down'));
     expect(layerTitles().at(-1)).toBe('Bloom');
     fireEvent.click(within(cardFor('Bloom')).getByTitle('Move up'));

@@ -115,7 +115,12 @@ export async function exportLoop({ engine, bank, ctx, width, height, fps = 30, b
   // Either way the video streams to the server as it renders: encoded H.264 chunks, or raw RGBA
   // frames for ffmpeg. Nothing the length of the whole video is held in memory.
   const r = await fetch('/api/export/raw/begin', { method: 'POST', body: JSON.stringify({ ...meta, width, height, fps, codec, stream: made ? 'h264' : 'rgba' }) });
-  const sid: string = (await r.json()).sid;
+  const begun = await r.json().catch(() => ({}));
+  if (!begun.ok) throw new Error(begun.error || 'the server could not start the export');
+  const sid: string = begun.sid;
+  // Closing or reloading the tab mid-export would otherwise leave the server waiting for frames.
+  const leave = () => navigator.sendBeacon(`/api/export/raw/abort?sid=${encodeURIComponent(sid)}`);
+  globalThis.addEventListener?.('pagehide', leave);
   const send = async (body: BodyInit): Promise<void> => {
     const res = await fetch(`/api/export/raw/frames?sid=${encodeURIComponent(sid)}`, { method: 'POST', body });
     if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || 'the server stopped taking frames');
@@ -161,12 +166,14 @@ export async function exportLoop({ engine, bank, ctx, width, height, fps = 30, b
     await upload();
   }
   } catch (err) {
+    globalThis.removeEventListener?.('pagehide', leave);
     if (made && made.enc.state !== 'closed') made.enc.close();
     fetch(`/api/export/raw/abort?sid=${encodeURIComponent(sid)}`, { method: 'POST' }).catch(() => {});
     throw err;
   }
   const st = stats.result(fps);
   const res = await fetch(`/api/export/raw/end?sid=${encodeURIComponent(sid)}`, { method: 'POST', body: JSON.stringify({ stats: st }) });
+  globalThis.removeEventListener?.('pagehide', leave);
   const json = await res.json();
   if (!json.ok) throw new Error(json.error || 'export failed');
   return { ...json.render, stats: st, codec, seconds: (performance.now() - t0) / 1000 };

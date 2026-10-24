@@ -108,10 +108,10 @@ export const MediaPanel: React.FC = () => {
                   </b>{' '}
                   BPM
                 </span>
-                <button className="mini" title="Half tempo" onClick={() => setTempo((features.bpm || 120) / 2)}>
+                <button className="mini" title="Half tempo" disabled={(features.bpm || 120) / 2 < 40} onClick={() => setTempo((features.bpm || 120) / 2)}>
                   ½×
                 </button>
-                <button className="mini" title="Double tempo" onClick={() => setTempo((features.bpm || 120) * 2)}>
+                <button className="mini" title="Double tempo" disabled={(features.bpm || 120) * 2 > 220} onClick={() => setTempo((features.bpm || 120) * 2)}>
                   2×
                 </button>
                 {bpmOverride[trackId] && (
@@ -231,7 +231,7 @@ export const MediaPanel: React.FC = () => {
               ref={fileInputRef}
               multiple
               hidden
-              accept="video/*,audio/*,image/*,.mp4,.mov,.m4v,.webm,.mkv,.wav,.mp3,.m4a,.aac,.flac,.aif,.aiff,.ogg,.opus,.jpg,.jpeg,.png,.webp,.heic"
+              accept="audio/*,image/*,.mp4,.mov,.m4v,.webm,.mkv,.wav,.mp3,.m4a,.aac,.flac,.aif,.aiff,.ogg,.opus,.jpg,.jpeg,.png,.webp,.heic"
               onChange={handleFileInput}
             />
           </div>

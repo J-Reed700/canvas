@@ -189,10 +189,12 @@ describe('track tools', () => {
     expect(String(fetch.mock.calls.at(-1)![0])).toBe('/api/features/t1');
   });
 
-  test('2× past 220 BPM is ignored, and Tap asks for more taps', async () => {
+  test('2× past 220 BPM is turned off, and Tap asks for more taps', async () => {
     const fetch = songServer();
     withSong({ features: { ...SONG, bpm: 128 } as any });
     renderStudio(<MediaPanel />);
+    expect((screen.getByText('2×') as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByText('½×') as HTMLButtonElement).disabled).toBe(false);
     fireEvent.click(screen.getByText('2×'));
     expect(st().bpmOverride).toEqual({});
     expect(fetch).not.toHaveBeenCalled();

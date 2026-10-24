@@ -118,6 +118,7 @@ class StudioState:
                 continue
             size_mb = round(os.path.getsize(path) / (1024 * 1024), 2)
             audio = path[:-4] + "-audio.mp4"
+            cover = path[:-4] + "-cover-3000x3000.jpg"
             promos = sorted(glob.glob(glob.escape(path[:-4]) + "-promo-*s.mp4"))
             self._renders.append(
                 {
@@ -125,6 +126,7 @@ class StudioState:
                     "url": f"/out/{urllib.parse.quote(name)}",
                     "audio_url": f"/out/{urllib.parse.quote(os.path.basename(audio))}" if os.path.isfile(audio) else None,
                     "promo_url": f"/out/{urllib.parse.quote(os.path.basename(promos[-1]))}" if promos else None,
+                    "cover_url": f"/out/{urllib.parse.quote(os.path.basename(cover))}" if os.path.isfile(cover) else None,
                     "format": "spotify",
                     "size_mb": size_mb,
                     "created_at": int(os.path.getmtime(path)),
@@ -276,7 +278,7 @@ def _export_dest(meta: dict) -> str:
         w, h = delivery.FORMATS[fmt]["size"]
         # The name carries the length after the loop is repeated for Apple, as repeat_loop() will.
         dur *= delivery.loop_repeats(dur, delivery.APPLE["safe_min_seconds"], delivery.APPLE["max_seconds"])
-    elif fmt in ("youtube_16_9", "social_square", "cover_art"):
+    elif fmt in ("youtube_16_9", "social_square"):
         if fmt in delivery.FORMATS:
             w, h = delivery.FORMATS[fmt].get("size", (w, h))
     name = f"canvas-{look}-{tag}{bpm}bpm-{dur:.1f}s-{w}x{h}-{stamp}.mp4"

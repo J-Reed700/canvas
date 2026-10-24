@@ -17,7 +17,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from .. import delivery
 from ..analysis import framing
 from ..analysis.features import track_features
-from .library import AUDIO_EXTS, pick_folder_dialog, playable_path
+from .library import AUDIO_EXTS, VIDEO_EXTS, pick_folder_dialog, playable_path
 from ..media.encoder import CANVAS_FPS
 from ..media.proxy import MAX_SECONDS as PROXY_SECONDS
 from ..media.source import IMAGE_EXTS, extract_thumbnail_jpeg, still_to_clip
@@ -502,8 +502,12 @@ class StudioHandler(BaseHTTPRequestHandler):
         sid = os.path.basename(dest)
         fps = int(meta.get("fps", CANVAS_FPS))
         # stream "h264": the browser encoded the frames and sends Annex B chunks; otherwise raw RGBA frames
-        session = (delivery.ChunkSession(dest, fps) if meta.get("stream") == "h264"
-                   else delivery.RawSession(dest, int(meta["width"]), int(meta["height"]), fps))
+        try:
+            session = (delivery.ChunkSession(dest, fps) if meta.get("stream") == "h264"
+                       else delivery.RawSession(dest, int(meta["width"]), int(meta["height"]), fps))
+        except Exception as exc:
+            self._send_json({"ok": False, "error": f"Could not start the export: {exc}"}, status=500)
+            return
         with STATE.lock:
             STATE.raw_sessions[sid] = (session, meta)
         self._send_json({"ok": True, "sid": sid})
@@ -537,6 +541,11 @@ class StudioHandler(BaseHTTPRequestHandler):
             meta["stats"] = _json_body(body).get("stats") or meta.get("stats")
             self._send_json({"ok": True, "render": _finish_export(session.dest, meta)})
         except Exception as exc:
+            # The studio reports this export as failed, so it shouldn't turn up in Exports later.
+            try:
+                STATE.remove_export(os.path.basename(session.dest))
+            except OSError:
+                pass
             self._send_json({"ok": False, "error": str(exc)}, status=500)
 
     def _post_delete_export(self, body: bytes) -> None:
@@ -602,6 +611,9 @@ class StudioHandler(BaseHTTPRequestHandler):
                 self._send_json({"ok": True, "kind": "audio", "id": track.id, "name": track.name})
             else:
                 still = ext in IMAGE_EXTS
+                if not still and ext not in VIDEO_EXTS:
+                    # The library only lists these, so any other kind would vanish on the next rescan.
+                    raise ValueError(f"Downbeat can't use {ext or 'extensionless'} files. Videos need to be .mp4, .mov, .m4v, .webm or .mkv")
                 src = STATE.add_clip_path(still_to_clip(dest) if still else dest)
                 self._send_json({"ok": True, "kind": "video", "id": src.id, "name": src.name, "still": still})
         except Exception as exc:
@@ -679,6 +691,8 @@ def serve_studio(host: str = "127.0.0.1", port: int = 8765, open_browser: bool =
     except KeyboardInterrupt:
         print("\nShutting down Downbeat Studio.")
     finally:
+        for sid in list(STATE.raw_sessions):
+            _abort_raw(sid)
         server.server_close()
 
 

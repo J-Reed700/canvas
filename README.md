@@ -331,7 +331,7 @@ This walk-through takes about ten minutes. You need a song file (WAV, MP3, FLAC,
 
 1. Start Downbeat with `./run.sh`. The first time, the studio opens on a Pick a folder button. Click it and choose the folder your clips are in. Downbeat lists the videos and songs in that folder and its subfolders, puts up to five clips in the edit and picks the newest song. The song plays while it's being analyzed, and the loop moves to a suggested section when the analysis is done.
 
-2. The studio has three columns: your song and clips on the left, the preview in the middle, and the Looks, Layers and Edit tabs on the right. To add files from somewhere else, drag them onto the window or click + Add files. Each clip in the edit gets a playback copy built in the background. Until that's done the clip says "Preparing". The other videos in the folder are dimmed with a dashed border. Hover over one and click + Add to put it in the edit.
+2. The studio has three columns: your song and clips on the left, the preview in the middle, and the Looks, Layers and Edit tabs on the right. To add files from somewhere else, drag them onto the window or click + Add files. Each clip in the edit gets a playback copy built in the background. Until that's done the clip shows a spinning ring. The other videos in the folder are dimmed with a dashed border. Hover over one and click + Add to put it in the edit.
 
 3. Pick the song from the Track menu at the top of the left column if it isn't the one you want. Downbeat analyzes it and shows the tempo. If the tempo is half or double what it should be, click ½× or 2×, or click the number and type the right one.
 
@@ -569,14 +569,14 @@ Spotify exports are encoded at 16 Mbps (9 Mbps for the smaller sizes). The other
 | Option | What it does |
 | :--- | :--- |
 | Also save a copy with the audio slice | Writes a second MP4, ending in `-audio.mp4`, with the song playing from the loop start. Use it to watch or share the loop with sound. Don't upload it as your Canvas |
-| Promo copy with the song | Writes a 15 or 30 second video of the loop repeated with the song underneath, for Reels, TikTok, Shorts or a Spotify Countdown Page. YouTube exports get a 30 second promo by default, unless the video is already that long |
+| Promo copy with the song | Writes a 15 or 30 second video of the loop repeated with the song underneath, for Reels, TikTok, Shorts or a Spotify Countdown Page |
 | Save to my Downloads folder when it's done | On by default. Turn it off to keep files only in `out/` |
 
 The GIF Loop and WebP Loop buttons in the export sheet, and the GIF teaser and WebP teaser buttons on an export in the exports library, make small looping previews, 540 px wide at 18 fps from the first 10 seconds, for places that don't play video.
 
-### Release pack and batch export
+### Stills, teasers and batch export
 
-The Release pack row makes stills from clip 1, framed on its subject: a 3000 × 3000 cover, a 2660 × 1140 Spotify artist header, a 2560 × 1440 YouTube banner and a 2480 × 520 SoundCloud header.
+The Stills and teasers row makes stills from clip 1, framed on its subject: a 3000 × 3000 cover, a 2660 × 1140 Spotify artist header, a 2560 × 1440 YouTube banner and a 2480 × 520 SoundCloud header.
 
 Batch has two buttons. Export 4 rolls renders four random rolls of the current edit, then puts your edit back. "This look on N songs" renders the current look and edit on the 12 newest songs in the same folder as the current one, each at its top loop suggestion, so every song on a release shares one style.
 
@@ -628,7 +628,7 @@ On a Mac, the Reveal in Finder button shows the file in Finder. On Linux and Win
 | The preview stays black, or the browser console says `WebGL2 is not available` | In Chrome, open Settings, then System, turn on "Use graphics acceleration when available" and relaunch. `chrome://gpu` should list WebGL2 as hardware accelerated. On Windows, update your graphics driver. |
 | Export fails with an error about `VideoEncoder` or WebCodecs | Update Chrome or Edge. Without hardware H.264, the studio sends raw frames to ffmpeg instead. That's slower, but it works. |
 | The FPS counter is well under 60 | Try a lighter look (Clean Cut, or fewer layers), close other GPU-heavy tabs, and check `chrome://gpu`. Exports aren't affected: they render every frame however long it takes. |
-| Clips stay on "Preparing" | The playback copies are still being built, and 4K files take longer. They're stored in `out/.proxies/` and are safe to delete. |
+| A clip keeps spinning, or the preview says "Preparing clip…" | The playback copies are still being built, and 4K files take longer. They're stored in `out/.proxies/` and are safe to delete. |
 | The folder chooser doesn't appear | It can open behind the browser window. Otherwise use Type a path and type the folder's path. |
 | Some loop lengths are grayed out | That length runs past the end of the song from the loop's first downbeat. |
 | Cuts land early or late | Check the tempo isn't half or double (½× or 2×), then nudge the beat grid in 10 ms steps. |
