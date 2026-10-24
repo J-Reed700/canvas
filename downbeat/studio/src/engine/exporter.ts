@@ -1,7 +1,10 @@
 // Frame-exact export: render every frame on the GPU, encode H.264 with WebCodecs (hardware),
 // and let the server remux + verify. Falls back to streaming raw RGBA frames to ffmpeg.
+// Clip frames come from the server (clipFrames.ts), and checkFootage() fails an export whose clips froze.
 import { MODULES } from './modules.ts';
 import { compose } from './composer.ts';
+import { checkFootage } from './footage.ts';
+import type { FootageSample } from './footage.ts';
 import type { ExportLoopOptions } from './types.ts';
 
 const CODECS: string[] = ['avc1.640034', 'avc1.640033', 'avc1.64002A', 'avc1.640028', 'avc1.4D0034', 'avc1.42E034'];
@@ -101,7 +104,7 @@ export function flashesPerSecond(series: number[], fps: number): number {
   return Math.floor(best / 2);
 }
 
-export async function exportLoop({ engine, bank, ctx, width, height, fps = 30, bitrate, meta, onProgress, signal }: ExportLoopOptions): Promise<any> {
+export async function exportLoop({ engine, frames, clips, ctx, width, height, fps = 30, bitrate, meta, onProgress, signal }: ExportLoopOptions): Promise<any> {
   const N = Math.round(ctx.L * fps);
   const stacks = [ctx.look, ...(ctx.clipLook ? ctx.tl.segs.map((s) => ctx.clipLook?.(s.clipId)).filter(Boolean) : [])];
   const hasFeedback = stacks.some((look: any) => look.layers.some((l: any) => l.on !== false && MODULES[l.m]?.feedback));
@@ -131,20 +134,26 @@ export async function exportLoop({ engine, bank, ctx, width, height, fps = 30, b
   engine.resize(width, height);
   engine.main.reset();
   const stats = new Stats();
+  const footage: FootageSample[] = [];
   const t0 = performance.now();
   try {
-  // Every clip must be decodable before the first frame is committed: one check per clip, not per cut.
+  // Every clip must decode before the first frame is committed: one check per clip, not per cut.
   const firstUse = new Map(ctx.tl.segs.map((s) => [s.clipId, s] as const));
-  for (const s of firstUse.values()) await bank.exact([{ vkey: `${s.clipId}#${s.id}`, clipId: s.clipId, time: s.in }]);
+  await Promise.all([...firstUse.values()].map((s) => frames.get(s.clipId, s.in, `${s.clipId}#${s.id}`)));
+  const at = (j: number) => (((j / fps) % ctx.L) + ctx.L) % ctx.L;
+  let fr = compose(ctx, at(-warm));
   for (let j = -warm; j < N; j++) {
     if (signal?.aborted) throw new DOMException('Export cancelled', 'AbortError');
     if (encErr) throw encErr;
-    const t = (((j / fps) % ctx.L) + ctx.L) % ctx.L;
-    const fr = compose(ctx, t);
-    await bank.exact(fr.needs);
-    const sources = fr.needs.map((n) => ({ ...engine.video(n.vkey, bank.get(n.vkey, n.clipId), true), cam: n.cam }));
+    const got = await Promise.all(fr.needs.map((n) => frames.get(n.clipId, n.time, n.vkey)));
+    const sources = fr.needs.map((n, i) => ({ ...engine.frame(n.vkey, got[i]), cam: n.cam }));
     const out = engine.renderMain({ ...fr, sources });
+    const needs = fr.needs;
+    // ask for the next frame's pictures now, so the server decodes them while this one encodes
+    fr = compose(ctx, at(j + 1));
+    for (const n of fr.needs) frames.get(n.clipId, n.time, n.vkey).catch(() => {});
     if (j < 0) continue;
+    needs.forEach((n, i) => footage.push({ frame: j, vkey: n.vkey, clipId: n.clipId, idx: got[i].idx, sig: got[i].sig, gpu: engine.sourcePrint(n.vkey) }));
     if (made) {
       const vf = new (window as any).VideoFrame(engine.canvas, { timestamp: Math.round((j * 1e6) / fps), duration: Math.round(1e6 / fps) });
       made.enc.encode(vf, { keyFrame: j % fps === 0 });
@@ -171,10 +180,11 @@ export async function exportLoop({ engine, bank, ctx, width, height, fps = 30, b
     fetch(`/api/export/raw/abort?sid=${encodeURIComponent(sid)}`, { method: 'POST' }).catch(() => {});
     throw err;
   }
-  const st = stats.result(fps);
+  const report = checkFootage(footage, (id) => ({ name: id, ...clips?.(id), last: frames.last(id) }), fps);
+  const st = { ...stats.result(fps), footage: { level: report.level, detail: report.detail } };
   const res = await fetch(`/api/export/raw/end?sid=${encodeURIComponent(sid)}`, { method: 'POST', body: JSON.stringify({ stats: st }) });
   globalThis.removeEventListener?.('pagehide', leave);
   const json = await res.json();
   if (!json.ok) throw new Error(json.error || 'export failed');
-  return { ...json.render, stats: st, codec, seconds: (performance.now() - t0) / 1000 };
+  return { ...json.render, stats: st, footage: report, codec, seconds: (performance.now() - t0) / 1000 };
 }

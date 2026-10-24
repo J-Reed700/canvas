@@ -2,6 +2,7 @@
 // thumbnails and the frame-exact exporter (so preview == export).
 import * as S from './shaders.ts';
 import { MODULES, moduleSource } from './modules.ts';
+import { fnv } from './clipFrames.ts';
 import type { ComposedFrame, ComposedLayer, ProgramInfo, RenderTarget } from './types.ts';
 
 const GUARD_LIMIT = 18 / 255; // max mean-luma change per frame (display space), same limit as the CPU engine
@@ -412,6 +413,7 @@ export class Engine {
   videoTex: Map<string, any>;
   aux: Record<string, any>;
   statsT: RenderTarget;
+  printT?: RenderTarget;
   lastOut: RenderTarget | null = null;
 
   constructor(canvas: HTMLCanvasElement) {
@@ -431,8 +433,7 @@ export class Engine {
     this.main.resize(w, h);
   }
 
-  // Upload the current frame of a <video> into its texture; returns {tex, vw, vh} or null.
-  video(key: string, el: HTMLVideoElement | null, force: boolean = false): any {
+  _videoTex(key: string): any {
     const gl = this.gl;
     let v = this.videoTex.get(key);
     if (!v) {
@@ -447,17 +448,56 @@ export class Engine {
       v = { tex, vw: 1, vh: 1, stamp: -1, el: null };
       this.videoTex.set(key, v);
     }
+    return v;
+  }
+
+  _upload(v: any, src: TexImageSource): void {
+    const gl = this.gl;
+    gl.bindTexture(gl.TEXTURE_2D, v.tex);
+    gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, gl.RGBA, gl.UNSIGNED_BYTE, src);
+    gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
+    v.print = undefined;
+  }
+
+  // Upload the current frame of a <video> into its texture; returns {tex, vw, vh} or null.
+  video(key: string, el: HTMLVideoElement | null, force: boolean = false): any {
+    const v = this._videoTex(key);
     if (el && el.readyState >= 2 && el.videoWidth) {
       const stamp = el.currentTime;
       if (force || stamp !== v.stamp || v.el !== el) {
-        gl.bindTexture(gl.TEXTURE_2D, v.tex);
-        gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true);
-        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, gl.RGBA, gl.UNSIGNED_BYTE, el);
-        gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
+        this._upload(v, el);
         v.vw = el.videoWidth; v.vh = el.videoHeight; v.stamp = stamp; v.el = el;
       }
     }
     return v;
+  }
+
+  // Upload a decoded export frame (see clipFrames.ts), unless that frame is already in the texture.
+  frame(key: string, f: { clipId: string; idx: number; img: TexImageSource; w: number; h: number }): any {
+    const v = this._videoTex(key);
+    const stamp = `${f.clipId}:${f.idx}`;
+    if (stamp !== v.stamp || v.el !== f.img) {
+      this._upload(v, f.img);
+      v.vw = f.w; v.vh = f.h; v.stamp = stamp; v.el = f.img;
+    }
+    return v;
+  }
+
+  // Hash of a 16×16 readback of a clip's texture: tells the export whether a new frame really landed.
+  sourcePrint(key: string): number {
+    const v = this.videoTex.get(key);
+    if (!v) return 0;
+    if (v.print === undefined) {
+      const gl = this.gl;
+      if (!this.printT) this.printT = this.gpu.target(16, 16, { float: false });
+      this.gpu.draw('blit', S.BLIT, this.printT, { uRes: [16, 16] }, { uSrc: v });
+      const px = new Uint8Array(16 * 16 * 4);
+      gl.bindFramebuffer(gl.FRAMEBUFFER, this.printT.fb);
+      gl.readPixels(0, 0, 16, 16, gl.RGBA, gl.UNSIGNED_BYTE, px);
+      v.print = fnv(px);
+    }
+    return v.print;
   }
 
   dropVideo(key: string): void {

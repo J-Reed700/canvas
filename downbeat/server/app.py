@@ -18,6 +18,7 @@ from .. import delivery
 from ..analysis import framing
 from ..analysis.features import track_features
 from .library import AUDIO_EXTS, VIDEO_EXTS, pick_folder_dialog, playable_path
+from ..media import frames as clip_frames
 from ..media.encoder import CANVAS_FPS
 from ..media.proxy import MAX_SECONDS as PROXY_SECONDS
 from ..media.source import IMAGE_EXTS, extract_thumbnail_jpeg, still_to_clip
@@ -148,6 +149,8 @@ class StudioHandler(BaseHTTPRequestHandler):
             self._get_features(route, query)
         elif route.startswith("/api/proxy/"):
             self._get_proxy(route)
+        elif route.startswith("/api/frames/"):
+            self._get_frames(route, query)
         elif route == "/api/state":
             self._get_state(query)
         elif route == "/api/status":
@@ -259,6 +262,37 @@ class StudioHandler(BaseHTTPRequestHandler):
             self.send_error(HTTPStatus.INTERNAL_SERVER_ERROR, "Proxy build failed")
             return
         self._serve_file(path, "video/mp4")
+
+    def _get_frames(self, route: str, query: dict[str, list[str]]) -> None:
+        """Numbered frames of a clip's playback copy for an export: ?start=N&count=M."""
+        src = STATE.clips.get(route.split("/api/frames/", 1)[1])
+        if not src:
+            self._send_json({"error": "This clip is no longer in the library"}, status=404)
+            return
+        try:
+            start = int(query.get("start", ["0"])[0])
+            count = int(query.get("count", ["30"])[0])
+        except ValueError:
+            self._send_json({"error": "start and count must be whole numbers"}, status=400)
+            return
+        path = STATE.proxies.ensure(src)
+        if not path:
+            self._send_json({"error": f"The playback copy of {src.name} could not be made"}, status=500)
+            return
+        try:
+            total, first, jpegs = clip_frames.read_frames(path, start, count)
+        except Exception as exc:
+            self._send_json({"error": f"{src.name}: {exc}"}, status=500)
+            return
+        body = clip_frames.pack(jpegs)
+        self.send_response(HTTPStatus.OK)
+        self.send_header("Content-Type", "application/octet-stream")
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("X-Frame-Start", str(first))
+        self.send_header("X-Frame-Total", str(total))
+        self.send_header("Cache-Control", "no-store")
+        self.end_headers()
+        self.wfile.write(body)
 
     def _clip_dicts(self) -> list[dict]:
         return [

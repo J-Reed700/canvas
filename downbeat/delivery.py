@@ -367,8 +367,13 @@ def verify(path: str, stats: dict | None = None, fmt: str = "spotify") -> list[d
 
 
 def _motion_checks(checks: list[dict], check: Any, stats: dict | None) -> None:
-    """Seam and photosensitivity checks from the browser's per-frame render stats."""
+    """Footage, seam and photosensitivity checks from the browser's per-frame render stats."""
     if stats:
+        footage = stats.get("footage")
+        if isinstance(footage, dict) and footage.get("level") in ("ok", "warn", "fail"):
+            # The studio checked each cut's clip frames as it rendered (engine/footage.ts).
+            checks.append({"id": "footage", "label": "Clips play, not stills", "level": footage["level"],
+                           "detail": str(footage.get("detail") or "")[:800]})
         seam = stats.get("seam_ratio")
         if seam is not None:
             checks.append(check("seam", "Loop seam", seam <= 1.25,
