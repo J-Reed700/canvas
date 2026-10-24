@@ -199,7 +199,7 @@ clip's blocks, dims the rest, and the header says which clip is highlighted.
 | Click | cut lane | Moves the playhead |
 | Drag a cut line | cut lane, cursor shows ↔ | Moves that cut, snapped to the beat. The rhythm switches to Custom |
 | Option-drag | a block | Slips the clip: same timing, different moment of the footage |
-| Double-click | a block | Choose the clip, in-point, speed ramp and the transition into that block |
+| Double-click | a block | Opens the segment menu: the clip, in-point (click a frame in the filmstrip or drag the slider), direction, speed ramp and the transition into that block. A lime dot marks what you've set, and Back to auto clears it. ‹ › or ← → move to the next block, and ▶ Play the cut plays the transition into it |
 | Click a rhythm button | top right | Re-cuts the loop and drops any cuts you dragged |
 
 ## 7. Looks
@@ -456,7 +456,7 @@ at its top loop suggestion, so every song on a release shares one style.
 | Key | Action |
 |---|---|
 | Space | Play / pause |
-| ← → | Previous / next look |
+| ← → | Previous / next look, or previous / next block while the segment menu is open |
 | D, Shift+D | Roll, undo roll |
 | R | Surprise me |
 | M | Variations |
@@ -479,7 +479,7 @@ at its top loop suggestion, so every song on a release shares one style.
 | Drag | envelope | Draw |
 | Drag | cut line | Move the cut |
 | Option-drag | timeline block | Slip the footage |
-| Double-click | timeline block | Clip, in-point, speed ramp, transition |
+| Double-click | timeline block | Segment menu: clip, in-point, direction, speed ramp, transition |
 | Drag | clip | Reorder |
 
 ## 16. Effects
