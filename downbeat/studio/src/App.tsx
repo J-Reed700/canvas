@@ -6,7 +6,8 @@ import type { SnapDiv } from './engine/blocks.ts';
 import { TopBar } from './components/TopBar.tsx';
 import { MediaPanel } from './components/MediaPanel.tsx';
 import { StagePanel } from './components/StagePanel.tsx';
-import { TimelinePanel } from './components/TimelinePanel.tsx';
+import { TimelinePanel, openSegmentMenu } from './components/TimelinePanel.tsx';
+import { targetBlock } from './state/blockActions.ts';
 import { InspectorPanel } from './components/InspectorPanel.tsx';
 import { Modals } from './components/Modals.tsx';
 import { ExportsLibrary } from './components/Exports.tsx';
@@ -94,6 +95,14 @@ export const App: React.FC = () => {
       } else if (k === 'Delete' || k === 'Backspace') {
         e.preventDefault();
         s.deleteBlock();
+      } else if (k === 'Enter') {
+        // a focused button takes Enter itself, and an open menu stays as it is
+        if (target?.closest?.('button, a, [role=button]') || document.getElementById('pop')?.classList.contains('on')) return;
+        const id = targetBlock();
+        if (id) {
+          e.preventDefault();
+          openSegmentMenu(id);
+        }
       } else if (k === 'n' || k === 'N') {
         const order: SnapDiv[] = [1, 2, 4, 0];
         s.setSnap(order[(order.indexOf(s.snap) + 1) % order.length]);

@@ -135,9 +135,9 @@ describe('lane', () => {
     expect(open()).toBe(true);
     expect(pop().className).toContain('seg-menu');
     expect(pop().querySelector('h4')!.textContent).toBe('Segment 2 of 4');
-    expect(pop().querySelector('.seg-head .meta')!.textContent).toMatch(/^Bar 2 · \d+\.\d\d s long$/);
+    expect(pop().querySelector('.seg-head .meta')!.textContent).toMatch(/^Bar 2, beat 1 · \d+\.\d\d s long$/);
     const labels = Array.from(pop().querySelectorAll('.seg-l > span:first-child')).map((l) => l.textContent);
-    expect(labels).toEqual(['Clip', 'In-point', 'Direction', 'Speed ramp', 'Transition in', 'Transition length', 'Framing', 'Motion', 'Quick moves']);
+    expect(labels).toEqual(['Timing', 'Transition length', 'Clip', 'In-point', 'Direction', 'Speed ramp', 'Transition in', 'Framing', 'Motion', 'Quick moves']);
     expect(Array.from(pop().querySelectorAll('.seg-group small')).map((g) => g.textContent)).toEqual(['Smooth', 'Kinetic', 'Glitch', 'Other']);
 
     expect(tile('#2 city.mp4').className).toContain('on');
@@ -159,14 +159,14 @@ describe('lane', () => {
     const slider = pop().querySelector('input[type=range]') as HTMLInputElement;
     fireEvent.input(slider, { target: { value: '1.5' } });
     expect(st().ctx!.tl.segs[1].in).toBe(1.5);
-    expect(pop().querySelector('.seg-val')!.textContent).toBe('1.50 s');
+    expect(pop().querySelector('.seg-body .seg-val')!.textContent).toBe('1.50 s');
     expect(st().transport.loopTime()).toBeCloseTo(2.25, 9);
 
     fireEvent.click(pop().querySelector('.seg-x')!);
     expect(open()).toBe(false);
 
     fireEvent.doubleClick(lane(), { clientX: 10, clientY: 30 });
-    expect(pop().querySelector('.seg-note')!.textContent).toContain('loop seam');
+    expect(pop().querySelector('.seg-body .seg-note')!.textContent).toContain('loop seam');
   });
 
   test('the segment menu steps between segments with its arrows or the arrow keys, and outlines nothing once closed', () => {
@@ -206,7 +206,7 @@ describe('lane', () => {
     expect(frames[4].style.backgroundImage).toBe(`url("/api/thumb/b?w=120&t=${t.toFixed(2)}")`);
     fireEvent.click(frames[4]);
     expect(st().ctx!.tl.segs[1].in).toBeCloseTo(t, 9);
-    expect(pop().querySelector('.seg-val')!.textContent).toBe(`${t.toFixed(2)} s`);
+    expect(pop().querySelector('.seg-body .seg-val')!.textContent).toBe(`${t.toFixed(2)} s`);
     expect(parseFloat((pop().querySelector('.seg-mark') as HTMLElement).style.left)).toBeCloseTo((t / max) * 100, 6);
 
     fireEvent.click(popButton('Reverse'));

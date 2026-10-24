@@ -228,7 +228,7 @@ export const Modals: React.FC = () => {
             <span className="kbd">⌥ Drag</span>
             <span>On a timeline segment: slip to a different moment of the clip</span>
             <span className="kbd">Dbl-click</span>
-            <span>On a timeline segment: clip, in-point, speed ramp, transition, framing. Long-press on a touch screen</span>
+            <span>On a timeline segment: its menu, with timing, clip, in-point, speed ramp, transition and framing. Right-click, Enter, Edit segment or a long press open it too</span>
           </div>
         </div>
       </div>

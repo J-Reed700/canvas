@@ -683,3 +683,47 @@
   .welcome .tp-path .numin { height: 36px; font-size: 13px; }
   .welcome .tp-path .btn { height: 36px; }
   .welcome-type { font-size: 12.5px; }
+
+  /* The segment menu's timing: a strip zoomed in on the segment, the cut steppers and the transition length. */
+  .seg-time { display: flex; flex-direction: column; gap: 10px; padding: 16px 20px 18px; border-bottom: 1px solid var(--line); }
+  .seg-time > .seg-l { margin-bottom: 0; }
+  .seg-time > .seg-note { margin: 0; }
+  .seg-time > .seg-f { margin-top: 4px; }
+  .seg-snap { display: flex; align-items: center; gap: 4px; }
+  .seg-snap small { margin-right: 4px; }
+  .seg-snap button { height: 24px; min-width: 30px; padding: 0 8px; border-radius: 7px; font-size: 11.5px; color: var(--text-2); background: var(--raised); border: 1px solid var(--line); }
+  .seg-snap button.on { color: var(--text); border-color: var(--accent); background: var(--accent-dim); }
+  .seg-zoom { position: relative; height: 72px; border-radius: 8px; background: rgba(0,0,0,0.3); border: 1px solid var(--line); overflow: hidden; touch-action: none; user-select: none; cursor: pointer; }
+  .seg-zoom.dragging { cursor: ew-resize; }
+  .seg-zoom .zl { position: absolute; inset: 0; }
+  .zb { position: absolute; top: 18px; bottom: 6px; border-radius: 4px; background: #1b1b22 center / cover no-repeat; opacity: 0.4; box-shadow: inset 0 0 0 1px rgba(255,255,255,0.14); pointer-events: none; }
+  .zb.on { opacity: 1; box-shadow: inset 0 0 0 2px var(--accent); }
+  .zb span { position: absolute; left: 4px; bottom: 3px; padding: 0 4px; border-radius: 4px; background: rgba(5,5,7,0.72); color: var(--text); font: 600 10px/15px var(--mono); }
+  .zt { position: absolute; top: 0; bottom: 0; width: 1px; background: rgba(255,255,255,0.1); pointer-events: none; }
+  .zt.bar { background: rgba(255,255,255,0.3); }
+  .zt.sub { top: 12px; background: rgba(255,255,255,0.05); }
+  .zt small { position: absolute; left: 4px; top: 2px; font: 600 9.5px/1 var(--mono); color: var(--text-3); }
+  .zband { position: absolute; top: 18px; bottom: 6px; background: rgba(255,79,163,0.32); pointer-events: none; }
+  .zline { position: absolute; top: 14px; bottom: 2px; width: 2px; margin-left: -1px; background: #FF4FA3; pointer-events: none; }
+  .zline.hard { background: #fff; }
+  .zline.seam { background: rgba(255,255,255,0.5); }
+  .zcut { position: absolute; top: 12px; bottom: 0; width: 16px; margin-left: -8px; padding: 0; background: none; cursor: ew-resize; z-index: 2; }
+  .zcut::before { content: ""; position: absolute; left: 7px; top: 2px; bottom: 2px; width: 2px; background: #FF4FA3; }
+  .zcut.hard::before { background: #fff; }
+  .zcut::after { content: ""; position: absolute; left: 4px; top: calc(50% - 11px); width: 8px; height: 22px; border-radius: 4px; background: #fff; box-shadow: 0 0 0 1px rgba(0,0,0,0.5), 0 2px 6px rgba(0,0,0,0.5); }
+  .zcut:focus-visible::after { outline: 2px solid var(--accent); outline-offset: 1px; }
+  .zedge { position: absolute; top: 18px; bottom: 6px; width: 10px; margin-left: -5px; cursor: col-resize; z-index: 1; }
+  .zedge::after { content: ""; position: absolute; left: 4px; top: 0; bottom: 0; width: 2px; background: rgba(255,79,163,0.85); }
+  .zhead { position: absolute; top: 0; bottom: 0; width: 2px; margin-left: -1px; background: #fff; box-shadow: 0 0 8px rgba(255,255,255,0.8); pointer-events: none; z-index: 3; }
+  .zhead[hidden] { display: none; }
+  .seg-cuts { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 18px; }
+  .seg-cut { display: flex; align-items: center; gap: 6px; font-size: 12px; }
+  .seg-cut .lbl { color: var(--text-3); font-weight: 600; margin-right: 2px; }
+  .seg-cut .seg-val { min-width: 118px; text-align: center; font-size: 12px; }
+  .seg-nudge { width: 28px; height: 28px; border-radius: 8px; font-size: 16px; line-height: 1; color: var(--text-2); background: var(--raised); border: 1px solid var(--line); }
+  .seg-nudge:hover:not(:disabled) { color: var(--text); border-color: var(--line-2); }
+  .seg-nudge:disabled { opacity: 0.3; cursor: default; }
+  .seg-len { margin-left: auto; color: var(--text-3); font-size: 12px; font-variant-numeric: tabular-nums; }
+  .tl-edit { height: 30px; padding: 0 12px; font-size: 12px; font-weight: 600; border-color: var(--accent); color: var(--text); background: var(--accent-dim); }
+  .lane-edit { position: absolute; top: 18px; transform: translateX(-50%); height: 22px; padding: 0 8px; border-radius: 11px; font-size: 11px; font-weight: 650; color: var(--accent-ink); background: var(--accent); box-shadow: 0 2px 8px rgba(0,0,0,0.5); z-index: 2; white-space: nowrap; }
+  @media (hover: none) { .zcut { width: 28px; margin-left: -14px; } .zcut::before { left: 13px; } .zcut::after { left: 10px; } .zedge { width: 20px; margin-left: -10px; } .zedge::after { left: 9px; } .seg-nudge { width: 36px; height: 36px; } .lane-edit { height: 28px; padding: 0 12px; border-radius: 14px; } }
