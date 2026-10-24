@@ -400,8 +400,10 @@ Each clip can use the main look, a variation of it, or its own stack.
 In the Edit tab, choose the cut rhythm, which transitions to use, the clip direction and speed ramps. On the timeline:
 
 - Drag a cut to move it along the beat grid.
-- `Alt`-drag a segment to use a different part of its clip.
-- Double-click a segment to change just that one.
+- `Alt`-drag (Option on a Mac) a segment to use a different part of its clip.
+- Double-click a segment to change just that one, including the in-point: the moment of the clip it starts on.
+
+The studio picks each segment's in-point at random from the edit seed, within the clip's first 60 seconds, and a clip that comes back picks up where it left off. The in-points you set are cleared when you change the clips, the rhythm or the transitions, so set those first. The [studio guide](docs/STUDIO_GUIDE.md#where-each-clip-starts) has the details.
 
 ### The preview
 
