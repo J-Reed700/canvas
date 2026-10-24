@@ -4,9 +4,11 @@ Downbeat makes Spotify Canvas loops from your video clips, photos or cover art, 
 
 It runs on your own computer. A small Python server reads the song and handles files, and the editor (the studio) runs in Chrome and renders on your graphics card. The same project also exports Apple Music motion art, a 16:9 YouTube visualizer, square social clips, 3000 × 3000 cover art and artist banners.
 
-![The Downbeat studio: five selected clips on the left, each tagged with its own look, the Canvas playing on a phone with the Spotify player overlay in the middle, the cut timeline below it, and the Looks gallery on the right](docs/studio.jpg)
+![The Downbeat studio on the Landscape 16:9 screen: the song at 130 BPM with a 4-bar loop and the 1-Bit Signal look, the Clips panel with its search box and three clips in the edit, the video playing under the player overlay, the cut timeline with segment 1 selected, and the Looks gallery on the right](docs/studio.jpg)
 
-![The studio on the Landscape 16:9 screen: the video plays on a wide screen with the song title beside the shuffle, skip, play and repeat buttons, the transport bar below shows the 16:9 Screen button, the cut timeline runs along the bottom, and the Layers tab on the right shows LFO B, the drawn envelope and the step sequencer for clip 1's own effect stack](docs/studio-landscape.jpg)
+![The Layers tab with the Modulators card open: LFO A and LFO B with their shapes and rates, the macros, the drawn envelope and the step sequencer, next to the landscape preview and the timeline with segment 2 selected](docs/studio-layers.jpg)
+
+![The phone screen while clip 3's own effects are edited: the Looks tab says a look you click now applies to clip 3, with Back to main, and the timeline highlights clip 3's segment](docs/studio-phone.jpg)
 
 Version 4.0. MIT license. Runs on macOS, Linux and Windows.
 
@@ -734,8 +736,9 @@ downbeat/
 ├── package.json                # studio dependencies and build scripts
 ├── docs/
 │   ├── STUDIO_GUIDE.md         # every panel and control in the studio
-│   ├── studio.jpg              # the screenshots at the top: the phone screen
-│   └── studio-landscape.jpg    #   and the Landscape screen
+│   ├── studio.jpg              # the screenshots at the top: the Landscape screen,
+│   ├── studio-layers.jpg       #   the Layers tab's modulators
+│   └── studio-phone.jpg        #   and the phone screen editing one clip's effects
 ├── downbeat/
 │   ├── cli.py                  # command line: renders a canvas with the CPU engine
 │   ├── delivery.py             # export formats, Annex B remux, cover art, banners, GIF/WebP, spec checks
