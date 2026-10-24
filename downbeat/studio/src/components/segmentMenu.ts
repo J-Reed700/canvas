@@ -148,7 +148,7 @@ export function framingSection(id: string, seg: Segment, own: SegmentFrame | und
     'div',
     {
       class: 'seg-crop',
-      title: 'Drag the box to move the crop. Scroll on it to zoom.',
+      title: 'Drag the box to move the crop. Pinch on it, or use the Zoom slider, to zoom.',
       style: `width:${Math.round(Math.min(300, 136 * va))}px;aspect-ratio:${va.toFixed(4)};background-image:url(/api/thumb/${seg.clipId}?w=320&t=${seg.in.toFixed(2)})`,
       onpointerdown: (e: PointerEvent) => {
         const r = crop.getBoundingClientRect();
@@ -172,15 +172,26 @@ export function framingSection(id: string, seg: Segment, own: SegmentFrame | und
           render();
         };
       },
+      // A plain scroll scrolls the menu: the box sits where the pointer is while scrolling down to the
+      // controls under it. A trackpad pinch arrives as a wheel with Ctrl held, and that zooms.
       onwheel: (e: WheelEvent) => {
+        if (!e.ctrlKey && !e.metaKey) return;
         e.preventDefault();
         const p = pt(now());
-        put([p[0], p[1], clamp(p[2] * Math.exp(-e.deltaY * 0.0015), 1, ZOOM_MAX)]);
+        put([p[0], p[1], clamp(p[2] * Math.exp(-e.deltaY * (e.ctrlKey ? 0.01 : 0.0015)), 1, ZOOM_MAX)]);
       },
     },
     wins.a,
     moving && wins.b,
   );
+  // Safari reports a pinch as gesture events instead
+  let pinchFrom = 1;
+  crop.addEventListener('gesturestart', (e) => { e.preventDefault(); pinchFrom = pt(now())[2]; });
+  crop.addEventListener('gesturechange', (e) => {
+    e.preventDefault();
+    const p = pt(now());
+    put([p[0], p[1], clamp(pinchFrom * ((e as any).scale || 1), 1, ZOOM_MAX)]);
+  });
 
   // The menu covers the stage, so while the playhead is in this segment a thin box follows the crop as it moves.
   const live = h('i', { class: 'seg-win live' });
@@ -284,7 +295,7 @@ export function framingSection(id: string, seg: Segment, own: SegmentFrame | und
         { class: 'seg-f' },
         h('div', { class: 'seg-l' }, h('span', {}, 'Framing', own && h('i', { class: 'seg-mine', title: MINE })), h('small', {}, `on top of the look's ${cz.toFixed(2)}× zoom`)),
         crop,
-        h('div', { class: 'seg-note' }, own ? 'Drag the box to move the crop, scroll on it to zoom.' : "Automatic: the look's drift wanders around the clip's framing. Drag the box to set your own."),
+        h('div', { class: 'seg-note' }, own ? 'Drag the box to move the crop. Pinch on it, or use the Zoom slider, to zoom.' : "Automatic: the look's drift wanders around the clip's framing. Drag the box to set your own."),
       ),
     ),
     h(
@@ -598,8 +609,15 @@ export function segmentMenu(box: HTMLElement, start: string) {
           '↺ Back to auto',
         ),
       ),
+      more,
     );
+    showMore();
   };
+
+  // The menu is often taller than the window; say so at its bottom edge until it's scrolled to the end.
+  const more = h('div', { class: 'seg-more', 'aria-hidden': 'true' }, 'More below ↓');
+  const showMore = () => { more.hidden = box.scrollTop + box.clientHeight >= box.scrollHeight - 4; };
+  box.onscroll = showMore;
 
   outline();
   render();
@@ -630,4 +648,5 @@ export function openSegmentMenu(id: string, from?: HTMLElement | { x: number; y:
     showPeek(menuPeek);
     keepOnScreen(p);
   }
+  p.onscroll?.(new Event('scroll'));
 }

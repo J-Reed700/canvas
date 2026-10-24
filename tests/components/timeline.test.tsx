@@ -367,7 +367,7 @@ describe('segment framing', () => {
     expect(frame()!.a[0]).toBe(frame()!.b![0]);
   });
 
-  test('dragging the box moves the crop and scrolling on it zooms', () => {
+  test('dragging the box moves the crop, and a pinch on it zooms', () => {
     open();
     vi.spyOn(crop(), 'getBoundingClientRect').mockReturnValue({ left: 0, top: 0, width: 160, height: 90, right: 160, bottom: 90, x: 0, y: 0, toJSON() {} });
     crop().setPointerCapture = () => {};
@@ -385,13 +385,56 @@ describe('segment framing', () => {
     expect(frame()!.a[0], 'a press outside brings the crop to it').toBeCloseTo(0.5 - roomX(1), 9);
     fireEvent.pointerUp(crop(), { pointerId: 1 });
 
-    fireEvent.wheel(crop(), { deltaY: -200 });
-    expect(frame()!.a[2]).toBeCloseTo(Math.exp(0.3), 9);
-    fireEvent.wheel(crop(), { deltaY: 100000 });
+    const wheel = (init: WheelEventInit) => {
+      const ev = new WheelEvent('wheel', { bubbles: true, cancelable: true, ...init });
+      // happy-dom leaves the modifier keys of a WheelEvent unset
+      for (const k of ['ctrlKey', 'metaKey'] as const) Object.defineProperty(ev, k, { value: !!init[k] });
+      crop().dispatchEvent(ev);
+      return ev;
+    };
+    expect(wheel({ deltaY: -200 }).defaultPrevented, 'a plain scroll is left to scroll the menu').toBe(false);
     expect(frame()!.a[2]).toBe(1);
-    fireEvent.wheel(crop(), { deltaY: -200 });
+    // a trackpad pinch arrives as a wheel with Ctrl held
+    expect(wheel({ deltaY: -30, ctrlKey: true }).defaultPrevented).toBe(true);
+    expect(frame()!.a[2]).toBeCloseTo(Math.exp(0.3), 9);
+    wheel({ deltaY: 100000, ctrlKey: true });
+    expect(frame()!.a[2]).toBe(1);
+
+    // Safari reports a pinch as gesture events
+    const gesture = (type: string, scale = 1) => {
+      const ev = new Event(type, { cancelable: true });
+      Object.defineProperty(ev, 'scale', { value: scale });
+      return fireEvent(crop(), ev);
+    };
+    gesture('gesturestart');
+    expect(gesture('gesturechange', 2)).toBe(false);
+    expect(frame()!.a[2]).toBeCloseTo(2, 9);
+    gesture('gesturechange', 10);
+    expect(frame()!.a[2], 'up to 3×').toBe(3);
+
+    // ⌘ with a mouse wheel zooms too
+    wheel({ deltaY: 100000, metaKey: true });
+    wheel({ deltaY: -200, metaKey: true });
+    expect(frame()!.a[2]).toBeCloseTo(Math.exp(0.3), 9);
     fireEvent.click(popButton('Smooth'));
-    expect(frame()!.a[2], 'a pick after scrolling keeps the zoom').toBeCloseTo(Math.exp(0.3), 9);
+    expect(frame()!.a[2], 'a pick after zooming keeps the zoom').toBeCloseTo(Math.exp(0.3), 9);
+  });
+
+  test('a menu taller than the window says there is more below until it is scrolled to the end', () => {
+    open();
+    const pop = document.getElementById('pop')!;
+    const more = pop.querySelector('.seg-more') as HTMLElement;
+    Object.defineProperty(pop, 'clientHeight', { configurable: true, value: 600 });
+    Object.defineProperty(pop, 'scrollHeight', { configurable: true, value: 1000 });
+    pop.scrollTop = 0;
+    fireEvent.scroll(pop);
+    expect(more.hidden).toBe(false);
+    pop.scrollTop = 400;
+    fireEvent.scroll(pop);
+    expect(more.hidden).toBe(true);
+    pop.scrollTop = 100;
+    fireEvent.click(popButton('Smooth'));
+    expect((pop.querySelector('.seg-more') as HTMLElement).hidden, 'still there after the menu redraws').toBe(false);
   });
 });
 

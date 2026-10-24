@@ -415,6 +415,11 @@
   /* Segment menu (double-click a timeline block): two columns so it stays short over the timeline. */
   .pop.seg-menu { width: min(660px, calc(100vw - 16px)); max-height: calc(100vh - 16px); overflow-y: auto; padding: 0; border-radius: 16px; }
   .seg-head { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 12px 12px 12px 12px; border-bottom: 1px solid var(--line); }
+  /* the menu scrolls when it's taller than the window: the title row stays put, and the bottom edge says there's more */
+  .pop.seg-menu .seg-head { position: sticky; top: 0; z-index: 3; background: rgb(22,22,29); border-radius: 16px 16px 0 0; }
+  .seg-more { position: sticky; bottom: 0; z-index: 3; height: 44px; margin-top: -44px; display: flex; align-items: flex-end; justify-content: center; padding-bottom: 8px; pointer-events: none;
+    font-size: 11.5px; font-weight: 600; color: var(--text-2); background: linear-gradient(rgba(22,22,29,0), rgb(22,22,29) 75%); }
+  .seg-more[hidden] { display: none; }
   .seg-head h4 { font-size: 15px; font-weight: 650; letter-spacing: -0.01em; }
   .seg-head h4 small { color: var(--text-3); font-size: 12.5px; font-weight: 500; }
   .seg-head .meta { margin-left: 6px; color: var(--text-3); font-size: 12px; font-variant-numeric: tabular-nums; }
