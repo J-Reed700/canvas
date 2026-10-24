@@ -42,7 +42,7 @@ OS="$(uname -s)"
 case "$OS" in
   Darwin) PLATFORM=mac ;;
   Linux) PLATFORM=linux ;;
-  MINGW*|MSYS*|CYGWIN*) die "Native Windows shells aren't supported. Install WSL (see README → Windows) and run ./run.sh inside Ubuntu." ;;
+  MINGW*|MSYS*|CYGWIN*) die "run.sh doesn't work in Git Bash or other Windows shells. In PowerShell, run: powershell -ExecutionPolicy Bypass -File run.ps1 (see README → Windows). Or use WSL and run ./run.sh inside Ubuntu." ;;
   *) die "Unsupported OS: $OS" ;;
 esac
 
