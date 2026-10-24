@@ -44,12 +44,14 @@ def still_to_clip(path: str) -> str:
     # Even dimensions, long edge capped at 2160 px: plenty for a 1080x1920 crop with zoom room.
     scale = "scale='2*trunc(min(1,2160/max(iw,ih))*iw/2)':'2*trunc(min(1,2160/max(iw,ih))*ih/2)':flags=lanczos"
     cmd = [
-        ffmpeg_path(), "-y", "-v", "error", "-loop", "1", "-i", path, "-t", str(STILL_SECONDS), "-r", "30",
+        ffmpeg_path(), "-y", "-v", "error", "-xerror", "-loop", "1", "-i", path, "-t", str(STILL_SECONDS), "-r", "30",
         "-vf", f"{scale},format=yuv420p", "-c:v", "libx264", "-preset", "veryfast", "-crf", "14",
         "-tune", "stillimage", "-movflags", "+faststart", dest,
     ]
-    res = subprocess.run(cmd, capture_output=True, text=True)
-    if res.returncode != 0 or not os.path.exists(dest):
+    res = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+    if res.returncode != 0 or not os.path.exists(dest) or os.path.getsize(dest) == 0:
+        if os.path.exists(dest):
+            os.remove(dest)
         raise RuntimeError(f"could not read image: {res.stderr.strip()[-200:] or 'ffmpeg failed'}")
     return dest
 

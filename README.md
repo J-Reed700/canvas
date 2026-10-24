@@ -507,7 +507,9 @@ canvas/
     ├── studio_export.test.mjs  # export sheet: format settings, progress, cancel, batches
     ├── studio_render.test.mjs  # preview loop: redraws, readouts, meters, step grid, slider markers
     ├── studio_utils.test.mjs   # helpers and the exports browser's search and sort
-    └── fakes.mjs               # stand-ins for the DOM, <video>, canvas, fetch and WebCodecs
+    ├── fakes.mjs               # stand-ins for the DOM, <video>, canvas, fetch and WebCodecs
+    ├── components/             # React panels rendered with Testing Library and happy-dom (npx vitest run)
+    └── e2e/smoke.test.mjs      # real server + headless Chrome + one real export (make e2e)
 ```
 
 ### Development

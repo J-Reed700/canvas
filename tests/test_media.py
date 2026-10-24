@@ -92,6 +92,13 @@ class TestSource(TempDirCase):
             self.assertEqual(source.still_to_clip(png), clip)
         self.assertEqual(os.path.getmtime(clip), stamp)
 
+        bad = self.path("stills", "bad.png")
+        with open(bad, "wb") as f:
+            f.write(b"not a png")
+        with self.assertRaises(RuntimeError):
+            source.still_to_clip(bad)
+        self.assertFalse(os.path.exists(self.path("stills", "bad.still.mp4")))
+
 
 class TestEncoder(TempDirCase):
     def test_missing_ffmpeg_is_a_clear_error(self) -> None:

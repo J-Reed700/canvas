@@ -127,7 +127,7 @@ class TestByteRanges(unittest.TestCase):
         self.assertEqual(parse("bytes=0-1,5-6", 1000), (0, 1, True), "only the first range is served")
         for bad in ("bytes=-", "bytes=abc-", "bytes=20-10", "bytes=1000-", "bytes=-0"):
             self.assertEqual(parse(bad, 1000), (0, 999, False), bad)
-        self.assertEqual(parse(None, 0), (0, 0, False))
+        self.assertEqual(parse(None, 0), (0, -1, False))
 
 
 class TestServerRouting(_ServerCase):
@@ -205,7 +205,6 @@ class TestServerRouting(_ServerCase):
         self.assertEqual((status, raw), (200, blob), "an unsatisfiable range falls back to the whole file")
         self.assertEqual(self.request("GET", "/out/missing.mp4")[0], 404)
 
-    @unittest.expectedFailure  # _serve_file sends Content-Length: 1 for an empty file, then no body
     def test_an_empty_file_is_served_with_no_body(self) -> None:
         open(os.path.join(self.out, "empty.mp4"), "wb").close()
         status, headers, raw = self.request("GET", "/out/empty.mp4")
@@ -430,7 +429,7 @@ class TestServeStudio(unittest.TestCase):
                 break
             threading.Event().wait(0.02)
         new_port = int(found.group(1))
-        self.assertIn(new_port, (port, port + 1))
+        self.assertEqual(new_port, port)
         self.wait_running(new_port)
         self.stop(new_port, second)
 
@@ -607,6 +606,10 @@ class TestServerMedia(_ServerCase):
         self.assertEqual(status, 400)
         self.assertIn("too short or not an audio file", json.loads(raw)["error"])
 
+        status, _, raw = self.request("POST", "/api/upload", b"not a png", {"X-Filename": "corrupt.png"})
+        self.assertEqual(status, 400)
+        self.assertFalse(json.loads(raw)["ok"])
+
     def _annexb(self, size: str, frames: int) -> bytes:
         path = os.path.join(self.tmp, f"{size}-{frames}.h264")
         subprocess.run(
@@ -697,7 +700,6 @@ class TestServerMedia(_ServerCase):
         self.assertFalse(os.path.exists(os.path.join(self.out, sid[:-4] + ".h264")))
         self.assertNotIn(sid, [r["filename"] for r in self.get_json("/api/state")[1]["renders"]])
 
-    @unittest.expectedFailure  # ffmpeg creates the .mp4 before it fails, and nothing removes it; a restart lists it
     def test_a_failed_mux_leaves_no_empty_export_behind(self) -> None:
         meta = {"look": "Leftover", "bpm": 90, "duration": 2, "width": 64, "height": 112, "fps": 30, "stream": "h264"}
         sid = self.post_json("/api/export/raw/begin", meta)[1]["sid"]

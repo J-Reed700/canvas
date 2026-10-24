@@ -296,7 +296,6 @@ class TestDownbeatPipeline(unittest.TestCase):
 
 
 class TestEffects(unittest.TestCase):
-    @unittest.expectedFailure  # grid_clone returns h // grid * grid rows: 128 tall with a 3x3 grid gives 126
     def test_grid_clone_keeps_the_frame_size_when_the_grid_does_not_divide_it(self) -> None:
         frame = np.zeros((128, 72, 3), np.uint8)
         self.assertEqual(grid_clone(frame, t=0.0, beat_dur=0.5, grid=3).shape, frame.shape)

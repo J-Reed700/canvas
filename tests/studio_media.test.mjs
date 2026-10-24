@@ -205,6 +205,18 @@ test('export seeks land exactly or fail with a reason', async () => {
   assert.equal(b.get('a#0').currentTime, 2.5);
   assert.equal(b.get('b#1').currentTime, 1);
 
+  const e = b.get('a#0');
+  e.readyState = 1;
+  e.seeking = true;
+  setTimeout(() => {
+    e._t = 0.31;
+    e.readyState = 4;
+    e.seeking = false;
+    e.dispatch('seeked');
+  }, 0);
+  await b.exact([need('a#0', 0.25)]);
+  assert.equal(e.currentTime, 0.25);
+
   const off = b.get('c#2');
   off.land = (t) => t + 0.5;
   await assert.rejects(b.exact([need('c#2', 3)]), /landed at 3.500s instead of 3.000s/);

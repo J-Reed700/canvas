@@ -262,6 +262,8 @@ test('the exports list filters by kind and every search word, and sorts four way
   assert.deepEqual(f({ q: 'chrome 1920x1080' }), ['b.mp4']);
   assert.deepEqual(f({ q: 'chrome apple' }), []);
   assert.deepEqual(f({ q: '  youtube  ' }), ['b.mp4']);
+  assert.deepEqual(f({ q: '4' }), ['c.mp4']);
+  assert.deepEqual(f({ q: 'mp4' }), []);
 });
 
 test('page lists show every page up to seven, then the ends and neighbors with gaps', () => {

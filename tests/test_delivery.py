@@ -58,7 +58,6 @@ class TestDeliveryHelpers(TempDirCase):
         self.assertEqual(session.frames, 3)
         self.assertEqual(int(_video(_ffprobe(dest))["nb_frames"]), 3)
 
-    @unittest.expectedFailure  # RawSession.abort kills ffmpeg but leaves its stdin pipe open (ResourceWarning, BrokenPipeError on exit)
     def test_aborting_a_raw_session_closes_the_encoder_pipe(self) -> None:
         if not HAS_FFMPEG:
             raise AssertionError("ffmpeg required")
@@ -242,6 +241,15 @@ class TestExportPipeline(TempDirCase):
         for cid in ("length", "aspect", "codec", "silent", "fps", "faststart", "seam", "flash"):
             self.assertEqual(checks[cid], "ok", cid)
         self.assertEqual(checks["height"], "fail", "640 px is under Spotify's 720 px minimum")
+
+    def test_annexb_remux_cleans_up_dest_on_failure(self) -> None:
+        bad_h264 = os.path.join(self.tmp, "corrupt.h264")
+        with open(bad_h264, "wb") as f:
+            f.write(b"not valid h264 data")
+        dest = os.path.join(self.tmp, "corrupt.mp4")
+        with self.assertRaises(subprocess.CalledProcessError):
+            delivery.mux_annexb(bad_h264, dest, 30)
+        self.assertFalse(os.path.exists(dest))
 
     def test_verify_flags_off_spec_files(self) -> None:
         bad = os.path.join(self.tmp, "bad.mp4")

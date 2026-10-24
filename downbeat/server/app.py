@@ -45,8 +45,10 @@ STATIC_TYPES = {
 
 def _parse_byte_range(range_header: str | None, file_size: int) -> tuple[int, int, bool]:
     """Parse an HTTP Range header into (start, end, is_partial)."""
+    if file_size == 0:
+        return 0, -1, False
     if not range_header or not range_header.startswith("bytes="):
-        return 0, max(0, file_size - 1), False
+        return 0, file_size - 1, False
     try:
         first, _, last = range_header.split("=", 1)[1].split(",")[0].partition("-")
         if first:
@@ -56,12 +58,12 @@ def _parse_byte_range(range_header: str | None, file_size: int) -> tuple[int, in
             start = max(0, file_size - int(last))
             end = file_size - 1
         else:
-            return 0, max(0, file_size - 1), False
+            return 0, file_size - 1, False
         if 0 <= start <= end < file_size:
             return start, end, True
     except ValueError:
         pass
-    return 0, max(0, file_size - 1), False
+    return 0, file_size - 1, False
 
 
 class StudioHandler(BaseHTTPRequestHandler):
@@ -606,7 +608,11 @@ def serve_studio(host: str = "127.0.0.1", port: int = 8765, open_browser: bool =
             urllib.request.urlopen(req, timeout=1.0).close()
         except Exception:
             pass
-        time.sleep(0.4)
+        for _ in range(40):
+            if not _is_downbeat_running(host, port):
+                break
+            time.sleep(0.05)
+        time.sleep(0.05)
 
     server = None
     chosen_port = port
@@ -631,6 +637,7 @@ def serve_studio(host: str = "127.0.0.1", port: int = 8765, open_browser: bool =
         server.serve_forever()
     except KeyboardInterrupt:
         print("\nShutting down Downbeat Studio.")
+    finally:
         server.server_close()
 
 

@@ -211,26 +211,31 @@ export class VideoBank {
 }
 
 // Resolves on `ev`; rejects on media errors or timeout to avoid black frames.
-function once(el: HTMLElement, ev: string, ms: number, what: string): Promise<void> {
+function once(el: HTMLElement, ev: string | string[], ms: number, what: string): Promise<void> {
+  const events = Array.isArray(ev) ? ev : [ev];
   return new Promise((res, rej) => {
-    const off = () => { el.removeEventListener(ev, ok); el.removeEventListener('error', bad); clearTimeout(to); };
+    const off = () => {
+      for (const name of events) el.removeEventListener(name, ok);
+      el.removeEventListener('error', bad);
+      clearTimeout(to);
+    };
     const ok = () => { off(); res(); };
     const bad = () => { off(); rej(new Error(`${what}: the clip could not be decoded`)); };
     const to = setTimeout(() => { off(); rej(new Error(`${what}: timed out`)); }, ms);
-    el.addEventListener(ev, ok);
+    for (const name of events) el.addEventListener(name, ok);
     el.addEventListener('error', bad);
   });
 }
 
 export async function waitReady(e: HTMLVideoElement, ms: number = 240000): Promise<void> {
   if (e.readyState >= 2) return;
-  await once(e, 'loadeddata', ms, 'Loading clip');
+  await once(e, ['loadeddata', 'canplay', 'seeked'], ms, 'Loading clip');
 }
 
 async function seekExact(e: HTMLVideoElement, t: number): Promise<void> {
-  await waitReady(e);
   if (!e.paused) e.pause();
   if (e.seeking) await once(e, 'seeked', 5000, 'Seeking clip');
+  await waitReady(e);
   if (Math.abs(e.currentTime - t) >= 1e-4) {
     const p = once(e, 'seeked', 5000, 'Seeking clip');
     e.currentTime = t;

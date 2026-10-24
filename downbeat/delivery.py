@@ -40,14 +40,19 @@ def mux_annexb(h264_path: str, dest: str, fps: int) -> None:
     # WebCodecs streams), so stamp every packet explicitly: frame N at N/fps, one frame long.
     # Safe because WebCodecs H.264 output has no B-frames (decode order == display order).
     stamps = f"setts=pts=N/({fps}*TB):dts=N/({fps}*TB):duration=1/({fps}*TB)"
-    subprocess.run(
-        [
-            ffmpeg_path(), "-y", "-v", "error", "-f", "h264", "-r", str(fps), "-i", h264_path,
-            "-c:v", "copy", "-bsf:v", stamps, "-an", "-movflags", "+faststart", dest,
-        ],
-        check=True,
-        capture_output=True,
-    )
+    try:
+        subprocess.run(
+            [
+                ffmpeg_path(), "-y", "-v", "error", "-f", "h264", "-r", str(fps), "-i", h264_path,
+                "-c:v", "copy", "-bsf:v", stamps, "-an", "-movflags", "+faststart", dest,
+            ],
+            check=True,
+            capture_output=True,
+        )
+    except Exception:
+        if os.path.exists(dest):
+            os.remove(dest)
+        raise
 
 
 class RawSession:
@@ -70,6 +75,11 @@ class RawSession:
 
     def abort(self) -> None:
         proc = self.encoder.proc
+        if proc.stdin and not proc.stdin.closed:
+            try:
+                proc.stdin.close()
+            except (BrokenPipeError, OSError):
+                pass
         if proc.poll() is None:
             proc.kill()
             proc.wait()

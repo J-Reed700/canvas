@@ -108,6 +108,8 @@ class StudioState:
             name = os.path.basename(path)
             if name.endswith("-audio.mp4") or re.search(r"-promo-\d+s\.mp4$", name):
                 continue
+            if os.path.getsize(path) == 0:
+                continue
             size_mb = round(os.path.getsize(path) / (1024 * 1024), 2)
             audio = path[:-4] + "-audio.mp4"
             promos = sorted(glob.glob(glob.escape(path[:-4]) + "-promo-*s.mp4"))

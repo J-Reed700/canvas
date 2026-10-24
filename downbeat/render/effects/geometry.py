@@ -47,7 +47,7 @@ def grid_clone(frame: np.ndarray, t: float, beat_dur: float, **kw) -> np.ndarray
     grid = int(kw.get("grid", 2))
     p = _pulse(t, beat_dur, 1.0, sharp=3.5, kw=kw)
     h, w = frame.shape[:2]
-    tw, th = max(1, w // grid), max(1, h // grid)
+    tw, th = max(1, (w + grid - 1) // grid), max(1, (h + grid - 1) // grid)
     small = cv2.resize(frame, (tw, th), interpolation=cv2.INTER_LINEAR)
     tiled = np.tile(small, (grid, grid, 1))[:h, :w].copy()
     if p > 0.15:

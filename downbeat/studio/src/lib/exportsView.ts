@@ -84,7 +84,7 @@ export function filterExports(renders: RenderRecord[], f: { q: string; kind: str
   const out = renders.filter((r) => {
     if (f.kind !== 'all' && kindOf(r) !== f.kind) return false;
     if (!words.length) return true;
-    const hay = [titleOf(r), r.filename, formatLabel(r), r.resolution, r.bpm ? `${Math.round(r.bpm)} bpm` : '']
+    const hay = [titleOf(r), r.filename.replace(/\.[^.]+$/, ''), formatLabel(r), r.resolution, r.bpm ? `${Math.round(r.bpm)} bpm` : '']
       .join(' ')
       .toLowerCase();
     return words.every((w) => hay.includes(w));
