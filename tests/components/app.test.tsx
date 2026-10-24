@@ -128,6 +128,22 @@ describe('keyboard shortcuts', () => {
     expect(toastText()).toMatch(/^Tap \d more…$/);
   });
 
+  test('O steps through the screens, and the look thumbnails follow', () => {
+    resetStudio({ tab: 'looks' });
+    renderApp();
+    const thumb = () => document.querySelector<HTMLCanvasElement>('#looks canvas')!;
+    expect([thumb().width, thumb().height]).toEqual([144, 256]);
+    press('o');
+    expect(st().exportOpts.format).toBe('youtube_16_9');
+    expect(document.getElementById('phone')!.dataset.screen).toBe('landscape');
+    expect([thumb().width, thumb().height]).toEqual([256, 144]);
+    press('O');
+    press('o');
+    expect(st().exportOpts.format).toBe('social_square');
+    press('o');
+    expect(st().exportOpts.format).toBe('spotify');
+  });
+
   test('1 to 4 pick a length when the song is long enough; [ and ] step through loop suggestions', () => {
     withSong({ tab: 'looks', features: { ...SONG, duration: 12, downbeats: [1.5, 3.5, 5.5, 7.5, 9.5] } as any, loopStart: 1.5 });
     renderApp();

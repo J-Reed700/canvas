@@ -1,6 +1,7 @@
 import React, { useEffect, useRef } from 'react';
 import { useStudioStore } from './state/store.ts';
 import { BAR_CHOICES, closePop, toast } from './lib/utils.ts';
+import { nextScreen, screenOf } from './lib/screens.ts';
 import { TopBar } from './components/TopBar.tsx';
 import { MediaPanel } from './components/MediaPanel.tsx';
 import { StagePanel } from './components/StagePanel.tsx';
@@ -69,6 +70,8 @@ export const App: React.FC = () => {
       } else if (k === 's' || k === 'S') {
         useStudioStore.setState((prev) => ({ safe: !prev.safe }));
         s.save();
+      } else if (k === 'o' || k === 'O') {
+        s.setScreen(nextScreen(screenOf(s.exportOpts.format)).id);
       } else if (k === 'l' || k === 'L') {
         s.transport.setMode(s.transport.mode === 'loop' ? 'listen' : 'loop');
         s.touch();

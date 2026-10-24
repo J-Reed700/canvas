@@ -176,6 +176,15 @@ describe('variations', () => {
     expect(st().varJobs).toEqual([]);
   });
 
+  test('variations take the shape of the screen', () => {
+    resetStudio({ varOpen: true });
+    update(() => st().setScreen('landscape'));
+    render(<Modals />);
+    const cv = document.querySelector<HTMLCanvasElement>('#vars canvas')!;
+    expect([cv.width, cv.height]).toEqual([384, 216]);
+    expect(document.getElementById('vars')!.dataset.screen).toBe('landscape');
+  });
+
   test('Mutate again and the amount slider make new variations', () => {
     resetStudio({ varOpen: true, mutAmt: 0.45, varSeed: 1 });
     render(<Modals />);
@@ -204,7 +213,7 @@ describe('shortcuts', () => {
     resetStudio({ helpOpen: true });
     render(<Modals />);
     const keys = Array.from(document.querySelectorAll('#helpModal .keys .kbd')).map((k) => k.textContent);
-    expect(keys).toEqual(['Space', '← →', 'M', 'D', '⇧ D', 'R', 'E', '[ ]', '1–4', 'H', 'S', 'L', 'T', '⌘ Z', 'Drag', '⌥ Drag', 'Dbl-click']);
+    expect(keys).toEqual(['Space', '← →', 'M', 'D', '⇧ D', 'R', 'E', '[ ]', '1–4', 'H', 'S', 'O', 'L', 'T', '⌘ Z', 'Drag', '⌥ Drag', 'Dbl-click']);
     fireEvent.click(within(document.getElementById('helpModal')!).getByTitle('Close (Esc)'));
     expect(st().helpOpen).toBe(false);
   });

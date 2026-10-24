@@ -132,7 +132,7 @@ are dimmed underneath. Drag a numbered clip onto another to change the order.
 | Solo | Keeps only clip 1 |
 | Reverse | Reverses the order |
 | Shuffle | Shuffles the order |
-| ⌖ Auto-frame subjects | Finds a face or main subject in each clip and centers the 9:16 crop on it |
+| ⌖ Auto-frame subjects | Finds a face or main subject in each clip and centers the crop on it |
 
 When per-clip FX is on, each clip gets a small label in its top-right corner: "Main" if it uses the main look,
 otherwise the name of its own look. Clicking the label opens that clip's stack in the Layers tab (see
@@ -380,9 +380,10 @@ time you open it.
 
 ## 13. Preview and transport
 
-The phone preview shows what the export will look like. Drag on it to reframe the clip on screen, scroll to
-zoom in (up to 3×), and double-click to reset that clip's framing. "Preparing clip…" means a clip is still
-loading.
+The preview shows what the export will look like, on a device of the export's shape: a phone for Spotify
+9:16, a landscape screen for YouTube 16:9, a tablet for Apple 3:4, and a square screen for the 1:1 formats.
+Drag on it to reframe the clip on screen, scroll to zoom in (up to 3×), and double-click to reset that clip's
+framing. "Preparing clip…" means a clip is still loading.
 
 | Control | Does |
 |---|---|
@@ -392,8 +393,9 @@ loading.
 | Loop / Listener (L) | Loop plays only the slice of the song behind the canvas. Listener lets the song play on while the canvas loops, the way a listener hears it |
 | Off-sync (Listener only) | Starts the canvas at a random offset from the song. Spotify doesn't sync a canvas to the music, so this shows how it looks out of step |
 | 1 bar / 2 / 4 / 8 (keys 1–4) | Loop length. A custom length gets its own button showing its bars and time; clicking it opens the Edit tab |
+| Screen (O) | The device to preview on: Phone 9:16, Landscape 16:9, Tablet 3:4 or Square 1:1. It also sets the export shape: picking a screen picks a format of that shape, and picking a format in the export sheet changes the screen. O steps through them |
 | Player UI (H) | Spotify's player overlay, to check what it covers |
-| Safe zones (S) | What Spotify's interface covers (top 14%, bottom 33%) and what tall phones crop (9% each side) |
+| Safe zones (S) | What Spotify's interface covers (top 14%, bottom 33%) and what tall phones crop (9% each side). Phone only |
 | Sound | Mute |
 | fps | Preview frame rate |
 
@@ -458,6 +460,7 @@ handy for giving a release one visual style.
 | L | Loop / Listener |
 | H | Player overlay |
 | S | Safe zones |
+| O | Next screen: phone, landscape, tablet, square |
 | ? | Shortcut list |
 | Esc | Close menus and dialogs |
 | ⌘Z, ⇧⌘Z | Undo, redo |

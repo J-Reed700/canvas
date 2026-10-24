@@ -1,6 +1,7 @@
 import React, { useRef, useEffect } from 'react';
 import { useStudioStore, type LookJob } from '../state/store.ts';
 import { LOOKS } from '../engine/looks.ts';
+import { screenOf, thumbSize } from '../lib/screens.ts';
 
 export const LooksPane: React.FC = () => {
   const looksRef = useRef<HTMLDivElement>(null);
@@ -11,6 +12,8 @@ export const LooksPane: React.FC = () => {
   const selected = useStudioStore((s) => s.selected);
   const editClip = useStudioStore((s) => s.editClip);
   const engine = useStudioStore((s) => s.engine);
+  const screen = useStudioStore((s) => screenOf(s.exportOpts.format));
+  const [thumbW, thumbH] = thumbSize(screen, 256);
 
   const applyLook = useStudioStore((s) => s.applyLook);
   const editLook = useStudioStore((s) => s.editLook());
@@ -86,7 +89,7 @@ export const LooksPane: React.FC = () => {
         </button>
       </div>
 
-      <div className="looks" id="looks">
+      <div className="looks" id="looks" data-screen={screen.id}>
         {allLooks.map((l, i) => {
           const group = l.mine ? 'mine' : l.group || 'curated';
           const prev = i ? (allLooks[i - 1].mine ? 'mine' : allLooks[i - 1].group || 'curated') : null;
@@ -103,7 +106,7 @@ export const LooksPane: React.FC = () => {
                 data-look-id={l.id}
                 onClick={() => applyLook(l)}
               >
-                <canvas width={144} height={256} />
+                <canvas width={thumbW} height={thumbH} />
                 <div className="lbl">
                   <b>{l.mine ? `★ ${l.name}` : l.name}</b>
                   <span>{l.vibe}</span>

@@ -5,6 +5,7 @@ import { installDom, fakeCanvas, recordingContext, stubFetch, FakeElement } from
 const dom = installDom();
 const U = await import('../downbeat/studio/src/lib/utils.ts');
 const V = await import('../downbeat/studio/src/lib/exportsView.ts');
+const SC = await import('../downbeat/studio/src/lib/screens.ts');
 const { TRANSITIONS } = await import('../downbeat/studio/src/engine/shaders.ts');
 const { SEQ_STEPS, ENV_POINTS } = await import('../downbeat/studio/src/engine/audio.ts');
 const { rng } = await import('../downbeat/studio/src/engine/timeline.ts');
@@ -169,6 +170,45 @@ test('framing room: wide clips can pan sideways in the 9:16 frame, matching ones
   const zoomed = U.room({ width: 1080, height: 1920 }, 2);
   assert.deepEqual(zoomed.room, [0.25, 0.25]);
   assert.deepEqual(U.room({}, 1).frac, [1, 1]);
+});
+
+test('framing room on other screens: a portrait clip on a landscape screen pans up and down', () => {
+  const tall = U.room({ width: 1080, height: 1920 }, 1, 16 / 9);
+  assert.equal(tall.frac[0], 1);
+  assert.ok(Math.abs(tall.frac[1] - (9 / 16) / (16 / 9)) < 1e-9);
+  assert.ok(tall.room[0] === 0 && tall.room[1] > 0.3);
+  assert.deepEqual(U.room({ width: 1080, height: 1080 }, 1, 1).room, [0, 0]);
+});
+
+test('every export format belongs to the screen of its shape', () => {
+  for (const [fmt, f] of Object.entries(U.FORMATS)) {
+    const sc = SC.screenOf(fmt);
+    assert.ok(sc.formats.includes(fmt), fmt);
+    const [w, h] = f.size || U.SIZES.master;
+    assert.ok(Math.abs(w / h - sc.aspect) < 0.01, fmt);
+  }
+  assert.deepEqual(SC.SCREENS.flatMap((sc) => sc.formats).sort(), Object.keys(U.FORMATS).sort(), 'no screen lists a format twice or one that is gone');
+  assert.equal(SC.screenOf(undefined).id, 'phone');
+  assert.equal(SC.screenOf('made_up').id, 'phone');
+});
+
+test('switching screens keeps a format that fits, and O steps through them all', () => {
+  const [phone, landscape, tablet, square] = SC.SCREENS;
+  assert.equal(SC.formatFor(square, 'cover_art'), 'cover_art');
+  assert.equal(SC.formatFor(square, 'spotify'), 'social_square');
+  assert.equal(SC.formatFor(landscape, undefined), 'youtube_16_9');
+  assert.equal(SC.formatFor(phone, 'apple_square'), 'spotify');
+  assert.deepEqual([phone, landscape, tablet, square].map((sc) => SC.nextScreen(sc).id), ['landscape', 'tablet', 'square', 'phone']);
+});
+
+test('thumbnails take the screen\'s shape at about the same size', () => {
+  const [phone, landscape, tablet, square] = SC.SCREENS;
+  assert.deepEqual(SC.thumbSize(phone, 256), [144, 256]);
+  assert.deepEqual(SC.thumbSize(phone, 384), [216, 384]);
+  assert.deepEqual(SC.thumbSize(landscape, 256), [256, 144]);
+  assert.deepEqual(SC.thumbSize(square, 256), [192, 192]);
+  const [w, h] = SC.thumbSize(tablet, 256);
+  assert.ok(Math.abs(w / h - 3 / 4) < 0.01 && Math.abs(w * h - 144 * 256) / (144 * 256) < 0.01, `${w}x${h}`);
 });
 
 test('fetchJSON throws on errors, postJSON keeps the server error and never throws', async () => {

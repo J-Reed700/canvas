@@ -202,7 +202,7 @@ export const MediaPanel: React.FC = () => {
             <button
               className="btn sm wide"
               id="btnAutoFrame"
-              title="Find faces or the main subject in each selected clip and center the 9:16 crop on it. Drag the preview to adjust; double-click it to reset."
+              title="Find faces or the main subject in each selected clip and center the crop on it. Drag the preview to adjust; double-click it to reset."
               onClick={autoFrame}
             >
               ⌖ Auto-frame subjects

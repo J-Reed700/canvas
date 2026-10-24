@@ -17,7 +17,9 @@ import {
   BAR_CHOICES,
   MAX_LOOP_SECONDS,
   toast,
+  FORMATS,
 } from '../lib/utils.ts';
+import { SCREENS, formatFor } from '../lib/screens.ts';
 import { drawOverview, drawLane, drawTimeline } from '../canvas/timelineCanvas.ts';
 import { startRenderLoop, pollProxies } from '../canvas/renderLoop.ts';
 import {
@@ -316,6 +318,14 @@ export const useStudioStore = create<StudioState>((set, get) => ({
   setTab: (tab: 'looks' | 'layers' | 'edit') => {
     set({ tab });
     get().save();
+  },
+  setScreen: (id) => {
+    const screen = SCREENS.find((x) => x.id === id) || SCREENS[0];
+    const o = get().exportOpts;
+    const format = formatFor(screen, o.format);
+    set({ exportOpts: { ...o, format } });
+    get().save();
+    toast(`${screen.name} · exports as ${FORMATS[format].short}`);
   },
 
   selectTrack: async (id: string, { initial = false, keepLoop = false }: { initial?: boolean; keepLoop?: boolean } = {}) => {

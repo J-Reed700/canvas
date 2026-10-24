@@ -1,14 +1,26 @@
 import React, { useRef, useEffect, useSyncExternalStore } from 'react';
 import { useStudioStore, useVersion } from '../state/store.ts';
 import { clamp } from '../engine/looks.ts';
-import { room, toast, BAR_CHOICES, fmtLength } from '../lib/utils.ts';
+import { room, toast, BAR_CHOICES, fmtLength, openPop, closePop, h } from '../lib/utils.ts';
 import { getLastFrame } from '../canvas/renderLoop.ts';
+import { SCREENS, screenOf, type Screen } from '../lib/screens.ts';
 
 const PlayIcon: React.FC<{ playing: boolean }> = ({ playing }) => (
   <svg viewBox="0 0 24 24">
     <path d={playing ? 'M6 4h4v16H6zM14 4h4v16h-4z' : 'M7 4v16l13-8z'} />
   </svg>
 );
+
+/** A device outline in the screen's shape: its long side is 16 px, or 13 px for the square so it doesn't look bigger. */
+function iconSize(screen: Screen): [number, number] {
+  const long = screen.aspect === 1 ? 13 : 16;
+  const w = Math.round(screen.aspect < 1 ? long * screen.aspect : long);
+  return [w, Math.round(w / screen.aspect)];
+}
+function screenIcon(screen: Screen): HTMLElement {
+  const [w, ht] = iconSize(screen);
+  return h('i', { class: 'scr-ic', style: `width:${w}px;height:${ht}px` });
+}
 
 export const StagePanel: React.FC = () => {
   useVersion();
@@ -30,6 +42,10 @@ export const StagePanel: React.FC = () => {
   const loopLen = useStudioStore((s) => s.loopLen());
   const setBars = useStudioStore((s) => s.setBars);
   const setTab = useStudioStore((s) => s.setTab);
+  const setScreen = useStudioStore((s) => s.setScreen);
+  const screen = useStudioStore((s) => screenOf(s.exportOpts.format));
+  const phone = screen.id === 'phone';
+  const [iconW, iconH] = iconSize(screen);
   const bars = Math.round(loopLen / barDur);
   const playing = useSyncExternalStore(transport.subscribe, () => transport.playing);
 
@@ -69,7 +85,7 @@ export const StagePanel: React.FC = () => {
       const rf = rfRef.current;
       if (!rf) return;
       const r = view.getBoundingClientRect();
-      const { frac, room: rm } = room(rf.c, rf.zoom);
+      const { frac, room: rm } = room(rf.c, rf.zoom, r.width / r.height);
       const x = clamp(rf.f0[0] - ((e.clientX - rf.x) / r.width) * (frac[0] / rf.zoom), 0.5 - rm[0], 0.5 + rm[0]);
       const y = clamp(rf.f0[1] + ((e.clientY - rf.y) / r.height) * (frac[1] / rf.zoom), 0.5 - rm[1], 0.5 + rm[1]);
       if (Math.abs(e.clientX - rf.x) + Math.abs(e.clientY - rf.y) > 3) rf.moved = true;
@@ -126,6 +142,29 @@ export const StagePanel: React.FC = () => {
     };
   }, []);
 
+  const handleScreenMenu = (e: React.MouseEvent<HTMLButtonElement>) => {
+    openPop(e.currentTarget, (box) => {
+      box.append(h('div', { class: 'ph' }, 'Screen · sets the export shape'));
+      for (const sc of SCREENS) {
+        box.append(
+          h(
+            'button',
+            {
+              class: `pi ${sc === screen ? 'on' : ''}`,
+              onclick: () => {
+                closePop();
+                setScreen(sc.id);
+              },
+            },
+            h('span', { class: 'scr-box' }, screenIcon(sc)),
+            h('span', { class: 'chk-t' }, h('b', {}, sc.name), h('small', {}, sc.use)),
+            h('small', {}, sc.ratio),
+          ),
+        );
+      }
+    });
+  };
+
   const handlePlayToggle = () => {
     if (!exporting) transport.toggle();
   };
@@ -161,11 +200,11 @@ export const StagePanel: React.FC = () => {
       <div className="stage-badge" id="stageBadge" style={{ display: 'none' }} />
 
       <div className="phone-wrap">
-        <div className="phone" id="phone">
+        <div className="phone" id="phone" data-screen={screen.id}>
           <div className="screen">
             <canvas id="view" ref={viewRef} width="540" height="960" />
 
-            <div className={`safe ${safe ? 'on' : ''}`} id="safe">
+            <div className={`safe ${safe && phone ? 'on' : ''}`} id="safe">
               <div style={{ top: 0, height: '14%' }}>TOP UI · 14%</div>
               <div style={{ bottom: 0, height: '33%' }}>PLAYER CONTROLS · 33%</div>
               <div
@@ -187,12 +226,14 @@ export const StagePanel: React.FC = () => {
                 <span>•••</span>
               </div>
               <div className="hud-bot">
-                <div className="title" id="hudTitle">
-                  {trackId
-                    ? tracks.find((t) => t.id === trackId)?.name.replace(/\.[^.]+$/, '') || 'Untitled'
-                    : 'Downbeat'}
+                <div className="meta">
+                  <div className="title" id="hudTitle">
+                    {trackId
+                      ? tracks.find((t) => t.id === trackId)?.name.replace(/\.[^.]+$/, '') || 'Untitled'
+                      : 'Downbeat'}
+                  </div>
+                  <div className="artist">Downbeat</div>
                 </div>
-                <div className="artist">Downbeat</div>
                 <div className="prog">
                   <i id="hudProg" />
                 </div>
@@ -297,6 +338,19 @@ export const StagePanel: React.FC = () => {
         <div className="tdiv" />
 
         <button
+          className="toggle screen-btn"
+          id="tScreen"
+          data-pop
+          disabled={exporting}
+          title={`Screen: ${screen.name} ${screen.ratio} (O)`}
+          aria-label={`Screen: ${screen.name} ${screen.ratio}`}
+          aria-haspopup="menu"
+          onClick={handleScreenMenu}
+        >
+          <i className="scr-ic" style={{ width: iconW, height: iconH }} />
+          <span className="ratio">{screen.ratio}</span>
+        </button>
+        <button
           className={`toggle ${hud ? 'on' : ''}`}
           id="tHud"
           title="Spotify player overlay (H)"
@@ -308,9 +362,10 @@ export const StagePanel: React.FC = () => {
           Player UI
         </button>
         <button
-          className={`toggle ${safe ? 'on' : ''}`}
+          className={`toggle ${safe && phone ? 'on' : ''}`}
           id="tSafe"
-          title="Safe zones (S)"
+          disabled={!phone}
+          title={phone ? 'Safe zones (S)' : "Safe zones follow Spotify's Canvas guidelines, so they show on the 9:16 phone"}
           onClick={() => {
             useStudioStore.setState({ safe: !safe });
             save();
