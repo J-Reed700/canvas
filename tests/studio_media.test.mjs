@@ -536,6 +536,27 @@ test('song curves are read between analysis frames and from the loop start', () 
   assert.equal(past(1).kick, 0.3, 'reading past the end holds the last value');
 });
 
+test('a loop that ends louder than it starts eases back over its last bar instead of snapping at the wrap', () => {
+  // quiet intro, then the song swells: 0 at the loop start, 1 by its end (5 bars at 150 BPM)
+  const fps = 30, beatDur = 0.4, L = 20 * beatDur, start = 2;
+  const bass = Array.from({ length: (start + L + 2) * fps }, (_, i) => Math.min(1, Math.max(0, (i / fps - start) / (L - 2))));
+  const s = makeSampler({ features: { curves: { bass }, fps }, loopStart: start, beatDur, seed: 1, L });
+  const n = Math.round(L * fps);
+  let biggest = 0;
+  for (let i = 0; i < n + 6; i++) biggest = Math.max(biggest, Math.abs(s((i + 1) / fps).bass - s(i / fps).bass));
+  assert.ok(biggest < 0.06, `a frame-to-frame step of ${biggest.toFixed(3)} would read as a jump`);
+  assert.ok(Math.abs(s(L - 1e-4).bass - s(0).bass) < 1e-3, 'the last frame lands on the first');
+  for (let t = 0; t < L - 4 * beatDur; t += 0.25) assert.ok(Math.abs(s(t).bass - Math.min(1, t / (L - 2))) < 1e-9, `before the last bar the song is read as is (t=${t})`);
+});
+
+test('the wrap blend lines up the kicks from before the loop start with the loop\'s own', () => {
+  // a kick on every beat: the audio leading into the loop has its kicks on the same beats
+  const fps = 30, beatDur = 0.5, L = 8 * beatDur, start = 4;
+  const kick = Array.from({ length: 20 * fps }, (_, i) => (i % (beatDur * fps) === 0 ? 1 : 0));
+  const s = makeSampler({ features: { curves: { kick }, fps }, loopStart: start, beatDur, seed: 1, L });
+  for (let b = 4; b < 8; b++) assert.ok(Math.abs(s(b * beatDur).kick - 1) < 1e-9, `kick on beat ${b} survives the blend`);
+});
+
 test('stepped parameters ignore modulation, unknown sources are skipped and values stay in range', () => {
   const defs = [
     { id: 'mix', min: 0, max: 1, def: 0.5, step: 0.01 },
