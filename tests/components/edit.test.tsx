@@ -90,15 +90,14 @@ describe('loop length', () => {
 
 describe('cuts and transitions', () => {
   test('cut rhythm buttons set the rhythm and drop hand-placed cuts', () => {
-    resetStudio({ customCuts: [1, 2.5], segOverrides: { 0: { trans: 'zoom' } } });
+    resetStudio({ legacyEdit: { customCuts: [1, 2.5], segOverrides: { 0: { trans: 'zoom' } } } });
     renderStudio(<EditPane />);
     const seg = field('Cut rhythm');
     expect(within(seg).getAllByRole('button')).toHaveLength(Object.keys(RHYTHMS).length);
     expect(seg.querySelector('.on'), 'custom cuts match no rhythm button').toBeNull();
     fireEvent.click(within(seg).getByText(RHYTHMS.beat.name));
     expect(st().look!.cut.rhythm).toBe('beat');
-    expect(st().customCuts).toBe(null);
-    expect(st().segOverrides).toEqual({});
+    expect(st().blocks).toBe(null);
     expect(st().ctx!.tl.segs).toHaveLength(16);
     expect(within(field('Cut rhythm')).getByText(RHYTHMS.beat.name).className).toBe('on');
   });

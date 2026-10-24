@@ -60,8 +60,10 @@ function fresh(over = {}) {
     clipMode: 'one',
     clipLooks: {},
     editClip: null,
-    customCuts: null,
-    segOverrides: {},
+    blocks: null,
+    legacyEdit: null,
+    selectedBlock: null,
+    snap: 1,
     clipFrame: {},
     palettes: {},
     rollOpts: { look: true, edit: true, perClip: true, clips: false, loop: false },
@@ -89,11 +91,10 @@ test('without a song a loop can be any whole number of bars up to ten minutes', 
 });
 
 test('setting a length clears hand-placed cuts, and a stored bar count is clamped when read', () => {
-  fresh({ customCuts: [1, 2.5] });
-  st().rebuild();
+  fresh({ legacyEdit: { customCuts: [1, 2.5], segOverrides: {} } });
   assert.equal(st().ctx.tl.segs.length, 3);
   st().setBars(2);
-  assert.equal(st().customCuts, null);
+  assert.equal(st().blocks, null);
   S.setState({ bars: 5000 });
   assert.equal(st().loopLen(), 600);
 });
@@ -178,14 +179,14 @@ test('every edit to a look bumps the version, so panels that read the look redra
 });
 
 test('setLook works on a copy, and keeps the edit only when the edit is locked', () => {
-  fresh({ customCuts: [1], segOverrides: { 0: { trans: 'zoom' } } });
+  fresh({ legacyEdit: { customCuts: [1], segOverrides: { 0: { trans: 'zoom' } } } });
+  assert.equal(st().blocks.length, 2);
   st().setLook(LOOKS[2]);
   assert.equal(st().lookId, LOOKS[2].id);
   assert.notEqual(st().look, LOOKS[2]);
   st().look.layers[0].p.x = 99;
   assert.equal(LOOKS[2].layers[0].p.x, undefined, 'editing the look must not change the preset');
-  assert.equal(st().customCuts, null);
-  assert.deepEqual(st().segOverrides, {});
+  assert.equal(st().blocks, null);
 
   const cut = { ...st().look.cut, rhythm: 'eighth' };
   st().look.cut = cut;
@@ -276,15 +277,107 @@ test('opening one clip for editing gives it its own copy and applies looks to th
   assert.equal(st().editClip, null);
 });
 
-test('per-cut overrides change the clip, transition, speed ramp and in-point of that cut', () => {
-  fresh({ segOverrides: { 1: { clipId: 'c', trans: 'zoom', vel: 'surge', in: 500 }, 2: { clipId: 'not-selected' }, 99: { trans: 'zoom' } } });
-  const plain = (() => { const s = st().segOverrides; S.setState({ segOverrides: {} }); st().rebuild(); const segs = st().ctx.tl.segs; S.setState({ segOverrides: s }); st().rebuild(); return segs; })();
+test("an older session's per-cut settings and dragged cuts open as blocks, looking the way they did", () => {
+  fresh();
+  const plain = st().ctx.tl.segs;
+  fresh({ legacyEdit: { customCuts: null, segOverrides: { 1: { clipId: 'c', trans: 'zoom', vel: 'surge', in: 500 }, 2: { clipId: 'not-selected' }, 99: { trans: 'zoom' } } } });
+  assert.equal(st().legacyEdit, null, 'read once');
+  assert.equal(st().blocks.length, plain.length);
   const seg = st().ctx.tl.segs[1];
   assert.equal(seg.clipId, 'c');
   assert.equal(seg.trans, 'zoom');
   assert.equal(seg.vel, 'surge');
-  assert.ok(Math.abs(seg.in - 19.9) < 1e-9, 'the in-point stays inside the clip');
+  assert.ok(Math.abs(seg.in - (20 - seg.dur - 0.1)) < 1e-9, 'the in-point is held where the footage still fills the segment');
   assert.equal(st().ctx.tl.segs[2].clipId, plain[2].clipId, 'an unselected clip is ignored');
+  assert.deepEqual(st().ctx.tl.segs.filter((x) => x.i !== 1).map((x) => [x.t0, x.trans, x.in]), plain.filter((x) => x.i !== 1).map((x) => [x.t0, x.trans, x.in]));
+  assert.equal(st().ctx.tl.handCut, false);
+
+  fresh({ legacyEdit: { customCuts: [1, 2.5], segOverrides: { 1: { trans: 'zoom' } } } });
+  assert.deepEqual(st().ctx.tl.segs.map((x) => [x.t0, x.trans === 'zoom']), [[0, false], [1, true], [2.5, false]]);
+  assert.equal(st().ctx.tl.handCut, true);
+
+  fresh({ trackId: 't1', legacyEdit: { customCuts: [1], segOverrides: {} } });
+  assert.ok(st().legacyEdit, 'cut lines in seconds wait for the song and its tempo');
+});
+
+test('the first block edit keeps the edit as it played, and the edit goes back to the rhythm when nothing is left', () => {
+  fresh();
+  const before = st().ctx.tl.segs;
+  st().transport.seek(3.1);
+  st().splitAtPlayhead();
+  assert.equal(lastToast(), 'Split segment 2');
+  const after = st().ctx.tl.segs;
+  assert.equal(after.length, before.length + 1);
+  assert.deepEqual(after.filter((x) => x.id !== 'h1'), before.map((x) => (x.id === 'g1' ? { ...x, t1: 3, dur: 1, span: [0, 0.5] } : { ...x, i: x.i > 1 ? x.i + 1 : x.i })));
+  assert.equal(st().selectedBlock, 'h1', 'the new segment is selected');
+  assert.equal(st().ctx.tl.handCut, true);
+  st().deleteBlock();
+  assert.equal(lastToast(), 'Deleted segment 3. Segment 2 plays on to the next cut.');
+  assert.equal(st().blocks.length, before.length, 'the left half keeps its shorter drift path, so it is still a block of its own');
+  st().setBlock('g1', { trans: 'zoom' });
+  st().clearBlock('g1');
+  assert.ok(st().blocks.find((b) => b.id === 'g1').span);
+  st().transport.seek(2.1); // snaps to beat 4, where segment 2 starts
+  st().splitAtPlayhead();
+  assert.equal(lastToast(), "There's already a cut here");
+});
+
+test('a hand-cut edit keeps through tempo, speed, direction, transitions and a look-only roll, but not a new rhythm, length or clip list', () => {
+  const cut = () => {
+    fresh();
+    st().transport.seek(3);
+    st().splitAtPlayhead();
+    return st().blocks;
+  };
+  const blocks = cut();
+  S.setState({ bpmManual: 100, direction: 'reverse' });
+  st().look.camera.p.speed = 1.5;
+  st().look.cut.transitions = ['zoom'];
+  st().look.cut.beats = 2;
+  st().rebuild();
+  assert.equal(st().blocks, blocks);
+  assert.deepEqual(st().ctx.tl.segs.map((x) => x.t0 / st().ctx.beatDur), [0, 4, 6, 8, 12], 'still on their beats at the new tempo');
+  assert.ok(st().ctx.tl.segs.slice(1).every((x) => x.rev && (x.trans === 'zoom' || x.id === 'h1')));
+  S.setState({ rollOpts: { look: true, edit: false, perClip: false, clips: false, loop: false } });
+  st().rollAll();
+  assert.equal(st().blocks, blocks, 'a roll of the look alone');
+
+  for (const change of [
+    () => { st().look.cut.rhythm = 'beat'; S.setState({ blocks: null }); st().rebuild(); }, // as the rhythm buttons do
+    () => st().setBars(2),
+    () => st().toggleClip('b'),
+    () => { S.setState({ rollOpts: { look: true, edit: true, perClip: false, clips: false, loop: false } }); st().rollAll(); },
+  ]) {
+    cut();
+    change();
+    assert.equal(st().blocks, null);
+  }
+  // the two rolls go back off the roll history, which later tests start empty
+  st().undoRoll();
+  st().undoRoll();
+  st().undoRoll();
+  assert.equal(lastToast(), 'Nothing to undo');
+});
+
+test('block edits each make one undo step, and a dragged cut settles into one', async (t) => {
+  await tick(400);
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  fresh();
+  const settle = () => { st().save(); t.mock.timers.tick(400); };
+  settle();
+  st().transport.seek(3);
+  st().splitAtPlayhead();
+  settle();
+  for (const beat of [7, 7.5, 9, 10]) st().trimCut('g2', beat, 2);
+  settle();
+  assert.equal(st().ctx.tl.segs[3].t0, 5);
+  st().undo();
+  assert.equal(st().ctx.tl.segs[3].t0, 4, 'the whole drag goes back at once');
+  st().undo();
+  assert.equal(st().blocks, null);
+  st().redo();
+  st().redo();
+  assert.equal(st().ctx.tl.segs[3].t0, 5);
 });
 
 test('the edit reacts to song hits when the cut rhythm is "On hits"', () => {
@@ -438,8 +531,8 @@ test('snapshots carry the look and edit, and applying one rebuilds the timeline'
   assert.deepEqual(st().selected, ['a', 'b', 'c']);
   assert.equal(st().ctx.L, 8);
   assert.deepEqual(Object.keys(JSON.parse(snap)).sort(), [
-    'bars', 'bpmManual', 'bpmOverride', 'clipFrame', 'clipLooks', 'clipMode', 'customCuts', 'direction', 'editClip', 'evolveAmt',
-    'exportOpts', 'gridNudge', 'intensity', 'lockEdit', 'look', 'lookId', 'loopStart', 'seed', 'segOverrides', 'selected', 'trackId',
+    'bars', 'blocks', 'bpmManual', 'bpmOverride', 'clipFrame', 'clipLooks', 'clipMode', 'direction', 'editClip', 'evolveAmt',
+    'exportOpts', 'gridNudge', 'intensity', 'lockEdit', 'look', 'lookId', 'loopStart', 'seed', 'selected', 'trackId',
   ]);
 });
 
@@ -598,11 +691,11 @@ test('rolling needs clips, and per-clip rolls give every clip its own valid stac
   assert.equal(st().lookId, st().look.id);
 });
 
-test('clip toggles and reordering update the selection and clear per-cut overrides', () => {
-  fresh({ segOverrides: { 0: { trans: 'zoom' } } });
+test('clip toggles and reordering update the selection and clear a hand-cut edit', () => {
+  fresh({ blocks: [{ id: 'g0', at: 0, clipId: 'a', in: 0, seed: 1, trans: 'zoom' }] });
   st().toggleClip('b');
   assert.deepEqual(st().selected, ['a', 'c']);
-  assert.deepEqual(st().segOverrides, {});
+  assert.equal(st().blocks, null);
   st().toggleClip('b');
   assert.deepEqual(st().selected, ['a', 'c', 'b']);
 
@@ -650,9 +743,9 @@ test('videos not in the edit stay unloaded until one is put in, which asks for i
 test('removing a clip drops it everywhere, and the message says whether the file was deleted', async () => {
   let reply = { ok: true, deleted: true };
   const reqs = stubFetch({ 'POST /api/clip/remove': () => reply });
-  fresh({ clipMode: 'custom', clipLooks: { c: cloneLook(LOOKS[1]) }, clipFrame: { c: [0.2, 0.3, 1] }, editClip: 'c', segOverrides: { 2: { clipId: 'c' } } });
+  fresh({ clipMode: 'custom', clipLooks: { c: cloneLook(LOOKS[1]) }, clipFrame: { c: [0.2, 0.3, 1] }, editClip: 'c', blocks: [{ id: 'g0', at: 0, clipId: 'c', in: 0, seed: 1 }] });
   await media.removeClip('c');
-  assert.deepEqual(st().segOverrides, {}, 'cut overrides pointing at the clip go too');
+  assert.equal(st().blocks, null, 'blocks showing the clip go too');
   assert.deepEqual(JSON.parse(reqs[0].body), { id: 'c' });
   assert.deepEqual(st().clips.map((c) => c.id), ['a', 'b']);
   assert.deepEqual(st().selected, ['a', 'b']);

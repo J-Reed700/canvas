@@ -2,6 +2,7 @@ import React, { useEffect, useRef } from 'react';
 import { useStudioStore } from './state/store.ts';
 import { BAR_CHOICES, closePop, toast } from './lib/utils.ts';
 import { nextScreen, screenOf } from './lib/screens.ts';
+import type { SnapDiv } from './engine/blocks.ts';
 import { TopBar } from './components/TopBar.tsx';
 import { MediaPanel } from './components/MediaPanel.tsx';
 import { StagePanel } from './components/StagePanel.tsx';
@@ -41,6 +42,17 @@ export const App: React.FC = () => {
         return;
       }
 
+      if (
+        (e.metaKey || e.ctrlKey) &&
+        (e.key === 'd' || e.key === 'D') &&
+        !e.shiftKey &&
+        !target?.closest?.('input, select, textarea, [contenteditable]')
+      ) {
+        e.preventDefault(); // or the browser bookmarks the page
+        if (!s.exporting && !s.libraryOpen && !s.welcome) s.repeatSegment();
+        return;
+      }
+
       if (target?.closest?.('input, select, textarea, [contenteditable]') || e.metaKey || e.ctrlKey || s.exporting || s.libraryOpen || s.welcome) {
         return;
       }
@@ -77,17 +89,26 @@ export const App: React.FC = () => {
         s.transport.setMode(s.transport.mode === 'loop' ? 'listen' : 'loop');
         s.touch();
         s.save();
+      } else if (k === 'b' || k === 'B') {
+        s.splitAtPlayhead();
+      } else if (k === 'Delete' || k === 'Backspace') {
+        e.preventDefault();
+        s.deleteBlock();
+      } else if (k === 'n' || k === 'N') {
+        const order: SnapDiv[] = [1, 2, 4, 0];
+        s.setSnap(order[(order.indexOf(s.snap) + 1) % order.length]);
       } else if (k === '?') {
         useStudioStore.setState({ helpOpen: true });
       } else if (k === 'Escape') {
         useStudioStore.setState({ varOpen: false, helpOpen: false, exportOpen: false });
+        if (!document.getElementById('pop')?.classList.contains('on')) s.selectBlock(null);
         closePop();
       } else if (k === '[' || k === ']') {
         const loops = s.features?.loops || [];
         if (!loops.length) return;
         const i = loops.findIndex((l) => Math.abs(l.start - s.loopStart) < 0.05);
         const l = loops[(i + (k === ']' ? 1 : -1) + loops.length) % loops.length];
-        useStudioStore.setState({ loopStart: l.start, customCuts: null });
+        useStudioStore.setState({ loopStart: l.start, blocks: null });
         s.rebuild();
         toast(`Loop: ${l.label}`);
       } else if ('1234'.includes(k)) {

@@ -3,17 +3,47 @@ import { useStudioStore } from '../state/store.ts';
 import { fmt, openPop, closePop, h, POOLS, clipAspect, cropRect, room } from '../lib/utils.ts';
 import { clamp } from '../engine/looks.ts';
 import { setMenuSeg } from '../canvas/timelineCanvas.ts';
-import { MOVES, RHYTHMS, VELOCITY, moveAt } from '../engine/timeline.ts';
+import { mirrors } from '../canvas/renderLoop.ts';
+import { MOVES, RHYTHMS, VELOCITY, frameAt, moveAt } from '../engine/timeline.ts';
+import { SNAPS, snapBeat } from '../engine/blocks.ts';
 import { TRANSITIONS } from '../engine/shaders.ts';
 import { screenOf } from '../lib/screens.ts';
-import type { FramePoint, Segment, SegmentFrame, SegmentOverride } from '../engine/types.ts';
+import type { Block, BlockPatch, FramePoint, Segment, SegmentFrame } from '../engine/types.ts';
 
-/** Merge a change into one segment's overrides: its clip, in-point, speed ramp or transition. */
-function patchSegment(i: number, patch: SegmentOverride) {
-  const ov = { ...useStudioStore.getState().segOverrides };
-  ov[i] = { ...(ov[i] || {}), ...patch };
-  useStudioStore.setState({ segOverrides: ov });
+/** A clip's name as the Clips list shows it. */
+function clipName(id: string): string {
+  const c = useStudioStore.getState().clips.find((x) => x.id === id);
+  return c ? (c.still ? c.name!.replace(/\.still\.mp4$/, '') : c.name || id) : id;
 }
+
+/** Tiles for the clips in the edit, `on` marking one. */
+function clipTiles(on: string | null, onPick: (id: string) => void) {
+  return h(
+    'div',
+    { class: 'seg-clips' },
+    ...useStudioStore.getState().selected.map((id, k) =>
+      h(
+        'button',
+        { class: `seg-clip${id === on ? ' on' : ''}`, title: `#${k + 1} ${clipName(id)}`, style: `background-image:url(/api/thumb/${id}?w=160)`, onclick: () => onPick(id) },
+        h('span', {}, `#${k + 1}`),
+      ),
+    ),
+  );
+}
+
+/** The toolbar's clip picker: a clip goes in from the playhead to the next cut. */
+function clipPicker(box: HTMLElement) {
+  box.replaceChildren(
+    h('div', { class: 'pick-head' }, h('h4', {}, 'Put a clip in'), h('small', {}, 'From the playhead to the next cut')),
+    clipTiles(null, (id) => {
+      closePop();
+      useStudioStore.getState().insertClip(id);
+    }),
+  );
+}
+
+/** The segment playing block `id` in the edit as it is now. */
+const segOf = (id: string): Segment | undefined => useStudioStore.getState().ctx?.tl.segs.find((x) => x.id === id);
 
 // The Edit tab's pools, then whatever is in none of them (Hard Cut, Shock Ripple).
 const TRANS_GROUPS: [string, string[]][] = (() => {
@@ -23,11 +53,59 @@ const TRANS_GROUPS: [string, string[]][] = (() => {
 })();
 
 const FRAMES = 8;
-const DIRS: [NonNullable<SegmentOverride['dir']>, string][] = [['forward', 'Forward'], ['reverse', 'Reverse'], ['pingpong', 'Ping-pong']];
-const MINE = 'You set this. It goes back to automatic when you change the clips, rhythm or transitions.';
+const DIRS: [NonNullable<Block['dir']>, string][] = [['forward', 'Forward'], ['reverse', 'Reverse'], ['pingpong', 'Ping-pong']];
+const MINE = 'You set this. It goes back to automatic when you change the clips or the rhythm, or roll the edit.';
+// per-cut transition lengths, in beats
+const LENGTHS: [number, string][] = [[0.25, '¼'], [0.5, '½'], [1, '1'], [2, '2'], [4, '4']];
 
-// Unhooks the open segment menu's arrow keys and lane outline.
+// Unhooks the open segment menu's arrow keys, lane outline and preview copy.
 let detachMenu: (() => void) | null = null;
+// The open menu's live copy of the preview, shown when the menu has to cover the stage.
+let menuPeek: HTMLCanvasElement | null = null;
+
+const MENU_W = 660;
+const MENU_MIN = 340; // one column of controls
+
+/** Moves the open segment menu beside the preview when one side has room, so the frame you pick stays in
+ * sight, and keeps it on screen. Returns whether much of the preview is still out of sight: under the menu,
+ * or scrolled off the screen as it is on a phone. */
+function placeMenu(p: HTMLElement): boolean {
+  const v = document.getElementById('view')?.getBoundingClientRect();
+  if (!v?.width) return false;
+  const gap = 12;
+  const left = v.left - gap - 8;
+  const right = window.innerWidth - v.right - gap - 8;
+  const room = Math.max(left, right);
+  if (room >= MENU_MIN) {
+    const w = Math.min(MENU_W, room);
+    p.style.width = `${w}px`;
+    p.style.left = `${right >= left ? v.right + gap : v.left - gap - w}px`;
+  }
+  keepOnScreen(p);
+  type Box = { left: number; top: number; right: number; bottom: number };
+  const cut = (a: Box, b: Box): Box => ({ left: Math.max(a.left, b.left), top: Math.max(a.top, b.top), right: Math.min(a.right, b.right), bottom: Math.min(a.bottom, b.bottom) });
+  const area = (a: Box) => Math.max(0, a.right - a.left) * Math.max(0, a.bottom - a.top);
+  const onScreen = cut(v, { left: 0, top: 0, right: window.innerWidth, bottom: window.innerHeight });
+  const seen = area(onScreen) - area(cut(onScreen, p.getBoundingClientRect()));
+  return seen / (v.width * v.height) < 0.6;
+}
+
+const keepOnScreen = (p: HTMLElement) => {
+  const top = parseFloat(p.style.top) || 8;
+  p.style.top = `${Math.max(8, Math.min(top, window.innerHeight - p.offsetHeight - 8))}px`;
+};
+
+/** Shows the live copy of the preview in the menu, in the preview's shape, at most 300 by 200. */
+function showPeek(peek: HTMLCanvasElement) {
+  const v = document.getElementById('view') as HTMLCanvasElement | null;
+  const aspect = v && v.height ? v.width / v.height : 9 / 16;
+  const w = Math.min(300, 200 * aspect);
+  const dpr = Math.min(2, window.devicePixelRatio || 1);
+  peek.width = Math.round(w * dpr);
+  peek.height = Math.round((w / aspect) * dpr);
+  peek.style.cssText = `width:${Math.round(w)}px;height:${Math.round(w / aspect)}px`;
+  peek.parentElement!.hidden = false;
+}
 
 const ZOOM_MAX = 3;
 const NO_ROOM = 'The clip only just fills the frame this way. Zoom in to make room.';
@@ -37,7 +115,7 @@ const side = (r: number, neg: string, pos: string) => (Math.abs(r) < 0.005 ? 'Ce
 
 /** The segment framing controls: a crop box over the clip, X, Y and zoom for the start of the segment (or its end,
  * when it moves), how it moves, and quick moves. `edit.key` says which end the controls edit. */
-function framingSection(si: number, seg: Segment, own: SegmentFrame | undefined, edit: { key: 'a' | 'b' }, render: () => void) {
+function framingSection(id: string, seg: Segment, own: SegmentFrame | undefined, edit: { key: 'a' | 'b' }, render: () => void) {
   const s = useStudioStore.getState();
   const L = s.ctx!.L;
   const clip = s.clips.find((c) => c.id === seg.clipId) || {};
@@ -45,19 +123,19 @@ function framingSection(si: number, seg: Segment, own: SegmentFrame | undefined,
   const cz = s.look?.camera.p.zoom ?? 1; // the look's camera zoom, which the shader multiplies in
   const base: FramePoint = [...(seg.focus || [0.5, 0.5, 1])] as FramePoint;
   const moving = !!own?.b;
-  const now = (): SegmentFrame => useStudioStore.getState().segOverrides[si]?.frame || { a: base };
+  const now = (): SegmentFrame => segOf(id)?.frame || { a: base };
   const pt = (f: SegmentFrame): FramePoint => (edit.key === 'b' && f.b ? f.b : f.a);
   const roomAt = (z: number) => room(clip, Math.max(1, cz * z), ca).room;
 
   // the preview shows the end being edited, just clear of the transitions either side
   const show = (k: 'a' | 'b') => {
-    const pad = Math.min(s.ctx!.tl.transDur / 2 + 0.02, seg.dur * 0.3);
+    const segs = s.ctx!.tl.segs;
+    const pad = Math.min((k === 'b' ? segs[(seg.i + 1) % segs.length].transDur : seg.transDur) / 2 + 0.02, seg.dur * 0.3);
     s.transport.seek((((k === 'b' ? seg.t1 - pad : seg.t0 + pad) % L) + L) % L);
   };
   const apply = (f: SegmentFrame, again = false) => {
-    patchSegment(si, { frame: f });
+    s.setBlock(id, { frame: f });
     show(f.b ? edit.key : 'a');
-    s.rebuild();
     if (again) render();
     else draw();
   };
@@ -115,13 +193,12 @@ function framingSection(si: number, seg: Segment, own: SegmentFrame | undefined,
   const follow = () => {
     if (!live.closest('.pop.on')) return; // closed, or redrawn with a new box
     const st = useStudioStore.getState();
-    const sg = st.ctx?.tl.segs[si];
+    const sg = segOf(id);
     const local = sg ? ((((st.transport.loopTime() - sg.t0) % L) + L) % L) : Infinity;
     live.hidden = !sg?.frame?.b || local > sg.dur;
     if (!live.hidden) {
-      const { a, b } = sg!.frame as Required<SegmentFrame>;
-      const m = moveAt(sg!, local);
-      const [l, t, w, hh] = cropRect(clip, Math.max(1, cz * a[2] * (b[2] / a[2]) ** m), a[0] + (b[0] - a[0]) * m, a[1] + (b[1] - a[1]) * m, ca);
+      const [x, y, z] = frameAt(sg!.frame!, moveAt(sg!, local));
+      const [l, t, w, hh] = cropRect(clip, Math.max(1, cz * z), x, y, ca);
       live.style.cssText = `left:${l * 100}%;top:${t * 100}%;width:${w * 100}%;height:${hh * 100}%`;
     }
     requestAnimationFrame(follow);
@@ -224,12 +301,7 @@ function framingSection(si: number, seg: Segment, own: SegmentFrame | undefined,
         'Motion',
         chips(
           chip(!own, 'Auto', () => {
-            const all = { ...useStudioStore.getState().segOverrides };
-            const { frame: _, ...rest } = all[si] || {};
-            if (Object.keys(rest).length) all[si] = rest;
-            else delete all[si];
-            useStudioStore.setState({ segOverrides: all });
-            s.rebuild();
+            s.setBlock(id, { frame: undefined });
             render();
           }, "The look's drift"),
           chip(!!own && !moving, 'Still', () => apply({ a: now().a }, true), 'Hold one framing for the whole segment'),
@@ -260,21 +332,30 @@ function framingSection(si: number, seg: Segment, own: SegmentFrame | undefined,
 
 /** The menu a double-click on a segment opens. Picks apply straight away and the menu stays open, and ‹ › or
  * the arrow keys move it to the next segment, so a whole edit can be gone through in one sitting. */
-function segmentMenu(box: HTMLElement, start: number) {
+function segmentMenu(box: HTMLElement, start: string) {
   detachMenu?.();
-  let si = start;
+  let id = start;
+  let choosing = false; // the clip tiles for Put a clip in are showing
+  // Kept across redraws: a copy of the preview for when the menu sits over it.
+  const peek = h('canvas', { class: 'seg-peek', 'aria-label': 'Preview' }) as HTMLCanvasElement;
+  const peekWrap = h('div', { class: 'seg-peek-wrap' }, peek);
+  peekWrap.hidden = true;
+  menuPeek = peek;
+  mirrors.add(peek);
   const edit: { key: 'a' | 'b' } = { key: 'a' }; // which end of a framing move the controls edit
 
   const outline = () => {
-    setMenuSeg(si);
+    setMenuSeg(id);
     useStudioStore.getState().drawLane();
   };
   const go = (d: number) => {
     const s = useStudioStore.getState();
-    const n = s.ctx?.tl.segs.length || 1;
-    si = (si + d + n) % n;
-    const seg = s.ctx?.tl.segs[si];
-    if (seg) s.transport.seek(seg.t0 + Math.min(seg.dur / 2, 0.25));
+    const segs = s.ctx?.tl.segs || [];
+    const k = segs.findIndex((x) => x.id === id);
+    const seg = segs[(k + d + segs.length) % segs.length];
+    if (!seg) return;
+    id = seg.id;
+    s.transport.seek(seg.t0 + Math.min(seg.dur / 2, 0.25));
     outline();
     render();
   };
@@ -296,6 +377,8 @@ function segmentMenu(box: HTMLElement, start: number) {
   detachMenu = () => {
     window.removeEventListener('keydown', onKey, true);
     watch.disconnect();
+    mirrors.delete(peek);
+    if (menuPeek === peek) menuPeek = null;
     detachMenu = null;
     setMenuSeg(null);
     useStudioStore.getState().drawLane();
@@ -303,21 +386,32 @@ function segmentMenu(box: HTMLElement, start: number) {
 
   const render = () => {
     const s = useStudioStore.getState();
-    const seg = s.ctx?.tl.segs[si];
+    const seg = segOf(id);
     if (!s.ctx || !seg) return closePop();
-    const { L, beatDur } = s.ctx;
-    const n = s.ctx.tl.segs.length;
-    const mine = s.segOverrides[si] || {};
-    const pick = (patch: SegmentOverride) => {
-      patchSegment(si, patch);
-      s.rebuild();
+    const { L, beatDur, tl } = s.ctx;
+    const si = seg.i;
+    const n = tl.segs.length;
+    // What was set by hand: the block's own settings, and a clip or in-point changed from the rolled one.
+    const block = s.blocks?.find((b) => b.id === id);
+    const twin = tl.rolled.find((b) => b.id === id);
+    const mine: Record<keyof BlockPatch, boolean> = {
+      clipId: !!block && !!twin && block.clipId !== twin.clipId,
+      in: !!block && !!twin && Math.abs(block.in - twin.in) > 1e-6,
+      trans: block?.trans != null,
+      transBeats: block?.transBeats != null,
+      vel: block?.vel != null,
+      dir: block?.dir != null,
+      frame: block?.frame != null,
+    };
+    const pick = (patch: BlockPatch) => {
+      s.setBlock(id, patch);
       render();
     };
-    const field = (label: string, key: keyof SegmentOverride, aside: any, ...kids: any[]) =>
+    const field = (label: string, key: keyof BlockPatch, aside: any, ...kids: any[]) =>
       h(
         'div',
         { class: 'seg-f' },
-        h('div', { class: 'seg-l' }, h('span', {}, label, mine[key] != null && h('i', { class: 'seg-mine', title: MINE })), aside),
+        h('div', { class: 'seg-l' }, h('span', {}, label, mine[key] && h('i', { class: 'seg-mine', title: MINE })), aside),
         ...kids,
       );
     const chip = (on: boolean, text: string, onclick: () => void, title?: string) =>
@@ -328,32 +422,13 @@ function segmentMenu(box: HTMLElement, start: number) {
     const beat = Math.floor(b % 4) + 1;
     const where = `Bar ${Math.floor(b / 4) + 1}${beat > 1 ? `, beat ${beat}` : ''} · ${seg.dur.toFixed(2)} s long`;
     // a beat of the segment before, then the transition
-    const lead = s.ctx.tl.transDur / 2 + beatDur;
+    const lead = seg.transDur / 2 + beatDur;
     const playCut = () => {
       s.transport.seek((((seg.t0 - lead) % L) + L) % L);
       if (!s.transport.playing) s.transport.play();
     };
 
-    const name = (id: string) => {
-      const c = s.clips.find((x) => x.id === id);
-      return c ? (c.still ? c.name.replace(/\.still\.mp4$/, '') : c.name) : id;
-    };
-    const clips = h(
-      'div',
-      { class: 'seg-clips' },
-      ...s.selected.map((id, k) =>
-        h(
-          'button',
-          {
-            class: `seg-clip${id === seg.clipId ? ' on' : ''}`,
-            title: `#${k + 1} ${name(id)}`,
-            style: `background-image:url(/api/thumb/${id}?w=160)`,
-            onclick: () => id !== seg.clipId && pick({ clipId: id }),
-          },
-          h('span', {}, `#${k + 1}`),
-        ),
-      ),
-    );
+    const clips = clipTiles(seg.clipId, (cid) => cid !== seg.clipId && pick({ clipId: cid }));
 
     // In-point: a filmstrip of the moments the segment can start on, with the slider under it.
     const clip = s.clips.find((c) => c.id === seg.clipId);
@@ -366,10 +441,9 @@ function segmentMenu(box: HTMLElement, start: number) {
       mark.style.left = `${maxIn > 0 ? Math.min(1, v / maxIn) * 100 : 0}%`;
     };
     const setIn = (v: number) => {
-      patchSegment(si, { in: v });
+      s.setBlock(id, { in: v });
       place(v);
       s.transport.seek(seg.t0 + Math.min(seg.dur / 2, 0.25));
-      s.rebuild();
     };
     const strip =
       maxIn > 0 &&
@@ -404,8 +478,12 @@ function segmentMenu(box: HTMLElement, start: number) {
     place(seg.in);
 
     const dirNow = seg.pp ? 'pingpong' : seg.rev ? 'reverse' : 'forward';
-    if (!mine.frame?.b) edit.key = 'a';
-    const any = Object.keys(mine).length > 0;
+    if (!block?.frame?.b) edit.key = 'a';
+    const any = Object.values(mine).some(Boolean);
+    // the transition's length: what this cut asks for, and what it gets once held to its neighbours
+    const want = block?.transBeats ?? s.look?.cut.beats ?? 1;
+    const got = seg.transDur / beatDur;
+    const beatsText = (b: number) => `${+b.toFixed(2)} beat${Math.abs(b - 1) < 1e-9 ? '' : 's'}`;
 
     box.replaceChildren(
       h(
@@ -420,11 +498,46 @@ function segmentMenu(box: HTMLElement, start: number) {
       ),
       h(
         'div',
+        { class: 'seg-acts' },
+        h('button', { title: 'Split at the playhead, or in half when the playhead is in another segment (B)', onclick: () => { s.splitBlockAt(id); outline(); render(); } }, '✂ Split'),
+        h('button', { title: 'Split in half and play the first half twice (⌘D)', onclick: () => { s.repeatSegment(id); outline(); render(); } }, 'Repeat'),
+        h('button', { class: choosing ? 'on' : '', title: 'Put another clip in the second half of this segment', onclick: () => { choosing = !choosing; render(); } }, 'Put a clip in'),
+        h(
+          'button',
+          {
+            class: 'seg-del',
+            disabled: n < 2,
+            title: n < 2 ? 'The loop needs at least one segment' : 'Delete this segment. The one before it plays on to the next cut (Delete)',
+            onclick: () => {
+              s.deleteBlock(id);
+              id = useStudioStore.getState().selectedBlock || id;
+              outline();
+              render();
+            },
+          },
+          'Delete',
+        ),
+        choosing &&
+          h(
+            'div',
+            { class: 'seg-put' },
+            h('small', {}, 'Pick the clip for the second half'),
+            clipTiles(null, (cid) => {
+              choosing = false;
+              s.insertClip(cid, { id });
+              outline();
+              render();
+            }),
+          ),
+      ),
+      h(
+        'div',
         { class: 'seg-body' },
         h(
           'div',
           { class: 'seg-col' },
-          field('Clip', 'clipId', null, clips, h('div', { class: 'seg-name' }, name(seg.clipId))),
+          peekWrap,
+          field('Clip', 'clipId', null, clips, h('div', { class: 'seg-name' }, clipName(seg.clipId))),
           field(
             'In-point',
             'in',
@@ -453,13 +566,35 @@ function segmentMenu(box: HTMLElement, start: number) {
               h('div', { class: 'seg-group' }, h('small', {}, group), chips(...ids.map((k) => chip(seg.trans === k, TRANSITIONS[k].name, () => pick({ trans: k }))))),
             ),
           ),
+          field(
+            'Transition length',
+            'transBeats',
+            seg.trans !== 'cut' && h('b', { class: 'seg-val' }, beatsText(got)),
+            seg.trans === 'cut'
+              ? h('div', { class: 'seg-note' }, 'A hard cut has no length.')
+              : chips(
+                  chip(block?.transBeats == null, 'Auto', () => pick({ transBeats: undefined }), `The edit's length, ${beatsText(s.look?.cut.beats ?? 1)}`),
+                  ...LENGTHS.map(([b, label]) => chip(block?.transBeats === b, label, () => pick({ transBeats: b }), beatsText(b))),
+                ),
+            seg.trans !== 'cut' &&
+              got < want - 1e-6 &&
+              h('div', { class: 'seg-note' }, `Shortened from ${beatsText(want)} to fit the segments either side.`),
+          ),
         ),
       ),
-      framingSection(si, seg, mine.frame, edit, render),
+      framingSection(id, seg, block?.frame, edit, render),
       h(
         'div',
         { class: 'seg-foot' },
-        h('span', {}, any ? 'Dots mark what you set. Changing the clips, rhythm or transitions sets them back to automatic.' : 'Everything here is automatic, picked from the edit seed.'),
+        h(
+          'span',
+          {},
+          tl.handCut
+            ? 'This edit is cut by hand. The rhythm buttons and the dice start the cuts over.'
+            : any
+              ? 'Dots mark what you set. Changing the clips or the rhythm, or rolling the edit, sets them back to automatic.'
+              : 'Everything here is automatic, picked from the edit seed.',
+        ),
         h(
           'button',
           {
@@ -467,10 +602,7 @@ function segmentMenu(box: HTMLElement, start: number) {
             disabled: !any,
             title: 'Forget what you set for this segment',
             onclick: () => {
-              const all = { ...s.segOverrides };
-              delete all[si];
-              useStudioStore.setState({ segOverrides: all });
-              s.rebuild();
+              s.clearBlock(id);
               render();
             },
           },
@@ -484,6 +616,10 @@ function segmentMenu(box: HTMLElement, start: number) {
   render();
 }
 
+// How close, in CSS pixels, a press has to land to a cut line or a transition's edge to grab it.
+const grabPx = (e: PointerEvent | MouseEvent, mouse: number, touch: number) => ((e as PointerEvent).pointerType === 'touch' ? touch : mouse);
+const LONG_PRESS = 450;
+
 export const TimelinePanel: React.FC = () => {
   const overviewRef = useRef<HTMLCanvasElement>(null);
   const laneRef = useRef<HTMLCanvasElement>(null);
@@ -491,18 +627,21 @@ export const TimelinePanel: React.FC = () => {
 
   const features = useStudioStore((s) => s.features);
   const loopStart = useStudioStore((s) => s.loopStart);
-  const customCuts = useStudioStore((s) => s.customCuts);
   const look = useStudioStore((s) => s.look);
   const selected = useStudioStore((s) => s.selected);
   const ctx = useStudioStore((s) => s.ctx);
+  const snap = useStudioStore((s) => s.snap);
+  const selectedBlock = useStudioStore((s) => s.selectedBlock);
   const rebuild = useStudioStore((s) => s.rebuild);
   const save = useStudioStore((s) => s.save);
   const drawTimeline = useStudioStore((s) => s.drawTimeline);
   const transport = useStudioStore((s) => s.transport);
   const clipDur = useStudioStore((s) => s.clipDur);
 
-  const dragRef = useRef<any>(null);
-  const slipRef = useRef<any>(null);
+  const dragRef = useRef<{ id: string } | null>(null);
+  const lenRef = useRef<{ id: string } | null>(null);
+  const slipRef = useRef<{ id: string; t0: number; in0: number } | null>(null);
+  const pressRef = useRef<{ x: number; timer: ReturnType<typeof setTimeout> } | null>(null);
   const overviewDragRef = useRef<any>(null);
 
   const laneTime = (e: MouseEvent | PointerEvent): number => {
@@ -512,29 +651,60 @@ export const TimelinePanel: React.FC = () => {
     const currentCtx = useStudioStore.getState().ctx;
     return clamp((e.clientX - r.left) / r.width, 0, 0.9999) * (currentCtx?.L || 1);
   };
+  const lanePx = (e: MouseEvent | PointerEvent) => {
+    const r = laneRef.current!.getBoundingClientRect();
+    return { px: e.clientX - r.left, w: r.width };
+  };
 
-  const nearestCut = (e: MouseEvent | PointerEvent): number => {
+  // the cut line under the pointer; the loop seam has none to grab
+  const nearestCut = (e: MouseEvent | PointerEvent): Segment | null => {
     const currentCtx = useStudioStore.getState().ctx;
-    if (!currentCtx || !laneRef.current) return -1;
-    const r = laneRef.current.getBoundingClientRect();
-    const px = e.clientX - r.left;
-    let best = -1;
-    let bd = 7;
-    currentCtx.tl.segs.forEach((s, i) => {
-      if (i === 0) return;
-      const d = Math.abs((s.t0 / currentCtx.L) * r.width - px);
-      if (d < bd) {
+    if (!currentCtx || !laneRef.current) return null;
+    const { px, w } = lanePx(e);
+    let best: Segment | null = null;
+    let bd = grabPx(e, 7, 14);
+    for (const s of currentCtx.tl.segs) {
+      const d = Math.abs((s.t0 / currentCtx.L) * w - px);
+      if (s.i > 0 && d < bd) {
         bd = d;
-        best = i;
+        best = s;
       }
-    });
+    }
     return best;
   };
 
-  const segAt = (t: number): number => {
+  // the edge of a transition's window under the pointer, for dragging its length
+  const bandEdge = (e: MouseEvent | PointerEvent): Segment | null => {
     const currentCtx = useStudioStore.getState().ctx;
-    if (!currentCtx) return -1;
-    return currentCtx.tl.segs.findIndex((s) => t >= s.t0 && t < s.t1);
+    if (!currentCtx || !laneRef.current) return null;
+    const { px, w } = lanePx(e);
+    const L = currentCtx.L;
+    const reach = grabPx(e, 4, 10);
+    for (const s of currentCtx.tl.segs) {
+      if (s.transDur <= 0) continue;
+      for (const edge of [s.t0 - s.transDur / 2, s.t0 + s.transDur / 2]) {
+        const x = ((((edge % L) + L) % L) / L) * w;
+        if (Math.abs(x - px) < reach) return s;
+      }
+    }
+    return null;
+  };
+
+  const segAtTime = (t: number): Segment | undefined => useStudioStore.getState().ctx?.tl.segs.find((s) => t >= s.t0 && t < s.t1);
+
+  const openMenu = (e: MouseEvent | PointerEvent) => {
+    const seg = segAtTime(laneTime(e));
+    if (!seg) return;
+    const anchor = document.createElement('div');
+    anchor.style.cssText = `position:fixed;left:${e.clientX}px;top:${e.clientY}px;width:1px;height:1px`;
+    document.body.append(anchor);
+    openPop(anchor, (box) => segmentMenu(box, seg.id), 'seg-menu');
+    anchor.remove();
+    const p = document.getElementById('pop')!;
+    if (placeMenu(p) && menuPeek) {
+      showPeek(menuPeek);
+      keepOnScreen(p);
+    }
   };
 
   const editClip = useStudioStore((s) => s.editClip);
@@ -543,7 +713,7 @@ export const TimelinePanel: React.FC = () => {
   // Layout effect, so a drag that rebuilds the edit shows the new timeline in the same frame.
   useLayoutEffect(() => {
     drawTimeline();
-  }, [drawTimeline, ctx, features, loopStart, editClip, clipLooks, selected]);
+  }, [drawTimeline, ctx, features, loopStart, editClip, clipLooks, selected, selectedBlock]);
 
   useEffect(() => {
     const lw = laneWrapRef.current;
@@ -558,91 +728,92 @@ export const TimelinePanel: React.FC = () => {
   useEffect(() => {
     const lane = laneRef.current;
     if (!lane) return;
+    const cancelPress = () => {
+      if (pressRef.current) clearTimeout(pressRef.current.timer);
+      pressRef.current = null;
+    };
 
     const onPointerMove = (e: PointerEvent) => {
-      const currentCtx = useStudioStore.getState().ctx;
+      const s = useStudioStore.getState();
+      const currentCtx = s.ctx;
       if (!currentCtx) return;
+      if (pressRef.current && Math.abs(e.clientX - pressRef.current.x) > 6) cancelPress();
 
       if (slipRef.current) {
         const slip = slipRef.current;
-        const seg = currentCtx.tl.segs[slip.i];
+        const seg = currentCtx.tl.segs.find((x) => x.id === slip.id);
+        if (!seg) return;
         const dur = clipDur.get(seg.clipId) || 10;
-        const v = clamp(slip.in0 - (laneTime(e) - slip.t0) * seg.speed, 0, Math.max(0, dur - seg.dur * seg.speed - 0.1));
-        patchSegment(slip.i, { in: v });
-        rebuild();
+        s.setBlock(slip.id, { in: clamp(slip.in0 - (laneTime(e) - slip.t0) * seg.speed, 0, Math.max(0, dur - seg.dur * seg.speed - 0.1)) });
         return;
       }
-
       if (dragRef.current) {
-        const drag = dragRef.current;
-        const bd = currentCtx.beatDur;
-        const cuts = useStudioStore.getState().customCuts;
-        if (!cuts) return;
-        const lo = (drag.i > 1 ? cuts[drag.i - 2] : 0) + bd;
-        const hi = (drag.i < cuts.length ? cuts[drag.i] : currentCtx.L) - bd;
-        const snapped = clamp(Math.round(laneTime(e) / bd) * bd, lo, hi);
-        if (snapped !== cuts[drag.i - 1]) {
-          cuts[drag.i - 1] = snapped;
-          drag.moved = true;
-          useStudioStore.setState({ customCuts: [...cuts] });
-          rebuild();
-        }
+        s.trimCut(dragRef.current.id, laneTime(e) / currentCtx.beatDur, e.shiftKey ? 0 : s.snap);
         return;
       }
-
-      lane.style.cursor = e.altKey ? 'grab' : nearestCut(e) > 0 ? 'ew-resize' : 'pointer';
+      if (lenRef.current) {
+        const seg = currentCtx.tl.segs.find((x) => x.id === lenRef.current!.id);
+        if (!seg) return;
+        let d = Math.abs(laneTime(e) - seg.t0);
+        if (d > currentCtx.L / 2) d = currentCtx.L - d; // the seam's window wraps round the loop
+        const beats = clamp(snapBeat((2 * d) / currentCtx.beatDur, e.shiftKey ? 0 : 4), 0.125, 8);
+        if (Math.abs(beats - (s.blocks?.find((b) => b.id === seg.id)?.transBeats ?? -1)) > 1e-9) s.setBlock(seg.id, { transBeats: beats });
+        return;
+      }
+      lane.style.cursor = e.altKey ? 'grab' : nearestCut(e) ? 'ew-resize' : bandEdge(e) ? 'col-resize' : 'pointer';
     };
 
     const onPointerDown = (e: PointerEvent) => {
-      const currentCtx = useStudioStore.getState().ctx;
+      const s = useStudioStore.getState();
+      const currentCtx = s.ctx;
       if (!currentCtx) return;
 
       if (e.altKey) {
-        const si = segAt(laneTime(e));
-        if (si < 0) return;
-        slipRef.current = { i: si, t0: laneTime(e), in0: currentCtx.tl.segs[si].in };
+        const seg = segAtTime(laneTime(e));
+        if (!seg) return;
+        slipRef.current = { id: seg.id, t0: laneTime(e), in0: seg.in };
         lane.setPointerCapture(e.pointerId);
         lane.style.cursor = 'grabbing';
         return;
       }
-
-      const cutIdx = nearestCut(e);
-      if (cutIdx > 0) {
-        const cuts = currentCtx.tl.segs.slice(1).map((s) => s.t0);
-        useStudioStore.setState({ customCuts: cuts });
-        dragRef.current = { i: cutIdx, moved: false };
+      const cut = nearestCut(e);
+      if (cut) {
+        dragRef.current = { id: cut.id };
+        lane.setPointerCapture(e.pointerId);
+        return;
+      }
+      const edge = bandEdge(e);
+      if (edge) {
+        lenRef.current = { id: edge.id };
         lane.setPointerCapture(e.pointerId);
         return;
       }
 
+      const seg = segAtTime(laneTime(e));
+      if (seg) s.selectBlock(seg.id);
       transport.seek(laneTime(e));
+      // a long press opens the segment menu where there's no double-click
+      if (e.pointerType !== 'mouse') {
+        cancelPress();
+        pressRef.current = { x: e.clientX, timer: setTimeout(() => { pressRef.current = null; openMenu(e); }, LONG_PRESS) };
+      }
     };
 
     const onPointerUp = () => {
+      cancelPress();
       if (slipRef.current) {
         slipRef.current = null;
         lane.style.cursor = '';
         save();
       }
-      if (dragRef.current) {
-        dragRef.current = null;
+      if (dragRef.current || lenRef.current) {
+        dragRef.current = lenRef.current = null;
         save();
       }
     };
 
     const onDblClick = (e: MouseEvent) => {
-      const currentCtx = useStudioStore.getState().ctx;
-      if (!currentCtx) return;
-      const si = segAt(laneTime(e));
-      if (si < 0) return;
-
-      const anchor = document.createElement('div');
-      anchor.style.cssText = `position:fixed;left:${e.clientX}px;top:${e.clientY}px;width:1px;height:1px`;
-      document.body.append(anchor);
-
-      openPop(anchor, (box) => segmentMenu(box, si), 'seg-menu');
-
-      anchor.remove();
+      if (useStudioStore.getState().ctx) openMenu(e);
     };
 
     lane.addEventListener('pointermove', onPointerMove);
@@ -652,13 +823,14 @@ export const TimelinePanel: React.FC = () => {
     lane.addEventListener('dblclick', onDblClick);
 
     return () => {
+      cancelPress();
       lane.removeEventListener('pointermove', onPointerMove);
       lane.removeEventListener('pointerdown', onPointerDown);
       lane.removeEventListener('pointerup', onPointerUp);
       lane.removeEventListener('pointercancel', onPointerUp);
       lane.removeEventListener('dblclick', onDblClick);
     };
-  }, [clipDur, rebuild, save, transport]);
+  }, [clipDur, save, transport]);
 
   useEffect(() => {
     const ov = overviewRef.current;
@@ -687,7 +859,7 @@ export const TimelinePanel: React.FC = () => {
       ov.setPointerCapture(e.pointerId);
       ov.style.cursor = 'grabbing';
       if (start !== s.loopStart) {
-        useStudioStore.setState({ loopStart: start, customCuts: null });
+        useStudioStore.setState({ loopStart: start, blocks: null });
         rebuild();
       }
     };
@@ -699,7 +871,7 @@ export const TimelinePanel: React.FC = () => {
       const t = od.start + ((e.clientX - od.x) / od.w) * s.features.duration!;
       const nextStart = snapDown(t);
       if (nextStart !== s.loopStart) {
-        useStudioStore.setState({ loopStart: nextStart, customCuts: null });
+        useStudioStore.setState({ loopStart: nextStart, blocks: null });
         rebuild();
       }
     };
@@ -722,7 +894,10 @@ export const TimelinePanel: React.FC = () => {
     };
   }, [rebuild]);
 
-  const curRhythm = customCuts ? 'custom' : look?.cut?.rhythm || 'bar';
+  const handCut = !!ctx?.tl.handCut;
+  const curRhythm = handCut ? 'custom' : look?.cut?.rhythm || 'bar';
+  const selNo = ctx && selectedBlock ? ctx.tl.segs.findIndex((x) => x.id === selectedBlock) + 1 : 0;
+  const st = useStudioStore.getState;
 
   return (
     <section className="panel timeline">
@@ -734,7 +909,7 @@ export const TimelinePanel: React.FC = () => {
               className={Math.abs(l.start - loopStart) < 0.05 ? 'on' : ''}
               title={`Starts at ${fmt(l.start)}`}
               onClick={() => {
-                useStudioStore.setState({ loopStart: l.start, customCuts: null });
+                useStudioStore.setState({ loopStart: l.start, blocks: null });
                 rebuild();
               }}
             >
@@ -755,6 +930,7 @@ export const TimelinePanel: React.FC = () => {
               ) : (
                 ''
               )}
+              {selNo > 0 && <> · segment <b>{selNo}</b> selected</>}
               {editClip && clipLooks[editClip] && selected.includes(editClip) && (
                 <span className="muted"> · highlighted: #{selected.indexOf(editClip) + 1}, whose own FX you're editing</span>
               )}
@@ -775,18 +951,52 @@ export const TimelinePanel: React.FC = () => {
               onClick={() => {
                 if (!look) return;
                 look.cut.rhythm = k;
-                useStudioStore.setState({ customCuts: null, segOverrides: {} });
+                useStudioStore.setState({ blocks: null });
                 rebuild();
               }}
             >
               {r.short}
             </button>
           ))}
-          {customCuts && (
-            <button className="on" title="You dragged the cuts">
+          {handCut && (
+            <button className="on" title="Cut by hand. Pick a rhythm to start the cuts over.">
               Custom
             </button>
           )}
+        </div>
+      </div>
+
+      <div className="tl-tools" id="blockTools">
+        <div className="seg">
+          <button disabled={!ctx} title="Split the segment at the playhead, on the snap grid (B)" onClick={() => st().splitAtPlayhead()}>
+            ✂ Split
+          </button>
+          <button disabled={!ctx} title="Split the selected segment in half and play its first half twice (⌘D)" onClick={() => st().repeatSegment()}>
+            Repeat
+          </button>
+          <button
+            data-pop
+            disabled={!ctx}
+            title="Put a clip in from the playhead to the next cut"
+            onClick={(e) => openPop(e.currentTarget, clipPicker, 'clip-pick')}
+          >
+            Put a clip in
+          </button>
+          <button
+            disabled={!ctx || ctx.tl.segs.length < 2}
+            title={ctx && ctx.tl.segs.length < 2 ? 'The loop needs at least one segment' : 'Delete the selected segment. The one before it plays on (Delete)'}
+            onClick={() => st().deleteBlock()}
+          >
+            Delete
+          </button>
+        </div>
+        <div className="seg snap" title="What a dragged cut snaps to (N). Hold Shift while dragging to place it anywhere.">
+          <span className="lbl">Snap</span>
+          {SNAPS.map(([d, label]) => (
+            <button key={d} className={snap === d ? 'on' : ''} onClick={() => st().setSnap(d)}>
+              {label}
+            </button>
+          ))}
         </div>
       </div>
 
@@ -798,7 +1008,7 @@ export const TimelinePanel: React.FC = () => {
         <canvas
           id="lane"
           ref={laneRef}
-          title={'The loop, left to right. Each block is one cut: #n is clip n from the Clips list (thumbnail = the moment it starts on).\nDiamonds are transitions (pink = animated, white = hard cut). Curves: kick (red), hats (blue), energy (green).\nClick: seek · drag a cut line: move it · double-click a block: clip, in-point, speed ramp, transition · ⌥-drag: slip the clip'}
+          title={'The loop, left to right. Each block is one cut: #n is clip n from the Clips list (thumbnail = the moment it starts on).\nDiamonds are transitions (pink = animated, white = hard cut), and the pink band is how long each one lasts. Curves: kick (red), hats (blue), energy (green).\nClick: select and seek · drag a cut line: move it (Shift: off the grid) · drag a band edge: transition length · double-click or long-press a block: its menu · ⌥-drag: slip the clip · B: split at the playhead'}
         />
         <div className="playhead" id="playhead" />
       </div>

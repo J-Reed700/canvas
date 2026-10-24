@@ -1,7 +1,8 @@
 import { create } from 'zustand';
 import { Engine } from '../engine/engine.ts';
 import { Transport, makeSampler } from '../engine/audio.ts';
-import { planTimeline, rng } from '../engine/timeline.ts';
+import { planTimeline, resolve, rng } from '../engine/timeline.ts';
+import { fromLegacy } from '../engine/blocks.ts';
 import { LOOKS, clamp, cloneLook, evolveLook } from '../engine/looks.ts';
 import { VideoBank } from '../engine/composer.ts';
 import type {
@@ -11,6 +12,7 @@ import type {
   TrackFeatures,
   Look,
   ComposeContext,
+  TimelinePlanOptions,
 } from '../engine/types.ts';
 import {
   fetchJSON,
@@ -32,6 +34,7 @@ import {
 import { surprise, rollClips, rollAll, undoRoll } from './rollController.ts';
 import { save, restore, snapshot, applySnapshot, undo, redo, resetHistory, saveLook, rememberLook } from './historyController.ts';
 import { uploadFiles, autoFrame, reorderClips, toggleClip, fetchPalette, firstClips, requestProxies } from './mediaActions.ts';
+import { selectBlock, splitAtPlayhead, splitBlockAt, deleteBlock, repeatSegment, insertClip, trimCut, setBlock, clearBlock, setSnap } from './blockActions.ts';
 import type { StudioState } from './storeTypes.ts';
 
 export type { LookJob, GhostItem, StudioState } from './storeTypes.ts';
@@ -69,8 +72,10 @@ export const useStudioStore = create<StudioState>((set, get) => ({
   editClip: null,
   evolveAmt: 0.45,
   rollOpts: { look: true, edit: true, perClip: true, clips: false, loop: false },
-  customCuts: null,
-  segOverrides: {},
+  blocks: null,
+  legacyEdit: null,
+  selectedBlock: null,
+  snap: 1,
   clipFrame: {},
   gridNudge: {},
   hud: true,
@@ -135,7 +140,7 @@ export const useStudioStore = create<StudioState>((set, get) => ({
     return clamp(Math.round(s.bars) || 1, 1, s.maxBars()) * s.barDur();
   },
   setBars: (b: number) => {
-    set({ bars: clamp(Math.round(b) || 1, 1, get().maxBars()), customCuts: null });
+    set({ bars: clamp(Math.round(b) || 1, 1, get().maxBars()), blocks: null });
     get().rebuild();
   },
   wholeSong: () => {
@@ -224,12 +229,11 @@ export const useStudioStore = create<StudioState>((set, get) => ({
     }
 
     const cut = s.look.cut;
-    const tl = planTimeline({
+    const opts: TimelinePlanOptions = {
       L,
       beatDur: bd,
       clips,
-      rhythm: s.customCuts ? 'custom' : cut.rhythm,
-      custom: s.customCuts,
+      rhythm: cut.rhythm,
       transitions: cut.transitions,
       transBeats: cut.beats,
       seed: s.seed,
@@ -238,21 +242,14 @@ export const useStudioStore = create<StudioState>((set, get) => ({
       order: cut.order,
       hitCurve: hit,
       velocity: cut.velocity || 'none',
-    });
-
-    for (const [i, o] of Object.entries(s.segOverrides)) {
-      const seg = tl.segs[+i];
-      if (!seg) continue;
-      if (o.clipId && clips.some((c) => c.id === o.clipId)) seg.clipId = o.clipId;
-      if (o.trans) seg.trans = o.trans;
-      if (o.vel) seg.vel = o.vel;
-      if (o.dir) {
-        seg.rev = o.dir === 'reverse';
-        seg.pp = o.dir === 'pingpong';
-      }
-      if (o.frame) seg.frame = o.frame;
-      if (o.in != null) seg.in = clamp(o.in, 0, Math.max(0, (s.clipDur.get(seg.clipId) || 10) - 0.1));
+    };
+    // An older session's cut lines are in seconds, so they wait for the song's tempo.
+    if (s.legacyEdit && (s.features || !s.trackId)) {
+      set({ blocks: fromLegacy(opts, s.legacyEdit.customCuts, s.legacyEdit.segOverrides), legacyEdit: null });
     }
+    const blocks = get().blocks;
+    const tl = blocks ? resolve(blocks, opts) : planTimeline(opts);
+    if (s.selectedBlock && !tl.segs.some((x) => x.id === s.selectedBlock)) set({ selectedBlock: null });
 
     const ctx: ComposeContext = {
       look: s.look,
@@ -288,7 +285,7 @@ export const useStudioStore = create<StudioState>((set, get) => ({
     if ((s.lockEdit || keepEdit) && prevCut) {
       nextLook.cut = prevCut;
     } else {
-      set({ customCuts: null, segOverrides: {} });
+      set({ blocks: null });
     }
     set({ look: nextLook, lookId: l.id });
     if (s.engine?.main) s.engine.main.reset();
@@ -371,7 +368,8 @@ export const useStudioStore = create<StudioState>((set, get) => ({
 
       if (keepLoop) {
         nextBars = feats.loop_bars || s.bars;
-        set({ customCuts: null });
+        // blocks are placed in beats, so they keep their places at a new tempo, but not in a new loop length
+        if (nextBars !== s.bars) set({ blocks: null });
       }
       if (savedOk && keepLoop && feats.downbeats?.length) {
         nextLoopStart = feats.downbeats.reduce(
@@ -382,7 +380,7 @@ export const useStudioStore = create<StudioState>((set, get) => ({
       if (!savedOk) {
         nextLoopStart = feats.loops?.[0]?.start ?? 0;
         nextBars = feats.loop_bars || 4;
-        set({ customCuts: null, segOverrides: {} });
+        set({ blocks: null, legacyEdit: null });
       }
 
       set({ features: feats, loopStart: nextLoopStart, bars: nextBars, trackStateText: '' });
@@ -486,6 +484,16 @@ export const useStudioStore = create<StudioState>((set, get) => ({
   rollClips: () => rollClips(),
   rollAll: () => rollAll(),
   undoRoll: () => undoRoll(),
+  selectBlock: (id) => selectBlock(id),
+  splitAtPlayhead: () => splitAtPlayhead(),
+  splitBlockAt: (id, beat) => splitBlockAt(id, beat),
+  deleteBlock: (id) => deleteBlock(id),
+  repeatSegment: (id) => repeatSegment(id),
+  insertClip: (clipId, where) => insertClip(clipId, where),
+  trimCut: (id, beat, div) => trimCut(id, beat, div),
+  setBlock: (id, patch) => setBlock(id, patch),
+  clearBlock: (id) => clearBlock(id),
+  setSnap: (div) => setSnap(div),
   snapshot: () => snapshot(),
   applySnapshot: (snap: string) => applySnapshot(snap),
   undo: () => undo(),
@@ -568,8 +576,12 @@ export const useStudioStore = create<StudioState>((set, get) => ({
       clipLooks: saved.clipLooks || {},
       evolveAmt: saved.evolveAmt ?? 0.45,
       rollOpts: saved.rollOpts || { look: true, edit: true, perClip: true, clips: false, loop: false },
-      customCuts: saved.customCuts || null,
-      segOverrides: saved.segOverrides || {},
+      blocks: saved.blocks || null,
+      legacyEdit:
+        !saved.blocks && (saved.customCuts?.length || Object.keys(saved.segOverrides || {}).length)
+          ? { customCuts: saved.customCuts || null, segOverrides: saved.segOverrides || {} }
+          : null,
+      snap: [0, 1, 2, 4].includes(saved.snap) ? saved.snap : 1,
       clipFrame: saved.clipFrame || {},
       gridNudge: saved.gridNudge || {},
       hud: saved.hud ?? true,

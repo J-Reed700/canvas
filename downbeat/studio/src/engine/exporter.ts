@@ -130,7 +130,7 @@ export async function exportLoop({ engine, bank, ctx, width, height, fps = 30, b
   try {
   // Every clip must be decodable before the first frame is committed: one check per clip, not per cut.
   const firstUse = new Map(ctx.tl.segs.map((s) => [s.clipId, s] as const));
-  for (const s of firstUse.values()) await bank.exact([{ vkey: `${s.clipId}#${s.i}`, clipId: s.clipId, time: s.in }]);
+  for (const s of firstUse.values()) await bank.exact([{ vkey: `${s.clipId}#${s.id}`, clipId: s.clipId, time: s.in }]);
   for (let j = -warm; j < N; j++) {
     if (signal?.aborted) throw new DOMException('Export cancelled', 'AbortError');
     if (encErr) throw encErr;

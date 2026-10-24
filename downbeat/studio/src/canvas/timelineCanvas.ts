@@ -4,9 +4,9 @@ import { MOD_SOURCES } from '../engine/modules.ts';
 
 export const thumbImgsMap = new Map<string, HTMLImageElement>();
 
-/** The segment whose menu is open, outlined on the lane so you can see which one you're editing. */
-let menuSeg: number | null = null;
-export const setMenuSeg = (i: number | null) => { menuSeg = i; };
+/** The block whose menu is open, outlined on the lane so you can see which one you're editing. */
+let menuSeg: string | null = null;
+export const setMenuSeg = (id: string | null) => { menuSeg = id; };
 
 export function drawOverview(s: StudioState) {
   const c = document.getElementById('overview') as HTMLCanvasElement | null;
@@ -96,7 +96,7 @@ export function drawLane(s: StudioState, onRedraw?: () => void) {
   // While one clip's own FX stack is open in Layers, show where that stack plays.
   const editing = !!s.editClip && s.editLook() !== s.look;
 
-  tl.segs.forEach((seg, i) => {
+  tl.segs.forEach((seg) => {
     const span = X(seg.t1) - X(seg.t0);
     const pad = span > 8 * dpr ? 1.5 * dpr : 0;
     const a = X(seg.t0) + pad;
@@ -161,10 +161,16 @@ export function drawLane(s: StudioState, onRedraw?: () => void) {
       roundRect(x, a, top, W, bot - top, r);
       x.stroke();
     }
-    if (i === menuSeg) {
-      x.strokeStyle = '#fff';
+    if (seg.id === s.selectedBlock) {
+      x.strokeStyle = '#C8FF4D';
       x.lineWidth = 2 * dpr;
       roundRect(x, a + dpr, top + dpr, W - 2 * dpr, bot - top - 2 * dpr, r);
+      x.stroke();
+    }
+    if (seg.id === menuSeg) {
+      x.strokeStyle = '#fff';
+      x.lineWidth = 2 * dpr;
+      roundRect(x, a + 3 * dpr, top + 3 * dpr, W - 6 * dpr, bot - top - 6 * dpr, Math.max(0, r - 2 * dpr));
       x.stroke();
     }
   });
@@ -174,11 +180,16 @@ export function drawLane(s: StudioState, onRedraw?: () => void) {
   const gap = w / tl.segs.length;
   tl.segs.forEach((seg) => {
     const cx = X(seg.t0);
-    const half = (tl.transDur / 2 / L) * w;
-    if (seg.trans !== 'cut' && tl.transDur > 0) {
+    const half = (seg.transDur / 2 / L) * w;
+    if (seg.transDur > 0) {
       x.fillStyle = 'rgba(255,79,163,0.28)';
       x.fillRect(cx - half, top, half * 2, bot - top);
       if (seg.t0 === 0) x.fillRect(w - half, top, half, bot - top);
+      // the window's edges drag to set its length
+      if (half >= 6 * dpr) {
+        x.fillStyle = 'rgba(255,79,163,0.75)';
+        for (const ex of seg.t0 === 0 ? [half, w - half] : [cx - half, cx + half]) x.fillRect(ex - 0.5 * dpr, top, dpr, bot - top);
+      }
     }
     if (gap >= 10 * dpr) {
       x.fillStyle = seg.trans === 'cut' ? '#fff' : '#FF4FA3';
@@ -191,6 +202,11 @@ export function drawLane(s: StudioState, onRedraw?: () => void) {
     if (seg.t0 > 0 && gap >= 3 * dpr) {
       x.fillStyle = 'rgba(255,255,255,0.85)';
       x.fillRect(cx - 0.75 * dpr, top, 1.5 * dpr, bot - top);
+      // a grip, so the line reads as something to drag
+      if (gap >= 24 * dpr) {
+        roundRect(x, cx - 2.5 * dpr, (top + bot) / 2 - 8 * dpr, 5 * dpr, 16 * dpr, 2.5 * dpr);
+        x.fill();
+      }
     }
   });
 

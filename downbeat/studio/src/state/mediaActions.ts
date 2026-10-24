@@ -64,7 +64,7 @@ async function folderAdded(r: LibraryInfo) {
   );
   if (s.welcome) {
     // The studio was waiting on this folder: start it on a few of its clips and its newest song.
-    useStudioStore.setState({ welcome: false, selected: firstClips(r.clips), segOverrides: {} });
+    useStudioStore.setState({ welcome: false, selected: firstClips(r.clips), blocks: null });
     s.rebuild();
     if (songs.length) await s.selectTrack(songs[0].id);
     resetHistory();
@@ -158,7 +158,7 @@ export async function removeClip(id: string) {
     clipFrame: without(p.clipFrame),
     clipLooks: without(p.clipLooks),
     editClip: p.editClip === id ? null : p.editClip,
-    segOverrides: {},
+    blocks: null,
   }));
   useStudioStore.getState().rebuild();
   const name = c?.still ? c.name.replace(/\.still\.mp4$/, '') : c?.name || 'the clip';
@@ -221,7 +221,7 @@ export function reorderClips(action: 'all' | 'solo' | 'reverse' | 'shuffle' | { 
     const [item] = next.splice(action.from, 1);
     next.splice(action.to, 0, item);
   }
-  useStudioStore.setState({ selected: next, segOverrides: {} });
+  useStudioStore.setState({ selected: next, blocks: null });
   s.rebuild();
 }
 
@@ -231,7 +231,7 @@ export function toggleClip(id: string) {
   const nextSelected = [...s.selected];
   if (idx >= 0) nextSelected.splice(idx, 1);
   else nextSelected.push(id);
-  useStudioStore.setState({ selected: nextSelected, segOverrides: {} });
+  useStudioStore.setState({ selected: nextSelected, blocks: null });
   s.rebuild();
 }
 

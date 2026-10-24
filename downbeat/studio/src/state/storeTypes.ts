@@ -6,12 +6,15 @@ import type {
   Look,
   ExportOptions,
   RollOptions,
+  Block,
+  BlockPatch,
   SegmentOverride,
   ComposeContext,
   ComposedFrame,
   ClipPalette,
 } from '../engine/types.ts';
 import type { Transport } from '../engine/audio.ts';
+import type { SnapDiv } from '../engine/blocks.ts';
 import type { ScreenId } from '../lib/screens.ts';
 
 export interface LookJob {
@@ -52,8 +55,14 @@ export interface StudioState {
   editClip: string | null;
   evolveAmt: number;
   rollOpts: RollOptions;
-  customCuts: number[] | null;
-  segOverrides: Record<string | number, SegmentOverride>;
+  /** The edit's own blocks once one has been cut, split or set by hand; null while it follows the rhythm. */
+  blocks: Block[] | null;
+  /** A session saved before blocks: its dragged cuts and per-segment settings, turned into blocks once the song is in. */
+  legacyEdit: { customCuts: number[] | null; segOverrides: Record<string, SegmentOverride> } | null;
+  /** The block the timeline's buttons and keys act on. */
+  selectedBlock: string | null;
+  /** Lines per beat a dragged cut snaps to, 0 for none. */
+  snap: SnapDiv;
   clipFrame: Record<string, [number, number, number]>;
   gridNudge: Record<string, number>;
   hud: boolean;
@@ -115,6 +124,16 @@ export interface StudioState {
   rollClips: () => void;
   rollAll: () => void;
   undoRoll: () => void;
+  selectBlock: (id: string | null) => void;
+  splitAtPlayhead: () => void;
+  splitBlockAt: (id: string, beat?: number) => void;
+  deleteBlock: (id?: string) => void;
+  repeatSegment: (id?: string) => void;
+  insertClip: (clipId: string, where?: { id?: string }) => void;
+  trimCut: (id: string, beat: number, div: SnapDiv) => void;
+  setBlock: (id: string, patch: BlockPatch) => void;
+  clearBlock: (id: string) => void;
+  setSnap: (div: SnapDiv) => void;
   undo: () => void;
   redo: () => void;
   snapshot: () => string;
