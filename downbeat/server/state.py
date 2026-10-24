@@ -316,7 +316,7 @@ def _finish_export(dest: str, meta: dict) -> dict:
         meta.get("stats"),
         fmt=_export_format(meta),
         promo_seconds=promo,
-        with_audio=bool(meta.get("with_audio", True)),
+        with_audio=bool(meta.get("with_audio", False)),
     )
     # The edit the export was made from, so the studio can open it again from the Exports list.
     if isinstance(meta.get("edit"), dict):

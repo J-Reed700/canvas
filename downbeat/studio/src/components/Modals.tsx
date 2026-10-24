@@ -255,7 +255,7 @@ export const ExportSheet: React.FC = () => {
               case 'apple_square':
                 return "Apple Music motion artwork: the same edit re-framed for Apple's aspect ratio, silent, looping and repeated to at least 15 s. Square art is rendered at 2048 px, then upscaled to Apple's 3840 × 3840.";
               case 'youtube_16_9':
-                return 'YouTube visualizer: 1920 × 1080 landscape video with the song as its audio, as long as the loop you set in the Edit tab.';
+                return 'YouTube visualizer: 1920 × 1080 landscape video, as long as the loop you set in the Edit tab. For a copy with the song as its audio, check Also save a copy with the song.';
               case 'social_square':
                 return 'Social feed loop: 1080 × 1080 square format for Instagram, Twitter/X, and Facebook feeds, with optional synced song audio.';
               case 'cover_art':
@@ -300,20 +300,27 @@ export const ExportSheet: React.FC = () => {
           </>
         )}
 
-        {hasAudioSupport && features && (
+        {features && (
           <>
             <label className="check">
               <input
                 type="checkbox"
-                checked={exportOpts.audio !== false}
+                checked={exportOpts.withSong === true}
                 onChange={(e) => {
-                  useStudioStore.setState({ exportOpts: { ...exportOpts, audio: e.target.checked } });
+                  useStudioStore.setState({ exportOpts: { ...exportOpts, withSong: e.target.checked } });
                   save();
                 }}
               />
-              {L > 8 + 1e-6 ? 'Also save a copy with the song' : 'Also save a copy with the audio slice'}
+              Also save a copy with the song
             </label>
+            {exportOpts.withSong && (
+              <div className="note">For demos. The export itself stays silent. The copy plays the song under it and is saved next to it.</div>
+            )}
+          </>
+        )}
 
+        {hasAudioSupport && features && (
+          <>
             <div className="field">
               <label>Promo copy with the song</label>
               <div className="seg">

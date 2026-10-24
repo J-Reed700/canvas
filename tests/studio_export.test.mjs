@@ -43,7 +43,7 @@ function fresh(over = {}) {
     clipMode: 'one',
     exporting: false,
     exportOpen: false,
-    exportOpts: { size: 'master', audio: true, format: 'spotify', promo: 0, autoSave: true },
+    exportOpts: { size: 'master', withSong: false, format: 'spotify', promo: 0, autoSave: true },
     engine: fakeEngine(),
     bank: { get: () => ({}) },
     ...over,
@@ -96,7 +96,7 @@ test('the export sheet only opens when every selected clip is ready', () => {
 
 const render = async (opts, over = {}) => {
   const reqs = server();
-  (over.song ? withSong : fresh)({ exportOpts: { size: 'master', audio: true, format: 'spotify', promo: 0, autoSave: false, ...opts }, ...over.state });
+  (over.song ? withSong : fresh)({ exportOpts: { size: 'master', withSong: false, format: 'spotify', promo: 0, autoSave: false, ...opts }, ...over.state });
   if (over.bars) st().setBars(over.bars);
   await X.renderOnce();
   return { meta: begins(reqs)[0], bitrate: FakeEncoder.last?.cfg.bitrate };
@@ -109,20 +109,20 @@ test('what an export asks the server for depends on the format, the song and the
   let r = await render({}, { song: true });
   assert.deepEqual(
     { w: r.meta.width, h: r.meta.height, fmt: r.meta.format, audio: r.meta.with_audio, promo: r.meta.promo_seconds, track: r.meta.track_id, start: r.meta.audio_start, dur: r.meta.duration, bpm: r.meta.bpm, look: r.meta.look },
-    { w: 1080, h: 1920, fmt: 'spotify', audio: true, promo: 0, track: 't1', start: 33.5, dur: 8, bpm: 120, look: LOOKS[0].name },
+    { w: 1080, h: 1920, fmt: 'spotify', audio: false, promo: 0, track: 't1', start: 33.5, dur: 8, bpm: 120, look: LOOKS[0].name },
   );
   assert.equal(r.bitrate, 16_000_000, 'Spotify uses the encoder default for its size');
   // the edit goes with it, so Exports can open it again
   assert.deepEqual([r.meta.edit.trackId, r.meta.edit.selected, r.meta.edit.loopStart, r.meta.edit.look.name], ['t1', ['a', 'b'], 33.5, LOOKS[0].name]);
 
-  r = await render({ size: 'lite', audio: false }, { song: true });
-  assert.deepEqual([r.meta.width, r.meta.height, r.meta.with_audio], [720, 1280, false]);
+  r = await render({ size: 'lite', withSong: true }, { song: true });
+  assert.deepEqual([r.meta.width, r.meta.height, r.meta.with_audio], [720, 1280, true], 'a copy with the song only when it is picked');
 
-  r = await render({ format: 'youtube_16_9', audio: false }, { song: true });
+  r = await render({ format: 'youtube_16_9' }, { song: true });
   assert.deepEqual([r.meta.width, r.meta.height, r.meta.with_audio, r.meta.promo_seconds], [1920, 1080, false, 0], 'the sheet\'s choices hold for YouTube too');
   assert.equal(r.bitrate, 50_000_000);
 
-  r = await render({ format: 'youtube_16_9', promo: 30 }, { song: true });
+  r = await render({ format: 'youtube_16_9', promo: 30, withSong: true }, { song: true });
   assert.deepEqual([r.meta.with_audio, r.meta.promo_seconds], [true, 30]);
   r = await render({ format: 'youtube_16_9' }, { song: true, bars: 40 });
   assert.equal(r.bitrate, 20_000_000, 'past a minute the bitrate drops to keep files manageable');
@@ -131,10 +131,10 @@ test('what an export asks the server for depends on the format, the song and the
   r = await render({ format: 'social_square', promo: 15 }, { song: true });
   assert.deepEqual([r.meta.width, r.meta.height, r.meta.promo_seconds], [1080, 1080, 15]);
 
-  r = await render({ format: 'apple_tall', promo: 15 }, { song: true });
-  assert.deepEqual([r.meta.width, r.meta.height, r.meta.with_audio, r.meta.promo_seconds], [2048, 2732, false, 0]);
+  r = await render({ format: 'apple_tall', promo: 15, withSong: true }, { song: true });
+  assert.deepEqual([r.meta.width, r.meta.height, r.meta.with_audio, r.meta.promo_seconds], [2048, 2732, true, 0], 'any format can have a copy with the song, but no promo');
 
-  r = await render({ format: 'youtube_16_9' });
+  r = await render({ format: 'youtube_16_9', withSong: true });
   assert.deepEqual([r.meta.with_audio, r.meta.promo_seconds, r.meta.track_id], [false, 0, null], 'no song, no audio');
 });
 
@@ -245,15 +245,15 @@ test('an export whose clips froze says so, says why, and is not downloaded', asy
   assert.equal(st().renders[0].filename, 'canvas-neon.mp4', 'it is still listed, with its failed check');
 });
 
-test('auto-save also downloads the promo and cover art, a moment apart', (t) => {
+test('auto-save also downloads the promo, the copy with the song and the cover art, a moment apart', (t) => {
   t.mock.timers.enable({ apis: ['setTimeout'] });
   fresh();
-  X.autoSave({ filename: 'x.mp4', url: '/out/x.mp4', promo_url: '/out/x-promo-30s.mp4', cover_url: '/out/x-cover.jpg' });
+  X.autoSave({ filename: 'x.mp4', url: '/out/x.mp4', promo_url: '/out/x-promo-30s.mp4', audio_url: '/out/x-audio.mp4', cover_url: '/out/x-cover.jpg' });
   assert.equal(downloads.length, 1);
   t.mock.timers.tick(400);
   assert.equal(downloads.length, 2);
   t.mock.timers.tick(400);
-  assert.deepEqual(downloads.map((d) => d.href), ['/out/x.mp4', '/out/x-promo-30s.mp4', '/out/x-cover.jpg']);
+  assert.deepEqual(downloads.map((d) => d.href), ['/out/x.mp4', '/out/x-promo-30s.mp4', '/out/x-audio.mp4', '/out/x-cover.jpg']);
 });
 
 // Batch exports wait 400 ms between renders; run those waits on a fake clock.

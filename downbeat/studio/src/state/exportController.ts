@@ -17,6 +17,7 @@ export function autoSave(res: RenderRecord) {
   if (s.exportOpts.autoSave === false || froze(res)) return;
   saveToDownloads(res.url, res.filename);
   if (res.promo_url) setTimeout(() => saveToDownloads(res.promo_url!, ''), 400);
+  if (res.audio_url) setTimeout(() => saveToDownloads(res.audio_url!, ''), 600);
   if (res.cover_url) setTimeout(() => saveToDownloads(res.cover_url!, ''), 800);
 }
 
@@ -96,7 +97,7 @@ export async function renderOnce(onProgress?: (progress: any) => void): Promise<
   const fmt = o.format || 'spotify';
   const isAudioFmt = fmt === 'spotify' || fmt === 'youtube_16_9' || fmt === 'social_square';
   const promoSeconds = s.features && isAudioFmt ? o.promo || 0 : 0;
-  const withAudio = !!s.features && isAudioFmt && o.audio !== false;
+  const withAudio = !!s.features && o.withSong === true;
   const [W, H] = (o.format && FORMATS[o.format]?.size) || (o.size && SIZES[o.size]) || SIZES.master;
 
   const wasPlaying = s.transport.playing;

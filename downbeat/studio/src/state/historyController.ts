@@ -75,6 +75,8 @@ export function editFields(saved: any, clips: ClipMeta[], tracks: TrackMeta[]) {
   // an edit saved with no song stays on the BPM clock; one that never had the choice starts on the newest song
   let trackId: string = typeof saved.trackId === 'string' ? saved.trackId : tracks[0]?.id || '';
   if (trackId && !tracks.some((t) => t.id === trackId)) trackId = '';
+  // `audio` is the old name of withSong, which was on by default. Leaving it behind starts that copy unchecked.
+  const { audio: _oldAudio, ...exportOpts } = saved.exportOpts || { size: 'master', withSong: false, format: 'spotify', promo: 0, autoSave: true };
   return {
     selected: kept.length ? kept : firstClips(clips),
     trackId,
@@ -103,7 +105,7 @@ export function editFields(saved: any, clips: ClipMeta[], tracks: TrackMeta[]) {
     selectedBlock: null,
     clipFrame: saved.clipFrame || {},
     gridNudge: saved.gridNudge || {},
-    exportOpts: saved.exportOpts || { size: 'master', audio: true, format: 'spotify', promo: 0, autoSave: true },
+    exportOpts,
   };
 }
 

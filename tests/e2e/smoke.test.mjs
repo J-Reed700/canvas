@@ -294,6 +294,9 @@ test('the studio works end to end in a real browser', { skip: missing.length ? `
     await tap($$('.opt-card').find((c) => c.textContent.includes('720 × 1280')));
     const auto = $$('#exportForm label.check').find((l) => l.textContent.includes('Downloads folder')).querySelector('input');
     if (auto.checked) await tap(auto);
+    const song = $$('#exportForm label.check').find((l) => l.textContent.includes('copy with the song')).querySelector('input');
+    if (song.checked) throw new Error('the copy with the song should start unchecked');
+    await tap(song);
     await tap(byText('#exportForm button', 'Render & verify'));
     try {
       await until(() => /^(Ready for Spotify|Exported, but some checks failed|Export failed.*|Export cancelled)$/.test($('#exportStatus h2')?.textContent || ''), 120000, 'the export');
@@ -309,16 +312,23 @@ test('the studio works end to end in a real browser', { skip: missing.length ? `
     if (!(r.stats.mean_luminance > 0.02)) throw new Error('the render is black: ' + JSON.stringify(r.stats));
     const foot = r.checks.find((c) => c.id === 'footage');
     if (foot?.level !== 'ok') throw new Error('the footage check: ' + JSON.stringify(foot));
+    if (!r.audio_url) throw new Error('no copy with the song');
     window.__render = r.filename;
+    window.__audio = decodeURIComponent(r.audio_url.split('/').pop());
   `);
 
-  await t.test('the export landed in out/ at the right length', { skip: broken ? 'no export' : false }, async () => {
+  await t.test('the export landed in out/ at the right length, silent, with a copy that has the song', { skip: broken ? 'no export' : false }, async () => {
     const name = await browser.run('return window.__render;');
     const file = join(out, name);
     assert.ok(existsSync(file), file);
     const probe = spawnSync('ffprobe', ['-v', 'error', '-show_entries', 'stream=width,height,nb_frames', '-of', 'json', file], { encoding: 'utf8' });
     const [s] = JSON.parse(probe.stdout).streams;
     assert.deepEqual([s.width, s.height, +s.nb_frames], [720, 1280, 120]);
+    const withSong = join(out, await browser.run('return window.__audio;'));
+    const kinds = spawnSync('ffprobe', ['-v', 'error', '-show_entries', 'stream=codec_type', '-of', 'json', withSong], { encoding: 'utf8' });
+    assert.deepEqual(JSON.parse(kinds.stdout).streams.map((x) => x.codec_type).sort(), ['audio', 'video'], 'the copy has the song');
+    const silent = spawnSync('ffprobe', ['-v', 'error', '-show_entries', 'stream=codec_type', '-of', 'json', file], { encoding: 'utf8' });
+    assert.deepEqual(JSON.parse(silent.stdout).streams.map((x) => x.codec_type), ['video'], 'the Canvas itself stays silent');
   });
 
   await step('the screen menu and O reshape the preview, and the export takes the same shape', `

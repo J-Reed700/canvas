@@ -75,6 +75,7 @@ class TestStateHelpers(unittest.TestCase):
         self.assertEqual([kw["promo_seconds"] for _, kw in calls[:5]], [0.0, 60.0, 0.0, 12.5, 0.0])
         self.assertEqual(calls[0][0][:4], (os.path.join(self.out, "x.mp4"), song, 0.0, 8.0))
         self.assertEqual(calls[0][1]["fmt"], "spotify")
+        self.assertFalse(calls[0][1]["with_audio"], "no copy with the song unless the studio asks")
         self.assertEqual(calls[5][0][1:3], (None, 2.0))
         self.assertFalse(calls[5][1]["with_audio"])
         self.assertEqual(entry["resolution"], "720x1280")

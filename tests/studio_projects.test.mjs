@@ -141,6 +141,8 @@ test('an edit read back keeps its clips, song and cuts, and fills in what it lac
   assert.deepEqual(history.editFields({ selected: ['zz'] }, CLIPS, TRACKS).selected, ['a', 'b', 'c'], 'with no clips left it starts on a few');
   assert.equal(history.editFields({ trackId: '' }, CLIPS, TRACKS).trackId, '', 'an edit saved with no song stays without one');
 
+  const old = history.editFields({ exportOpts: { format: 'spotify', audio: true, promo: 15 } }, CLIPS, TRACKS);
+  assert.deepEqual(old.exportOpts, { format: 'spotify', promo: 15 }, 'the old setting that was on by default is left behind');
   const blank = history.editFields({}, CLIPS, TRACKS);
   assert.deepEqual(
     [blank.trackId, blank.look.id, blank.lookId, blank.bars, blank.bpmManual, blank.seed, blank.fitAll, blank.rebound, blank.blocks, blank.exportOpts.format],

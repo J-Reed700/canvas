@@ -217,7 +217,8 @@ export interface ProjectFile extends ProjectRef {
 export interface ExportOptions {
   format?: 'spotify' | 'apple_tall' | 'apple_square' | string;
   size?: 'master' | 'lite' | 'strict' | string;
-  audio?: boolean;
+  /** Also save a copy with the song under it, for demos. Off unless picked. */
+  withSong?: boolean;
   promo?: number;
   autoSave?: boolean;
 }

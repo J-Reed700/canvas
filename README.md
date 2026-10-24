@@ -2,7 +2,7 @@
 
 Downbeat makes Spotify Canvas loops from your video clips, photos or cover art, cut to the beat of your song. You pick the song and the clips, choose a look, and export a silent 9:16 MP4 that has already been checked against Spotify's Canvas requirements.
 
-It runs on your own computer. A small Python server reads the song and handles files, and the editor (the studio) runs in Chrome and renders on your graphics card. The same project also exports Apple Music motion art, a 16:9 YouTube visualizer with the song, square social clips, 3000 × 3000 cover art and artist banners.
+It runs on your own computer. A small Python server reads the song and handles files, and the editor (the studio) runs in Chrome and renders on your graphics card. The same project also exports Apple Music motion art, a 16:9 YouTube visualizer, square social clips, 3000 × 3000 cover art and artist banners.
 
 ![The Downbeat studio: five selected clips on the left, each tagged with its own look, the Canvas playing on a phone with the Spotify player overlay in the middle, the cut timeline below it, and the Looks gallery on the right](docs/studio.jpg)
 
@@ -562,7 +562,7 @@ Press `E`, or click Export, to open the export sheet. Pick a format and size, th
 | Spotify Canvas, Spec-literal | 608 × 1080 | Exactly inside the 720 to 1080 px height Spotify lists. Use it if an upload is rejected |
 | Apple Music, 3:4 | 2048 × 2732 | Portrait motion art. Silent, repeated to 15 to 35 s |
 | Apple Music, 1:1 | 3840 × 3840 | Square motion art, rendered at 2048 and scaled up. Silent, repeated to 15 to 35 s |
-| YouTube Visualizer | 1920 × 1080 | A 16:9 video with the song. Any length |
+| YouTube Visualizer | 1920 × 1080 | A 16:9 video. Any length. Check Also save a copy with the song for one with sound |
 | Social Feed | 1080 × 1080 | A square loop, with the song if you want it. Any length |
 | Album Cover Art | 3000 × 3000 | An sRGB JPEG cover, plus a square motion preview |
 
@@ -572,8 +572,8 @@ Spotify exports are encoded at 16 Mbps (9 Mbps for the smaller sizes). The other
 
 | Option | What it does |
 | :--- | :--- |
-| Also save a copy with the audio slice | Writes a second MP4, ending in `-audio.mp4`, with the song playing from the loop start. Use it to watch or share the loop with sound. Don't upload it as your Canvas |
-| Promo copy with the song | Writes a 15 or 30 second video of the loop repeated with the song underneath, for Reels, TikTok, Shorts or a Spotify Countdown Page |
+| Also save a copy with the song | Off unless you check it. Writes a second MP4, ending in `-audio.mp4`, with the song playing from the loop start, for any format. Use it to demo or share the loop with sound. With Save to my Downloads folder on, it's downloaded too. Don't upload it as your Canvas |
+| Promo copy with the song | Writes a 15 or 30 second video of the loop repeated with the song underneath, for Reels, TikTok, Shorts or a Spotify Countdown Page. Spotify, YouTube and Social only |
 | Save to my Downloads folder when it's done | On by default. Turn it off to keep files only in `out/` |
 
 The GIF Loop and WebP Loop buttons in the export sheet, and the GIF teaser and WebP teaser buttons on an export in the exports library, make small looping previews, 540 px wide at 18 fps from the first 10 seconds, for places that don't play video.
@@ -663,7 +663,7 @@ Problems with sliders, modulators, the color palette or Revert are covered in [t
 
 ### Why do exports have no audio?
 
-Spotify plays your song while the Canvas loops, so Downbeat leaves sound out of the Canvas file. It uses the song only for analysis and for playback while you work. To watch the loop with the music, open the `-audio.mp4` copy saved next to the export, but don't upload that one.
+Spotify plays your song while the Canvas loops, so Downbeat leaves sound out of the Canvas file. It uses the song only for analysis and for playback while you work. To watch the loop with the music, check Also save a copy with the song before you export and open the `-audio.mp4` copy saved next to the export, but don't upload that one.
 
 ### The tempo is wrong. How do I fix it?
 

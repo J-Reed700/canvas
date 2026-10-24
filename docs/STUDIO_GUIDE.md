@@ -591,18 +591,21 @@ Press E or Export Canvas.
 | Spotify 9:16 | A silent 3 to 8 second canvas. Sizes: Master 1080×1920, Lite 720×1280, or Spec-literal 608×1080 if Spotify rejects an upload |
 | Apple 3:4 | 2048×2732 motion artwork, silent, repeated to at least 15 seconds |
 | Apple 1:1 | Rendered at 2048 and delivered at 3840×3840 |
-| YouTube 16:9 | A 1920×1080 visualizer with the song |
-| Social 1:1 | A 1080×1080 loop, with the song if you want it |
+| YouTube 16:9 | A 1920×1080 visualizer of any length |
+| Social 1:1 | A 1080×1080 loop of any length |
 | Cover 3000² | A 3000×3000 sRGB cover JPEG and a square motion preview |
 
-You can also save a copy with the audio slice, make a 15 or 30 second promo with the song (for Reels, TikTok
-or Spotify Countdown pages), and have finished files copied to Downloads.
+The export itself is silent. For a demo with sound, check Also save a copy with the song: it's off unless you
+check it, works with every format, and writes a second file, ending in `-audio.mp4`, with the song playing from
+the loop start (under the whole repeated file for Apple). With Save to my Downloads folder on, that copy is
+downloaded too. You can also make a 15 or 30 second promo with the song for Spotify, YouTube and Social (for
+Reels, TikTok or Spotify Countdown pages), and have finished files copied to Downloads.
 
 ### Long videos
 
 Spotify takes 3 to 8 seconds and Apple Music motion art at most 35, and the sheet warns you when the loop
 doesn't fit the format you picked. YouTube 16:9 and Social 1:1 take any length, so use those for a
-visualizer. With "Also save a copy with the song" ticked you get a second file with the song playing from the
+visualizer. With Also save a copy with the song checked you get a second file with the song playing from the
 loop start. The GIF and WebP teasers use the first 10 seconds.
 
 Videos over a minute are encoded at 20 Mbps instead of 50, which is about 150 MB a minute. How fast they

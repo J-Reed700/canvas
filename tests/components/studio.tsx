@@ -97,7 +97,7 @@ export function resetStudio(over: Partial<StudioState> = {}) {
       projects: [],
       projectsOpen: false,
       projectSync: 'saved',
-      exportOpts: { size: 'master', audio: true, format: 'spotify', promo: 0, autoSave: true },
+      exportOpts: { size: 'master', withSong: false, format: 'spotify', promo: 0, autoSave: true },
       rollOpts: { look: true, edit: true, perClip: true, clips: false, loop: false },
       ghosts: [],
       ...over,
