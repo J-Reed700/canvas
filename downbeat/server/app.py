@@ -18,7 +18,7 @@ from typing import Callable
 from .. import delivery
 from ..analysis import framing
 from ..analysis.features import track_features
-from .library import AUDIO_EXTS, VIDEO_EXTS, pick_folder_dialog, playable_path
+from .library import AUDIO_EXTS, VIDEO_EXTS, pick_folder_dialog, playable_path, source_of
 from ..media import frames as clip_frames
 from ..media.encoder import CANVAS_FPS
 from ..media.proxy import MAX_SECONDS as PROXY_SECONDS
@@ -140,6 +140,7 @@ class StudioHandler(BaseHTTPRequestHandler):
         "/api/state": lambda self, q: self._get_state(q),
         "/api/status": lambda self, q: self._get_status(),
         "/api/tracks": lambda self, q: self._send_json(self._library_payload(rescan=True)),
+        "/api/projects": lambda self, q: self._get_projects("/api/projects"),
     }
     GET_PREFIX_ROUTES: list[tuple[str, Callable[[StudioHandler, str, dict[str, list[str]]], None]]] = [
         ("/studio/", lambda self, r, q: self._get_studio_static(r)),
@@ -150,6 +151,7 @@ class StudioHandler(BaseHTTPRequestHandler):
         ("/api/autoframe/", lambda self, r, q: self._get_autoframe(r)),
         ("/api/palette/", lambda self, r, q: self._get_palette(r)),
         ("/api/track_audio/", lambda self, r, q: self._get_track_audio(r)),
+        ("/api/projects/", lambda self, r, q: self._get_projects(r)),
         ("/out/", lambda self, r, q: self._get_out(r)),
     ]
 
@@ -169,7 +171,9 @@ class StudioHandler(BaseHTTPRequestHandler):
         "/api/shutdown": lambda self, b, q: self._post_shutdown(),
         "/api/upload": lambda self, b, q: self._post_upload(b),
     }
-    POST_PREFIX_ROUTES: list[tuple[str, Callable[[StudioHandler, str, bytes, dict[str, list[str]]], None]]] = []
+    POST_PREFIX_ROUTES: list[tuple[str, Callable[[StudioHandler, str, bytes, dict[str, list[str]]], None]]] = [
+        ("/api/projects/", lambda self, r, b, q: self._post_projects(r, b)),
+    ]
 
     def _dispatch_get(self, route: str, query: dict[str, list[str]]) -> None:
         handler = self.GET_EXACT_ROUTES.get(route)
@@ -323,11 +327,15 @@ class StudioHandler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def _clip_dicts(self) -> list[dict]:
+        folders = STATE.library.folders()
+        where = {s.id: source_of(s.path, STATE.library.uploads, folders) for s in STATE.clips.values()}
         return [
             {
                 "id": s.id,
                 "name": s.name,
                 "path": s.path,
+                "source": where[s.id][0],
+                "dir": where[s.id][1],
                 "width": s.width,
                 "height": s.height,
                 "fps": round(s.fps, 1),
@@ -430,6 +438,52 @@ class StudioHandler(BaseHTTPRequestHandler):
         picked = pick_folder_dialog()
         added = STATE.library.add_folder(picked) if picked else None
         self._send_json({**self._library_payload(rescan=True), "added": added})
+
+    def _get_projects(self, route: str) -> None:
+        """/api/projects lists the saved projects, /api/projects/<id> is one with its edit, and
+        /api/projects/exports/<file> is the edit an export was made from."""
+        rest = urllib.parse.unquote(route[len("/api/projects"):].lstrip("/"))
+        try:
+            if not rest:
+                self._send_json({"ok": True, "projects": STATE.projects.list()})
+            elif rest.startswith("exports/"):
+                self._send_json({"ok": True, "data": STATE.projects.export_edit(rest[len("exports/"):])})
+            else:
+                self._send_json({"ok": True, "project": STATE.projects.get(rest)})
+        except KeyError:
+            self._send_json({"ok": False, "error": "Not found"}, status=404)
+
+    def _post_projects(self, route: str, body: bytes) -> None:
+        """/api/projects/create {name, data}, save {id, data}, rename {id, name} and delete {id}."""
+        action = route[len("/api/projects/"):]
+        store = STATE.projects
+        try:
+            data = _json_body(body)
+            if not isinstance(data, dict):
+                raise ValueError("Expected a JSON object")
+            if action == "create":
+                project = store.create(data.get("name"), data.get("data"))
+            elif action == "save":
+                project = store.save(str(data.get("id", "")), data.get("data"))
+            elif action == "rename":
+                project = store.rename(str(data.get("id", "")), data.get("name"))
+            elif action == "delete":
+                store.delete(str(data.get("id", "")))
+                self._send_json({"ok": True})
+                return
+            else:
+                self.send_error(HTTPStatus.NOT_FOUND)
+                return
+        except KeyError:
+            self._send_json({"ok": False, "error": "That project has been deleted"}, status=404)
+            return
+        except ValueError as exc:
+            self._send_json({"ok": False, "error": str(exc)}, status=400)
+            return
+        except OSError as exc:
+            self._send_json({"ok": False, "error": f"The project couldn't be saved: {exc}"}, status=500)
+            return
+        self._send_json({"ok": True, "project": project})
 
     def _get_out(self, route: str) -> None:
         fname = urllib.parse.unquote(route.split("/out/", 1)[1])
@@ -611,8 +665,10 @@ class StudioHandler(BaseHTTPRequestHandler):
         self._send_json({"ok": True, "deleted": deleted})
 
     def _post_reveal(self, body: bytes) -> None:
+        """Shows an export in out/ in the Finder, or with clip_id a clip's file wherever it is."""
         data = _json_body(body)
-        path = os.path.abspath(os.path.join(OUT_DIR, os.path.basename(str(data.get("filename", "")))))
+        src = STATE.clips.get(str(data.get("clip_id", "")))
+        path = src.path if src else os.path.abspath(os.path.join(OUT_DIR, os.path.basename(str(data.get("filename", "")))))
         if os.path.isfile(path) and sys.platform == "darwin":
             subprocess.Popen(["open", "-R", path])
             self._send_json({"ok": True})

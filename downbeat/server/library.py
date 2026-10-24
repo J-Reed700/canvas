@@ -63,6 +63,18 @@ def _track(path: str, source: str, root: str, mtime: float) -> Track:
     return Track(track_id(path), path, os.path.basename(path), source, "" if rel == "." else rel, mtime)
 
 
+def source_of(path: str, uploads: str, folders: list[str]) -> tuple[str, str]:
+    """Where a video is listed from, the way a Track says it: "added" or the picked folder that holds it, and
+    the subfolder inside that. ("", "") for a path in none of them."""
+    for root, source in [(uploads, "added"), *((f, f) for f in folders)]:
+        rel = os.path.relpath(os.path.dirname(path), root)
+        if rel == ".":
+            return source, ""
+        if rel != os.pardir and not rel.startswith(os.pardir + os.sep):
+            return source, rel
+    return "", ""
+
+
 def is_video_name(name: str) -> bool:
     return name.lower().endswith(VIDEO_EXTS) and not name.startswith(".")
 

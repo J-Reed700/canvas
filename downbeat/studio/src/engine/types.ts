@@ -97,6 +97,10 @@ export interface ClipMeta {
   id: string;
   name?: string;
   path?: string;
+  /** Where it's listed from, as for a song: "added", or the picked folder that holds it. */
+  source?: string;
+  /** The subfolder inside that folder, "" at the top. */
+  dir?: string;
   duration: number;
   width?: number;
   height?: number;
@@ -183,12 +187,38 @@ export interface RenderRecord {
   stats?: Record<string, unknown>;
   codec?: string;
   seconds?: number;
+  /** The edit it was made from is saved with it, so it can be opened again. */
+  has_edit?: boolean;
+}
+
+/** The open project: its file's id and name, and when the file was last saved (server time, seconds). */
+export interface ProjectRef {
+  id: string;
+  name: string;
+  updated?: number;
+}
+
+/** A saved project as the projects list shows it. */
+export interface ProjectSummary extends ProjectRef {
+  created?: number;
+  clips: number;
+  first_clip?: string | null;
+  track_id?: string | null;
+  look?: string | null;
+  bars?: number | null;
+}
+
+/** A project's file: its name and the edit itself. */
+export interface ProjectFile extends ProjectRef {
+  created?: number;
+  data: Record<string, any>;
 }
 
 export interface ExportOptions {
   format?: 'spotify' | 'apple_tall' | 'apple_square' | string;
   size?: 'master' | 'lite' | 'strict' | string;
-  audio?: boolean;
+  /** Also save a copy with the song under it, for demos. Off unless picked. */
+  withSong?: boolean;
   promo?: number;
   autoSave?: boolean;
 }

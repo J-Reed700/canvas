@@ -529,10 +529,11 @@ def deliver(
     stats: dict | None,
     fmt: str = "spotify",
     promo_seconds: float = 0,
-    with_audio: bool = True,
+    with_audio: bool = False,
 ) -> dict:
-    """Finish an export: Apple formats repeat the loop to their minimum length; Spotify exports
-    get the optional with-audio slice copy and promo. Then verify. Returns a summary dict."""
+    """Finish an export: Apple formats repeat the loop to their minimum length; Spotify, YouTube and
+    social exports get the optional promo. Any format can also get a copy with the song under it, for
+    demos (with_audio). Then verify. Returns a summary dict."""
     audio_dest = promo_dest = cover_dest = None
     track = track_path if track_path and os.path.isfile(track_path) else None
     if fmt in ("apple_tall", "apple_square"):
@@ -541,12 +542,12 @@ def deliver(
         repeat_loop(dest, APPLE["safe_min_seconds"], APPLE["max_seconds"])
     elif fmt == "cover_art":
         cover_dest = export_cover_art(dest, dest[:-4] + "-cover-3000x3000.jpg", size=3000, at_sec=0.0)
-    else:
-        if track and with_audio:
-            audio_dest = dest[:-4] + "-audio.mp4"
-            mux_audio_preview(dest, track, audio_dest, start_sec=audio_start, duration_sec=duration)
-        if track and promo_seconds and promo_seconds > 0:
-            promo_dest = mux_promo(dest, track, f"{dest[:-4]}-promo-{int(round(promo_seconds))}s.mp4", audio_start, promo_seconds)
+    elif track and promo_seconds and promo_seconds > 0:
+        promo_dest = mux_promo(dest, track, f"{dest[:-4]}-promo-{int(round(promo_seconds))}s.mp4", audio_start, promo_seconds)
+    if track and with_audio:
+        audio_dest = dest[:-4] + "-audio.mp4"
+        # An Apple loop was just repeated, so the song plays on under the whole file.
+        mux_audio_preview(dest, track, audio_dest, start_sec=audio_start, duration_sec=max(duration, _duration(dest)))
     info = probe(dest)
     vs = next((x for x in info.get("streams", []) if x.get("codec_type") == "video"), {})
     target = cover_dest if cover_dest else dest

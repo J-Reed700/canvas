@@ -150,7 +150,7 @@ class TestDelivery(TempDirCase):
         song = self.wav("deliver.wav", 5.0)
 
         spotify = self.copy(src, "spot.mp4")
-        res = delivery.deliver(spotify, song, 0.5, 2.0, None, fmt="spotify", promo_seconds=3)
+        res = delivery.deliver(spotify, song, 0.5, 2.0, None, fmt="spotify", promo_seconds=3, with_audio=True)
         self.assertEqual((res["audio_path"], res["promo_path"]), (spotify[:-4] + "-audio.mp4", spotify[:-4] + "-promo-3s.mp4"))
         self.assertTrue(os.path.isfile(res["audio_path"]) and os.path.isfile(res["promo_path"]))
         self.assertEqual((res["width"], res["height"]), (64, 112))
@@ -170,7 +170,11 @@ class TestDelivery(TempDirCase):
         apple = self.copy(src, "apple-tall.mp4")
         res = delivery.deliver(apple, song, 0.0, 2.0, None, fmt="apple_tall")
         self.assertAlmostEqual(res["duration"], 16.0, delta=0.1)
-        self.assertIsNone(res["audio_path"], "Apple motion art is silent")
+        self.assertIsNone(res["audio_path"], "the copy with the song is only made when asked for")
+        res = delivery.deliver(self.copy(src, "apple-song.mp4"), song, 0.0, 2.0, None, fmt="apple_tall", with_audio=True)
+        self.assertTrue(res["audio_path"].endswith("apple-song-audio.mp4"))
+        self.assertIsNone(res["promo_path"], "Apple formats have no promo")
+        self.assertGreater(delivery._duration(res["audio_path"]), 4.0, "the song plays on past the 2 s loop")
 
         square = self.copy(src, "apple-square.mp4")
         with mock.patch.object(delivery, "upscale_to") as up, mock.patch.object(delivery, "repeat_loop") as rep:
@@ -179,8 +183,9 @@ class TestDelivery(TempDirCase):
         rep.assert_called_once_with(square, delivery.APPLE["safe_min_seconds"], delivery.APPLE["max_seconds"])
 
         cover = self.copy(src, "cover.mp4")
-        res = delivery.deliver(cover, song, 0.0, 2.0, None, fmt="cover_art")
+        res = delivery.deliver(cover, song, 0.0, 2.0, None, fmt="cover_art", with_audio=True)
         self.assertEqual(res["cover_path"], cover[:-4] + "-cover-3000x3000.jpg")
+        self.assertEqual(res["audio_path"], cover[:-4] + "-audio.mp4")
         self.assertEqual({c["id"]: c["level"] for c in res["checks"]}, {"aspect": "ok", "resolution": "ok", "size": "ok"})
 
     def test_banners_and_covers_crop_to_their_size(self) -> None:

@@ -5,6 +5,7 @@ import { installDom, fakeCanvas, recordingContext, stubFetch, FakeElement } from
 const dom = installDom();
 const U = await import('../downbeat/studio/src/lib/utils.ts');
 const V = await import('../downbeat/studio/src/lib/exportsView.ts');
+const CV = await import('../downbeat/studio/src/lib/clipsView.ts');
 const SC = await import('../downbeat/studio/src/lib/screens.ts');
 const { TRANSITIONS } = await import('../downbeat/studio/src/engine/shaders.ts');
 const { SEQ_STEPS, ENV_POINTS } = await import('../downbeat/studio/src/engine/audio.ts');
@@ -315,4 +316,47 @@ test('page lists show every page up to seven, then the ends and neighbors with g
   assert.deepEqual(V.pageList(5, 12), [0, null, 4, 5, 6, null, 11]);
   assert.deepEqual(V.pageList(11, 12), [0, null, 10, 11]);
   assert.deepEqual(V.pageList(2, 12), [0, 1, 2, 3, null, 11]);
+});
+
+const clip = (id, o = {}) => ({ id, name: `${id}.mp4`, duration: 5, width: 1920, height: 1080, fps: 30, ...o });
+
+test('clips read as name, length, size and frame rate, and the folder they came from', () => {
+  assert.equal(CV.clipName(clip('a', { name: 'cover.still.mp4', still: true })), 'cover');
+  assert.equal(CV.clipMetaLine(clip('a', { duration: 12.34 })), '12.3 s · 1920×1080 · 30 fps');
+  assert.equal(CV.clipMetaLine(clip('a', { still: true })), 'Still · 1920×1080', 'a still has no length or frame rate');
+  assert.equal(CV.clipMetaLine({ id: 'x', duration: 0 }), '0.0 s');
+  assert.deepEqual([clip('a', { width: 1080, height: 1920 }), clip('b'), clip('c', { width: 1000, height: 1020 }), { id: 'd', duration: 1 }].map(CV.shapeOf), ['Vertical', 'Landscape', 'Square', '']);
+  assert.equal(CV.folderOf(clip('a', { source: '/Users/me/Movies/Canvas', dir: '' })), 'Canvas');
+  assert.equal(CV.folderOf(clip('a', { source: '/Users/me/Movies/Canvas', dir: 'night/drive' })), 'Canvas › night › drive');
+  assert.equal(CV.folderOf(clip('a', { source: 'added', dir: '' })), 'Added in the studio');
+  assert.equal(CV.folderOf(clip('a')), '', 'a clip listed from nowhere known has no folder');
+});
+
+test('the clips list filters by chip and every search word, and keeps the edit order or sorts', () => {
+  const clips = [
+    clip('beach', { duration: 30, source: '/m/Summer', dir: 'Coast' }),
+    clip('city', { duration: 9, width: 1080, height: 1920, source: '/m/Night' }),
+    clip('art', { name: 'art.still.mp4', still: true, duration: 20, width: 1080, height: 1080, source: 'added' }),
+    clip('dawn', { duration: 12, is_stock: true }),
+  ];
+  const selected = ['dawn', 'city'];
+  const f = (o) => CV.filterClips(clips, selected, { q: '', kind: 'all', sort: 'folder', ...o }).map((c) => c.id);
+  assert.deepEqual(f({}), ['beach', 'city', 'art', 'dawn'], 'folder order is the order the library lists them');
+  assert.deepEqual(f({ sort: 'edit' }), ['dawn', 'city', 'beach', 'art'], 'the clips in the edit first, in their order');
+  assert.deepEqual(f({ sort: 'name' }), ['art', 'beach', 'city', 'dawn']);
+  assert.deepEqual(f({ sort: 'long' }), ['beach', 'art', 'dawn', 'city']);
+  assert.deepEqual(f({ sort: 'short' }), ['city', 'dawn', 'art', 'beach']);
+  assert.deepEqual(f({ sort: 'bogus' }), f({}));
+  assert.deepEqual(f({ kind: 'edit' }), ['city', 'dawn']);
+  assert.deepEqual(f({ kind: 'still' }), ['art']);
+  assert.deepEqual(f({ kind: 'video' }), ['beach', 'city', 'dawn']);
+  assert.deepEqual(f({ q: 'COAST' }), ['beach'], 'subfolders count');
+  assert.deepEqual(f({ q: 'night vertical' }), ['city']);
+  assert.deepEqual(f({ q: 'added still' }), ['art']);
+  assert.deepEqual(f({ q: '1080x1080' }), ['art']);
+  assert.deepEqual(f({ q: '  summer  ' }), ['beach']);
+  assert.deepEqual(f({ q: 'night beach' }), []);
+  assert.deepEqual(f({ q: 'city', kind: 'still' }), []);
+  assert.deepEqual(CV.kindCounts(clips, selected), { all: 4, edit: 2, video: 3, still: 1 });
+  assert.deepEqual(CV.editOrder(clips, ['gone', 'art']).map((c) => c.id), ['art', 'beach', 'city', 'dawn'], 'an id no longer listed is skipped');
 });

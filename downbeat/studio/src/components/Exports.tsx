@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef } from 'react';
 import { useStudioStore } from '../state/store.ts';
 import {
   CHECK_ICONS,
@@ -9,13 +9,14 @@ import {
   formatLabel,
   kindOf,
   metaLine,
-  pageList,
   specOf,
   timeAgo,
   titleOf,
 } from '../lib/exportsView.ts';
 import { postJSON, toast } from '../lib/utils.ts';
-import { ArmedButton, Icon, ICONS, Modal, SearchField, useArmed } from './ui.tsx';
+import { ArmedButton, Icon, ICONS, Modal, useArmed } from './ui.tsx';
+import { FilterChips, FilterSearch, LibraryFoot, LibraryViewer, NoMatch, Pager, useLibraryKeys, usePage } from './Library.tsx';
+import { openExportEdit } from '../state/projectController.ts';
 import type { RenderRecord } from '../engine/types.ts';
 
 const SIDE_PAGE = 4;
@@ -61,6 +62,21 @@ const DeleteButton: React.FC<{ r: RenderRecord; wide?: boolean }> = ({ r, wide }
   );
 };
 
+/** Opens the edit the export was made from. An edit that isn't in a project would be lost, so that takes a second click. */
+const OpenEditButton: React.FC<{ r: RenderRecord }> = ({ r }) => {
+  const project = useStudioStore((s) => s.project);
+  const [armed, setArmed] = useArmed();
+  return (
+    <button
+      className={`btn ${armed ? 'armed' : ''}`}
+      title={armed ? "The edit open now isn't saved to a project. Click again to replace it" : 'Open the edit this export was made from'}
+      onClick={() => (project || armed ? openExportEdit(r.filename, titleOf(r)) : setArmed(true))}
+    >
+      {armed ? 'Replace the unsaved edit?' : 'Open the edit'}
+    </button>
+  );
+};
+
 const SpecBadge: React.FC<{ r: RenderRecord }> = ({ r }) => {
   const spec = specOf(r);
   if (!spec) return null;
@@ -92,19 +108,7 @@ const ExportThumb: React.FC<{ r: RenderRecord }> = ({ r }) => {
 const SearchBox: React.FC<{ autoFocus?: boolean; inputRef?: React.Ref<HTMLInputElement> }> = ({ autoFocus, inputRef }) => {
   const q = useStudioStore((s) => s.exportFilter.q);
   return (
-    <SearchField
-      value={q}
-      onChange={(v) => setFilter({ q: v })}
-      placeholder="Search by look, format or size"
-      autoFocus={autoFocus}
-      inputRef={inputRef}
-      onKeyDown={(e) => {
-        if (e.key === 'Escape' && q) {
-          e.stopPropagation();
-          setFilter({ q: '' });
-        }
-      }}
-    />
+    <FilterSearch value={q} onChange={(v) => setFilter({ q: v })} placeholder="Search by look, format or size" autoFocus={autoFocus} inputRef={inputRef} />
   );
 };
 
@@ -115,74 +119,23 @@ const KindChips: React.FC<{ renders: RenderRecord[] }> = ({ renders }) => {
     for (const r of renders) c[kindOf(r)] = (c[kindOf(r)] || 0) + 1;
     return c;
   }, [renders]);
-  const kinds = EXPORT_KINDS.filter(([k]) => counts[k]);
-  if (kinds.length < 3) return null;
-  return (
-    <div className="exp-kinds">
-      {kinds.map(([k, label]) => (
-        <button key={k} className={kind === k ? 'on' : ''} onClick={() => setFilter({ kind: k })}>
-          {label} <small>{counts[k]}</small>
-        </button>
-      ))}
-    </div>
-  );
+  return <FilterChips kinds={EXPORT_KINDS} counts={counts} value={kind} onChange={(k) => setFilter({ kind: k })} />;
 };
 
-const Pager: React.FC<{ page: number; pages: number; onPage: (p: number) => void; compact?: boolean }> = ({
-  page,
-  pages,
-  onPage,
-  compact,
-}) => (
-  <nav className="pager" aria-label="Pages">
-    <button disabled={page === 0} onClick={() => onPage(page - 1)} aria-label="Previous page">
-      <Icon d={ICONS.prev} />
-    </button>
-    {compact ? (
-      <span className="pager-of">
-        <b>{page + 1}</b> / {pages}
-      </span>
-    ) : (
-      pageList(page, pages).map((p, i) =>
-        p === null ? (
-          <span key={`gap${i}`} className="pager-gap">…</span>
-        ) : (
-          <button key={p} className={p === page ? 'on' : ''} onClick={() => onPage(p)} aria-current={p === page ? 'page' : undefined}>
-            {p + 1}
-          </button>
-        ),
-      )
-    )}
-    <button disabled={page >= pages - 1} onClick={() => onPage(page + 1)} aria-label="Next page">
-      <Icon d={ICONS.next} />
-    </button>
-  </nav>
-);
-
-/** Clamps the page when the list shrinks and returns to page 1 when the search changes. */
-function usePage(count: number, per: number) {
-  const filter = useStudioStore((s) => s.exportFilter);
-  const [page, setPage] = useState(0);
-  useEffect(() => setPage(0), [filter.q, filter.kind, filter.sort]);
-  const pages = Math.max(1, Math.ceil(count / per));
-  return [Math.min(page, pages - 1), pages, setPage] as const;
+/** Back to page 1 when the search changes. */
+function useExportPage(count: number, per: number) {
+  const { q, kind, sort } = useStudioStore((s) => s.exportFilter);
+  return usePage(count, per, `${q}\n${kind}\n${sort}`);
 }
 
-const NoMatch: React.FC = () => (
-  <div className="exp-empty">
-    No exports match.{' '}
-    <button className="link" onClick={() => setFilter({ q: '', kind: 'all' })}>
-      Clear search
-    </button>
-  </div>
-);
+const ClearSearch: React.FC = () => <NoMatch what="exports" onClear={() => setFilter({ q: '', kind: 'all' })} />;
 
 const ExportsList: React.FC = () => {
   const renders = useStudioStore((s) => s.renders);
   const reveal = useStudioStore((s) => s.reveal);
   const filter = useStudioStore((s) => s.exportFilter);
   const list = useMemo(() => filterExports(renders, filter), [renders, filter]);
-  const [page, pages, setPage] = usePage(list.length, SIDE_PAGE);
+  const [page, pages, setPage] = useExportPage(list.length, SIDE_PAGE);
 
   return (
     <section className="sec sec-exports">
@@ -207,7 +160,7 @@ const ExportsList: React.FC = () => {
 
       <div className="exports" id="exports">
         {!renders.length && <div className="note">Exports appear here, each checked against its format's spec.</div>}
-        {renders.length > 0 && !list.length && <NoMatch />}
+        {renders.length > 0 && !list.length && <ClearSearch />}
         {list.slice(page * SIDE_PAGE, page * SIDE_PAGE + SIDE_PAGE).map((r) => (
           <div
             className="exp"
@@ -261,115 +214,100 @@ const ExportViewer: React.FC<{ r: RenderRecord; index: number; count: number; on
 }) => {
   const reveal = useStudioStore((s) => s.reveal);
   const exportCompanion = useStudioStore((s) => s.exportCompanion);
-  const ar = aspectOf(r);
 
   return (
-    <div className="lib-view">
-      <div className="lib-stage">
-        <button className="lib-nav" disabled={index <= 0} onClick={() => onStep(-1)} title="Previous export (←)">
-          <Icon d={ICONS.prev} />
-        </button>
-        <div className="lib-player" style={{ ['--ar' as any]: ar }}>
-          <video key={r.filename} src={r.url} controls autoPlay muted loop playsInline />
-        </div>
-        <button className="lib-nav" disabled={index >= count - 1} onClick={() => onStep(1)} title="Next export (→)">
-          <Icon d={ICONS.next} />
-        </button>
-      </div>
-
-      <div className="lib-info">
-        <div className="lib-crumb">
-          <button className="btn sm" onClick={() => useStudioStore.setState({ libraryItem: null })}>
-            <Icon d={ICONS.prev} /> All exports
-          </button>
-          {index >= 0 && (
-            <span className="muted">
-              {index + 1} of {count}
-            </span>
-          )}
-        </div>
-        <h3>{titleOf(r)}</h3>
-        <div className="summary">
-          <span>Format</span>
-          <b>{formatLabel(r)}</b>
-          {r.resolution && (
-            <>
-              <span>Size</span>
-              <b>{r.resolution.replace('x', ' × ')}</b>
-            </>
-          )}
-          {r.duration ? (
-            <>
-              <span>Length</span>
-              <b>{(+r.duration).toFixed(3)} s</b>
-            </>
-          ) : null}
-          {r.bpm ? (
-            <>
-              <span>Tempo</span>
-              <b>{(+r.bpm).toFixed(2)} BPM</b>
-            </>
-          ) : null}
-          <span>File</span>
-          <b>{r.size_mb} MB</b>
-          {r.created_at ? (
-            <>
-              <span>Made</span>
-              <b>{new Date(r.created_at * 1000).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })}</b>
-            </>
-          ) : null}
-        </div>
-
-        <div className="actions">
-          <a className="btn primary" href={r.url} download={r.filename}>
-            <Icon d={ICONS.download} /> MP4
-          </a>
-          {r.audio_url && (
-            <a className="btn" href={r.audio_url} download="">
-              With audio
-            </a>
-          )}
-          {r.promo_url && (
-            <a className="btn" href={r.promo_url} download="">
-              Promo with song
-            </a>
-          )}
-          {r.cover_url && (
-            <a className="btn" href={r.cover_url} download="">
-              Cover JPG
-            </a>
-          )}
-          <button className="btn" onClick={() => reveal(r.filename)}>
-            <Icon d={ICONS.folder} /> Reveal in Finder
-          </button>
-          <DeleteButton r={r} wide />
-        </div>
-        <div className="actions">
-          <button className="btn sm" onClick={() => exportCompanion({ filename: r.filename, kind: 'gif' })}>
-            GIF teaser
-          </button>
-          <button className="btn sm" onClick={() => exportCompanion({ filename: r.filename, kind: 'webp' })}>
-            WebP teaser
-          </button>
-        </div>
-
-        {(r.checks || []).length > 0 && (
+    <LibraryViewer
+      what="export"
+      back="All exports"
+      index={index}
+      count={count}
+      onStep={onStep}
+      onBack={() => useStudioStore.setState({ libraryItem: null })}
+      ar={aspectOf(r)}
+      player={<video key={r.filename} src={r.url} controls autoPlay muted loop playsInline />}
+    >
+      <h3>{titleOf(r)}</h3>
+      <div className="summary">
+        <span>Format</span>
+        <b>{formatLabel(r)}</b>
+        {r.resolution && (
           <>
-            <div className="lib-ph">Spec checks</div>
-            <div className="checks">
-              {(r.checks || []).map((c) => (
-                <div className={`ck ${c.level}`} key={c.id}>
-                  <span className="ic">{CHECK_ICONS[c.level]}</span>
-                  <b>{c.label}</b>
-                  <span>{c.detail || ''}</span>
-                </div>
-              ))}
-            </div>
+            <span>Size</span>
+            <b>{r.resolution.replace('x', ' × ')}</b>
           </>
         )}
-        <div className="note lib-file">{r.filename}</div>
+        {r.duration ? (
+          <>
+            <span>Length</span>
+            <b>{(+r.duration).toFixed(3)} s</b>
+          </>
+        ) : null}
+        {r.bpm ? (
+          <>
+            <span>Tempo</span>
+            <b>{(+r.bpm).toFixed(2)} BPM</b>
+          </>
+        ) : null}
+        <span>File</span>
+        <b>{r.size_mb} MB</b>
+        {r.created_at ? (
+          <>
+            <span>Made</span>
+            <b>{new Date(r.created_at * 1000).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })}</b>
+          </>
+        ) : null}
       </div>
-    </div>
+
+      <div className="actions">
+        <a className="btn primary" href={r.url} download={r.filename}>
+          <Icon d={ICONS.download} /> MP4
+        </a>
+        {r.audio_url && (
+          <a className="btn" href={r.audio_url} download="">
+            With audio
+          </a>
+        )}
+        {r.promo_url && (
+          <a className="btn" href={r.promo_url} download="">
+            Promo with song
+          </a>
+        )}
+        {r.cover_url && (
+          <a className="btn" href={r.cover_url} download="">
+            Cover JPG
+          </a>
+        )}
+        {r.has_edit && <OpenEditButton r={r} />}
+        <button className="btn" onClick={() => reveal(r.filename)}>
+          <Icon d={ICONS.folder} /> Reveal in Finder
+        </button>
+        <DeleteButton r={r} wide />
+      </div>
+      <div className="actions">
+        <button className="btn sm" onClick={() => exportCompanion({ filename: r.filename, kind: 'gif' })}>
+          GIF teaser
+        </button>
+        <button className="btn sm" onClick={() => exportCompanion({ filename: r.filename, kind: 'webp' })}>
+          WebP teaser
+        </button>
+      </div>
+
+      {(r.checks || []).length > 0 && (
+        <>
+          <div className="lib-ph">Spec checks</div>
+          <div className="checks">
+            {(r.checks || []).map((c) => (
+              <div className={`ck ${c.level}`} key={c.id}>
+                <span className="ic">{CHECK_ICONS[c.level]}</span>
+                <b>{c.label}</b>
+                <span>{c.detail || ''}</span>
+              </div>
+            ))}
+          </div>
+        </>
+      )}
+      <div className="note lib-file">{r.filename}</div>
+    </LibraryViewer>
   );
 };
 
@@ -379,7 +317,7 @@ export const ExportsLibrary: React.FC = () => {
   const renders = useStudioStore((s) => s.renders);
   const filter = useStudioStore((s) => s.exportFilter);
   const list = useMemo(() => filterExports(renders, filter), [renders, filter]);
-  const [page, pages, setPage] = usePage(list.length, LIB_PAGE);
+  const [page, pages, setPage] = useExportPage(list.length, LIB_PAGE);
   const searchRef = useRef<HTMLInputElement>(null);
 
   const current = item ? renders.find((r) => r.filename === item) || null : null;
@@ -396,31 +334,15 @@ export const ExportsLibrary: React.FC = () => {
     if (open && index >= 0) setPage(Math.floor(index / LIB_PAGE));
   }, [open, index, setPage]);
 
-  useEffect(() => {
-    if (!open) return;
-    const onKey = (e: KeyboardEvent) => {
-      const typing = (e.target as HTMLElement)?.closest?.('input, select, textarea') as HTMLInputElement | null;
-      if (e.key === 'Escape' && typing?.value && typing.type === 'search') {
-        return; // the search box clears itself first
-      } else if (e.key === 'Escape') {
-        if (current) useStudioStore.setState({ libraryItem: null });
-        else close();
-      } else if (typing) {
-        return;
-      } else if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
-        const d = e.key === 'ArrowLeft' ? -1 : 1;
-        if (current) step(d);
-        else setPage(Math.max(0, Math.min(pages - 1, page + d)));
-      } else if (e.key === '/' && !current) {
-        e.preventDefault();
-        searchRef.current?.focus();
-      } else {
-        return;
-      }
-      e.stopPropagation();
-    };
-    window.addEventListener('keydown', onKey, true);
-    return () => window.removeEventListener('keydown', onKey, true);
+  useLibraryKeys(open, {
+    viewing: !!current,
+    back: () => useStudioStore.setState({ libraryItem: null }),
+    close,
+    step,
+    page,
+    pages,
+    setPage,
+    searchRef,
   });
 
   return (
@@ -467,7 +389,7 @@ export const ExportsLibrary: React.FC = () => {
             </select>
           </div>
 
-          {!list.length && <NoMatch />}
+          {!list.length && <ClearSearch />}
           <div className="lib-grid">
             {list.slice(page * LIB_PAGE, page * LIB_PAGE + LIB_PAGE).map((r) => (
               <button className="lib-card" key={r.filename} title={r.filename} onClick={() => useStudioStore.setState({ libraryItem: r.filename })}>
@@ -484,14 +406,7 @@ export const ExportsLibrary: React.FC = () => {
             ))}
           </div>
 
-          {list.length > 0 && (
-            <div className="lib-foot">
-              <span className="muted">
-                {page * LIB_PAGE + 1}–{Math.min(list.length, (page + 1) * LIB_PAGE)} of {list.length}
-              </span>
-              {pages > 1 && <Pager page={page} pages={pages} onPage={setPage} />}
-            </div>
-          )}
+          <LibraryFoot page={page} pages={pages} per={LIB_PAGE} count={list.length} onPage={setPage} />
         </>
       )}
     </Modal>

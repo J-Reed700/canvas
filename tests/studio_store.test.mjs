@@ -71,7 +71,7 @@ function fresh(over = {}) {
     clipFrame: {},
     palettes: {},
     rollOpts: { look: true, edit: true, perClip: true, clips: false, loop: false },
-    exportOpts: { size: 'master', audio: true, format: 'spotify', promo: 0, autoSave: true },
+    exportOpts: { size: 'master', withSong: false, format: 'spotify', promo: 0, autoSave: true },
     ...over,
   });
   st().rebuild();

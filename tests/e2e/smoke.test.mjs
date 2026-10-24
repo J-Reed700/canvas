@@ -210,6 +210,23 @@ test('the studio works end to end in a real browser', { skip: missing.length ? `
     if (Math.abs(S.getState().bpm() - 120) > 1) throw new Error('tempo ' + S.getState().bpm());
   `);
 
+  await step('Clips: the search narrows the panel, and the browser shows a clip with its folder', `
+    setRange($('.clip-find input'), 'swirl');
+    await until(() => $$('#clips .clip').length === 1 && $('#clipCount').textContent === '1 of 2 shown', 2000, 'the clip search');
+    setRange($('.clip-find input'), '');
+    await until(() => $$('#clips .clip').length === 2, 2000, 'the search to clear');
+    await tap($('#btnBrowseClips'));
+    await until(() => $$('.clip-card').length === 2, 5000, 'the clips browser');
+    await tap($$('.clip-card .lib-open').find((b) => b.textContent.includes('2 swirl.mp4')));
+    await until(() => $('.lib-view video'), 5000, 'the clip player');
+    const rows = $$('.lib-view .summary b').map((b) => b.textContent);
+    if (!rows.includes('Canvas') || !rows.includes('640 × 360 · Landscape')) throw new Error('details: ' + rows.join(' | '));
+    key('Escape');
+    await until(() => !$('.lib-view') && $('.clip-card'), 2000, 'the grid');
+    key('Escape');
+    await until(() => !S.getState().clipsOpen, 2000, 'the browser to close');
+  `);
+
   await step('every effect, transition and render pass compiles on this GPU', `
     const errors = S.getState().engine.warmup();
     if (errors.length) throw new Error(errors.join('\\n'));
@@ -277,6 +294,9 @@ test('the studio works end to end in a real browser', { skip: missing.length ? `
     await tap($$('.opt-card').find((c) => c.textContent.includes('720 × 1280')));
     const auto = $$('#exportForm label.check').find((l) => l.textContent.includes('Downloads folder')).querySelector('input');
     if (auto.checked) await tap(auto);
+    const song = $$('#exportForm label.check').find((l) => l.textContent.includes('copy with the song')).querySelector('input');
+    if (song.checked) throw new Error('the copy with the song should start unchecked');
+    await tap(song);
     await tap(byText('#exportForm button', 'Render & verify'));
     try {
       await until(() => /^(Ready for Spotify|Exported, but some checks failed|Export failed.*|Export cancelled)$/.test($('#exportStatus h2')?.textContent || ''), 120000, 'the export');
@@ -292,16 +312,23 @@ test('the studio works end to end in a real browser', { skip: missing.length ? `
     if (!(r.stats.mean_luminance > 0.02)) throw new Error('the render is black: ' + JSON.stringify(r.stats));
     const foot = r.checks.find((c) => c.id === 'footage');
     if (foot?.level !== 'ok') throw new Error('the footage check: ' + JSON.stringify(foot));
+    if (!r.audio_url) throw new Error('no copy with the song');
     window.__render = r.filename;
+    window.__audio = decodeURIComponent(r.audio_url.split('/').pop());
   `);
 
-  await t.test('the export landed in out/ at the right length', { skip: broken ? 'no export' : false }, async () => {
+  await t.test('the export landed in out/ at the right length, silent, with a copy that has the song', { skip: broken ? 'no export' : false }, async () => {
     const name = await browser.run('return window.__render;');
     const file = join(out, name);
     assert.ok(existsSync(file), file);
     const probe = spawnSync('ffprobe', ['-v', 'error', '-show_entries', 'stream=width,height,nb_frames', '-of', 'json', file], { encoding: 'utf8' });
     const [s] = JSON.parse(probe.stdout).streams;
     assert.deepEqual([s.width, s.height, +s.nb_frames], [720, 1280, 120]);
+    const withSong = join(out, await browser.run('return window.__audio;'));
+    const kinds = spawnSync('ffprobe', ['-v', 'error', '-show_entries', 'stream=codec_type', '-of', 'json', withSong], { encoding: 'utf8' });
+    assert.deepEqual(JSON.parse(kinds.stdout).streams.map((x) => x.codec_type).sort(), ['audio', 'video'], 'the copy has the song');
+    const silent = spawnSync('ffprobe', ['-v', 'error', '-show_entries', 'stream=codec_type', '-of', 'json', file], { encoding: 'utf8' });
+    assert.deepEqual(JSON.parse(silent.stdout).streams.map((x) => x.codec_type), ['video'], 'the Canvas itself stays silent');
   });
 
   await step('the screen menu and O reshape the preview, and the export takes the same shape', `
@@ -362,6 +389,65 @@ test('the studio works end to end in a real browser', { skip: missing.length ? `
     }
     assert.ok(still.length <= steps * 0.05, `${still.length} of ${steps} steps inside cuts show no change: frames ${still.slice(0, 20).join(', ')}`);
   });
+
+  await step('saves the edit as a project, which keeps saving itself, and opens it again after a new one', `
+    key('Escape');
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 's', metaKey: true, bubbles: true }));
+    const name = await until(() => $('#projectsModal input[aria-label="Project name"]'), 2000, 'Projects to ask for a name');
+    setRange(name, 'E2E project');
+    await tap(byText('#projectsModal button', 'Save as project'));
+    await until(() => S.getState().project?.name === 'E2E project' && !S.getState().projectsOpen, 5000, 'the project to save');
+    if ($('#btnProjects .proj-name').textContent !== 'E2E project') throw new Error('top bar: ' + $('#btnProjects').textContent);
+    const id = S.getState().project.id;
+    const look = S.getState().look.name;
+    byText('#tabs button', 'Edit').click();
+    await until(() => $('#pane-edit'), 5000, 'the Edit tab');
+    byText('#pane-edit .seg button', '4 bars').click();
+    const file = async () => (await (await fetch('/api/projects/' + id)).json()).project;
+    // the autosave lands a moment after the change
+    for (let i = 0; i < 50 && (await file()).data.bars !== 4; i++) await sleep(100);
+    if ((await file()).data.bars !== 4) throw new Error('the project file has ' + (await file()).data.bars + ' bars');
+
+    await tap($('#btnProjects'));
+    await tap(await until(() => byText('#projectsModal button', 'New project'), 2000, 'New project'));
+    await until(() => S.getState().project === null && !S.getState().projectsOpen, 5000, 'a new edit');
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'o', metaKey: true, bubbles: true }));
+    await tap(await until(() => $('#projectsModal .proj-open[title="Open E2E project"]'), 2000, 'the project in the list'));
+    // the new edit isn't saved, so opening asks first
+    await tap(await until(() => byText('.proj-confirm button', 'Replace it'), 2000, 'the confirmation'));
+    await until(() => S.getState().project?.id === id && S.getState().bars === 4 && S.getState().look.name === look, 10000, 'the project to open');
+    window.__project = id;
+  `);
+
+  await t.test('the project is a file in out/projects', { skip: broken ? 'no project' : false }, async () => {
+    const id = await browser.run('return window.__project;');
+    const saved = JSON.parse(readFileSync(join(out, 'projects', `${id}.json`), 'utf8'));
+    assert.deepEqual([saved.name, saved.data.bars], ['E2E project', 4]);
+    assert.equal(readdirSync(join(out, 'projects', 'exports')).length, 3, 'every export kept its edit');
+  });
+
+  await t.test('after a reload the project is still open', { skip: broken ? 'no project' : false }, async () => {
+    await browser.send('Page.reload');
+    await sleep(1500);
+    await browser.run(PAGE + `
+      await until(() => window.__studio?.ctx && S.getState().project, 30000, 'the studio to start');
+      if (S.getState().project.name !== 'E2E project' || S.getState().bars !== 4) throw new Error(JSON.stringify(S.getState().project) + ' ' + S.getState().bars);
+      if ($('#btnProjects .proj-name').textContent !== 'E2E project') throw new Error('top bar: ' + $('#btnProjects').textContent);
+    `);
+  });
+
+  await step('an export opens the edit it was made from', `
+    await until(() => window.__studio?.ctx && S.getState().features, 30000, 'the song');
+    // the first Spotify export, the hand-cut one (the list is newest first)
+    const r = S.getState().renders.filter((x) => x.resolution === '720x1280').at(-1);
+    if (!r?.has_edit) throw new Error('the Spotify export has no edit: ' + JSON.stringify(r));
+    S.getState().transport.pause();
+    window.__studio.store.setState({ libraryOpen: true, libraryItem: r.filename });
+    await tap(await until(() => byText('#libraryModal button', 'Open the edit'), 2000, 'Open the edit'));
+    await until(() => !S.getState().libraryOpen && S.getState().bars === 2 && S.getState().ctx.tl.handCut, 10000, "the export's edit");
+    if (S.getState().project !== null) throw new Error("the export's edit should open outside the project");
+    if (S.getState().exportOpts.format !== 'spotify') throw new Error('format ' + S.getState().exportOpts.format);
+  `);
 
   await t.test('no errors in the page', () => {
     assert.deepEqual(browser.problems, []);

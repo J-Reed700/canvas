@@ -3,7 +3,9 @@ import { toast } from '../lib/utils.ts';
 import { LOOKS, cloneLook } from '../engine/looks.ts';
 import { MODULES } from '../engine/modules.ts';
 import { defaultEnv, defaultLfos, defaultSeq } from '../engine/audio.ts';
-import type { Look } from '../engine/types.ts';
+import { firstClips } from './mediaActions.ts';
+import { flushProject, syncProject } from './projectController.ts';
+import type { ClipMeta, Look, TrackMeta } from '../engine/types.ts';
 
 const KEY = 'downbeat.studio.v1';
 // Saved before the Canvas Forge → Downbeat rename; read once so nobody loses their session.
@@ -35,6 +37,78 @@ export const historyDepth = (): { undo: number; redo: number } => histDepth;
 
 let saveTimer: ReturnType<typeof setTimeout> | undefined;
 
+/** The edit itself, without the studio's own settings: what a project file, an export's copy of its edit,
+ * undo and a batch export save and put back. */
+export function editState() {
+  const s = useStudioStore.getState();
+  return {
+    trackId: s.trackId,
+    selected: s.selected,
+    look: s.look,
+    lookId: s.lookId,
+    bars: s.bars,
+    loopStart: s.loopStart,
+    bpmManual: s.bpmManual,
+    bpmOverride: s.bpmOverride,
+    seed: s.seed,
+    direction: s.direction,
+    lockEdit: s.lockEdit,
+    blocks: s.blocks,
+    intensity: s.intensity,
+    clipMode: s.clipMode,
+    clipLooks: s.clipLooks,
+    evolveAmt: s.evolveAmt,
+    evolveCuts: s.evolveCuts,
+    rebound: s.rebound,
+    fitAll: s.fitAll,
+    clipFrame: s.clipFrame,
+    gridNudge: s.gridNudge,
+    exportOpts: s.exportOpts,
+  };
+}
+
+/** The store fields for an edit read back from the session, a project or an export, with defaults for what it
+ * doesn't have. Clips that are gone leave the sequence, which starts on a few clips if none are left, and a
+ * song that's gone leaves the edit on the BPM clock. */
+export function editFields(saved: any, clips: ClipMeta[], tracks: TrackMeta[]) {
+  const kept: string[] = Array.isArray(saved.selected) ? saved.selected.filter((id: string) => clips.some((c) => c.id === id)) : [];
+  // an edit saved with no song stays on the BPM clock; one that never had the choice starts on the newest song
+  let trackId: string = typeof saved.trackId === 'string' ? saved.trackId : tracks[0]?.id || '';
+  if (trackId && !tracks.some((t) => t.id === trackId)) trackId = '';
+  // `audio` is the old name of withSong, which was on by default. Leaving it behind starts that copy unchecked.
+  const { audio: _oldAudio, ...exportOpts } = saved.exportOpts || { size: 'master', withSong: false, format: 'spotify', promo: 0, autoSave: true };
+  return {
+    selected: kept.length ? kept : firstClips(clips),
+    trackId,
+    look: saved.look && Array.isArray(saved.look.layers) ? (saved.look as Look) : cloneLook(LOOKS[0]),
+    lookId: (saved.lookId as string) || LOOKS[0].id,
+    bars: saved.bars ?? 4,
+    loopStart: saved.loopStart ?? 0,
+    bpmManual: saved.bpmManual ?? 128,
+    bpmOverride: saved.bpmOverride || {},
+    seed: saved.seed ?? 2026,
+    direction: saved.direction || 'forward',
+    lockEdit: saved.lockEdit ?? false,
+    intensity: saved.intensity ?? 1,
+    clipMode: saved.clipMode || 'one',
+    clipLooks: saved.clipLooks || {},
+    editClip: null,
+    evolveAmt: saved.evolveAmt ?? 0.45,
+    evolveCuts: !!saved.evolveCuts,
+    rebound: !!saved.rebound,
+    fitAll: saved.fitAll ?? true,
+    blocks: saved.blocks || null,
+    legacyEdit:
+      !saved.blocks && (saved.customCuts?.length || Object.keys(saved.segOverrides || {}).length)
+        ? { customCuts: saved.customCuts || null, segOverrides: saved.segOverrides || {} }
+        : null,
+    selectedBlock: null,
+    clipFrame: saved.clipFrame || {},
+    gridNudge: saved.gridNudge || {},
+    exportOpts,
+  };
+}
+
 function writeSession() {
   saveTimer = undefined;
   const s = useStudioStore.getState();
@@ -42,49 +116,37 @@ function writeSession() {
     localStorage.setItem(
       KEY,
       JSON.stringify({
-        trackId: s.trackId,
-        selected: s.selected,
-        look: s.look,
-        lookId: s.lookId,
-        saved: s.saved,
-        bars: s.bars,
-        loopStart: s.loopStart,
-        bpmManual: s.bpmManual,
-        bpmOverride: s.bpmOverride,
-        seed: s.seed,
-        direction: s.direction,
-        lockEdit: s.lockEdit,
-        blocks: s.blocks,
+        ...editState(),
         // an older session's cuts that haven't been turned into blocks yet, kept until they are
         ...(s.legacyEdit || {}),
+        saved: s.saved,
         snap: s.snap,
         hud: s.hud,
         safe: s.safe,
         muted: s.muted,
         tab: s.tab,
         mode: s.transport.mode,
-        exportOpts: s.exportOpts,
-        intensity: s.intensity,
-        clipMode: s.clipMode,
-        clipLooks: s.clipLooks,
-        evolveAmt: s.evolveAmt,
-        evolveCuts: s.evolveCuts,
-        rebound: s.rebound,
-        fitAll: s.fitAll,
         rollOpts: s.rollOpts,
-        clipFrame: s.clipFrame,
-        gridNudge: s.gridNudge,
       }),
     );
   } catch {
     /* session storage only */
   }
+  // the open project's file follows the session
+  void syncProject();
 }
 
-function flushSession() {
+/** Writes a session save that's waiting on its timer now. */
+export function flushSave() {
   if (saveTimer === undefined) return;
   clearTimeout(saveTimer);
   writeSession();
+}
+
+function flushSession() {
+  flushSave();
+  // the page is going away, so a project write still waiting on the one before it goes now
+  flushProject();
 }
 
 if (typeof window !== 'undefined') {
@@ -144,32 +206,7 @@ export function restore(): any {
 }
 
 export function snapshot(): string {
-  const s = useStudioStore.getState();
-  return JSON.stringify({
-    look: s.look,
-    lookId: s.lookId,
-    direction: s.direction,
-    seed: s.seed,
-    intensity: s.intensity,
-    clipMode: s.clipMode,
-    clipLooks: s.clipLooks,
-    editClip: s.editClip,
-    evolveAmt: s.evolveAmt,
-    evolveCuts: s.evolveCuts,
-    rebound: s.rebound,
-    fitAll: s.fitAll,
-    selected: s.selected,
-    loopStart: s.loopStart,
-    bars: s.bars,
-    blocks: s.blocks,
-    clipFrame: s.clipFrame,
-    trackId: s.trackId,
-    bpmOverride: s.bpmOverride,
-    bpmManual: s.bpmManual,
-    gridNudge: s.gridNudge,
-    lockEdit: s.lockEdit,
-    exportOpts: s.exportOpts,
-  });
+  return JSON.stringify({ ...editState(), editClip: useStudioStore.getState().editClip });
 }
 
 export function applySnapshot(snap: string) {

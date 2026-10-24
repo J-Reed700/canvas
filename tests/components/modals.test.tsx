@@ -54,6 +54,7 @@ describe('export sheet', () => {
     fireEvent.click(fmtButton('Apple 1:1'));
     expect(summary().Size).toBe('3840 × 3840 (rendered at 2048)');
     expect(screen.queryByText(/Promo copy with the song/), 'Apple motion art is silent').toBeNull();
+    expect(screen.getByLabelText('Also save a copy with the song'), 'but a copy with the song can be made for a demo').toBeTruthy();
 
     fireEvent.click(fmtButton('Cover 3000²'));
     expect(sheet().querySelector('.note')!.textContent).toMatch(/^Album cover art: a 3000 × 3000 sRGB JPEG/);
@@ -89,8 +90,12 @@ describe('export sheet', () => {
   test('the audio, promo and auto-save options are saved with the export settings', () => {
     withSong();
     render(<Modals />);
-    fireEvent.click(screen.getByLabelText('Also save a copy with the audio slice'));
-    expect(st().exportOpts.audio).toBe(false);
+    const songCopy = screen.getByLabelText('Also save a copy with the song') as HTMLInputElement;
+    expect(songCopy.checked, 'off unless picked').toBe(false);
+    expect(screen.queryByText(/For demos/)).toBeNull();
+    fireEvent.click(songCopy);
+    expect(st().exportOpts.withSong).toBe(true);
+    expect(screen.getByText(/For demos. The export itself stays silent/)).toBeTruthy();
     fireEvent.click(within(sheet().querySelector('.field .seg') as HTMLElement).getByText('15 s'));
     expect(st().exportOpts.promo).toBe(15);
     fireEvent.click(screen.getByLabelText("Save to my Downloads folder when it's done"));
@@ -213,7 +218,7 @@ describe('shortcuts', () => {
     resetStudio({ helpOpen: true });
     render(<Modals />);
     const keys = Array.from(document.querySelectorAll('#helpModal .keys .kbd')).map((k) => k.textContent);
-    expect(keys).toEqual(['Space', '← →', 'M', 'D', '⇧ D', 'R', 'E', '[ ]', '1–4', 'H', 'S', 'O', 'L', 'T', 'B', '⌘ D', 'Delete', 'N', '⌘ Z', '?', 'Esc', 'Drag', '⇧ Drag', '⌥ Drag', 'Dbl-click']);
+    expect(keys).toEqual(['Space', '← →', 'M', 'D', '⇧ D', 'R', 'E', '[ ]', '1–4', 'H', 'S', 'O', 'L', 'T', 'B', '⌘ D', 'Delete', 'N', '⌘ S', '⌘ O', '⌘ Z', '?', 'Esc', 'Drag', '⇧ Drag', '⌥ Drag', 'Dbl-click']);
     fireEvent.click(within(document.getElementById('helpModal')!).getByTitle('Close (Esc)'));
     expect(st().helpOpen).toBe(false);
   });

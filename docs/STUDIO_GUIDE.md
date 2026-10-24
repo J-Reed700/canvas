@@ -15,13 +15,14 @@ This covers every panel and control in the studio and how they connect. If you r
 10. [Per-clip FX](#10-per-clip-fx)
 11. [The Edit tab](#11-the-edit-tab)
 12. [Roll, Surprise, Variations and undo](#12-roll-surprise-variations-and-undo)
-13. [Preview and transport](#13-preview-and-transport)
-14. [Exporting](#14-exporting)
-15. [Shortcuts](#15-shortcuts)
-16. [Effects](#16-effects)
-17. [Rhythms, transitions and speed ramps](#17-rhythms-transitions-and-speed-ramps)
-18. [Troubleshooting](#18-troubleshooting)
-19. [Notes for developers](#19-notes-for-developers)
+13. [Projects](#13-projects)
+14. [Preview and transport](#14-preview-and-transport)
+15. [Exporting](#15-exporting)
+16. [Shortcuts](#16-shortcuts)
+17. [Effects](#17-effects)
+18. [Rhythms, transitions and speed ramps](#18-rhythms-transitions-and-speed-ramps)
+19. [Troubleshooting](#19-troubleshooting)
+20. [Notes for developers](#20-notes-for-developers)
 
 ## 1. How a canvas is built
 
@@ -58,7 +59,7 @@ Preview and export use the same renderer, so an export matches the preview frame
 ## 2. The screen
 
 ```
-┌ track · BPM · loop length · look · clip count ································· ?  🎲 Roll ▾  Export ┐
+┌ project · track · BPM · loop length · look · clip count ······················ ?  🎲 Roll ▾  Export ┐
 ├──────────────┬─────────────────────────────────────────┬───────────────────────────────────────────┤
 │ Track        │ Phone preview                           │ Looks | Layers | Edit                      │
 │ BPM, grid    │                                         │                                           │
@@ -70,8 +71,9 @@ Preview and export use the same renderer, so an export matches the preview frame
 └──────────────┴─────────────────────────────────────────┴───────────────────────────────────────────┘
 ```
 
-The chips along the top are a summary: track, tempo, loop length, the main look's name and how many clips are
-in the edit. On the right, the ↶ and ↷ buttons undo and redo your last change (⌘Z, ⇧⌘Z), ? lists the
+The button next to the Downbeat name is the open project and whether it's saved; click it for
+[Projects](#13-projects). The chips after it are a summary: track, tempo, loop length, the main look's name and
+how many clips are in the edit. On the right, the ↶ and ↷ buttons undo and redo your last change (⌘Z, ⇧⌘Z), ? lists the
 shortcuts, 🎲 Roll (D) randomizes the canvas (the ▾ beside it sets what a roll changes and has Undo last roll),
 and Export Canvas (E) opens the export sheet.
 
@@ -149,6 +151,20 @@ still being made. The other videos from your folders are dimmed with a dashed bo
 + Add (or tap it) to put it in the edit, which starts its proxy. Still images become clips too, and
 adding one switches to the Living Cover Art look, which is designed for a single image.
 
+### Finding a clip
+
+The search box above the clips narrows them by file name, folder or size (`1920x1080`, or Vertical,
+Landscape and Square). The chips under it show only the clips in the edit, the videos or the stills, and the
+count next to Clips then says how many are shown. Esc in the search box clears it. The list here always keeps
+the edit's order, so the numbers and dragging still work while it's narrowed.
+
+Browse opens the clip library, built like the exports library: a card for each clip with its length, size and
+folder, the same search and chips, and a sort (Folder order, In the edit first, Name, Longest, Shortest).
+\+ on a card adds the clip to the edit and ✓ takes it out, without moving the card. Click a card to play the
+clip and see its details. A clip that isn't loaded shows its first frame until you add it. From there you can
+add it or take it out, open its effects when per-clip FX is on, reveal it in the Finder, or remove it from the
+library. ← and → step through clips, / jumps to the search box, and Esc goes back to the cards, then closes.
+
 The Exports section below lists your renders. Each one shows whether it passed the format's spec check
 (✓ spec, or ✕ and the number of failures), with Reveal in Finder and a Delete button that asks for a second
 click. An export made with a promo copy also has a ♫ button that downloads the promo with the song. The search box and the kind chips (Canvas, Apple, YouTube and so on) filter the list, and Browse opens
@@ -179,7 +195,7 @@ A clip that comes back doesn't repeat itself. Each return picks up later in the 
 the block is the frame that block starts on.
 
 How many cuts you get depends on the rhythm buttons at the top right: Beat cuts on every beat, Bar once a bar,
-Hits on the strongest drum hits, and so on (full list in [section 17](#17-rhythms-transitions-and-speed-ramps)).
+Hits on the strongest drum hits, and so on (full list in [section 18](#18-rhythms-transitions-and-speed-ramps)).
 When the rhythm gives fewer cuts than there are clips, the longest cuts are split in two until every clip has
 one. "Show every clip at least once" in the Edit tab turns that off.
 
@@ -479,10 +495,51 @@ the layer tools says so. Reset clip N or Same look on all brings the main look b
 | Variations | M | Six mutations of the current look, playing live. Subtle/Wild sets how far they drift, ⟳ Mutate again (or M again) deals six more, and clicking one keeps it without touching your edit |
 | ↶ Undo, ↷ Redo | ⌘Z, ⇧⌘Z | The arrows in the top bar. Undoes any change to the work: looks, layers, sliders, modulation, palette tints, cuts, clip order and framing, the song and its tempo and beat grid, and the screen and export settings. View toggles (Player UI, Safe zones, Sound, Loop/Listener, the open tab) aren't undone. Each button is greyed out when there's nothing to step to |
 
-The studio saves your session (clips, look, edit, saved looks, toggles) in the browser and restores it next
-time you open it.
+The studio also keeps your session (clips, look, edit, your looks, toggles) in the browser and restores it
+the next time you open it. To keep an edit for good, save it as a project.
 
-## 13. Preview and transport
+## 13. Projects
+
+A project is one edit saved as a file: the clips and their order, the song and the part that loops, the look
+and per-clip FX, the cuts, the framing and the export settings. Each project is a JSON file in
+`out/projects/`, so it doesn't depend on the browser, and it's backed up with the rest of `out/`.
+
+The button next to the Downbeat name in the top bar shows the open project and whether its file is up to
+date: Saved, Saving, or Couldn't save (the studio tries again on your next change). An edit that isn't in a
+project shows as Untitled, Not saved. Click the button or press ⌘O to open Projects.
+
+| In Projects | What it does |
+|---|---|
+| Save as project | Saves the edit under the name you type, or under the song and look names if you leave it empty. From then on, each change is written to the file a moment after you make it |
+| The name field | Renames the open project. Enter or clicking away keeps the new name, Esc puts the old one back |
+| Save a copy | Saves the edit as a new project and switches to it. The project you were in keeps its last save |
+| New project | Starts over on the first look, the first five clips and the newest song. Tempo fixes you made to songs carry over |
+| A project in the list | Opens it. The project you're leaving gets your last change first. Each row shows the look, the clip count, the loop length in bars, the song and when it was last saved |
+| 🗑 | Deletes the project's file, on the second click. If it's the open project, its edit stays on screen, saved only in the browser |
+| Search | Shows once there are six projects or more. Finds one by its name, look or song. Esc clears it |
+
+Opening a project or starting a new one replaces the edit on screen. If that edit isn't in a project, Projects
+asks before replacing it. Undo starts over from the project you open.
+
+⌘S saves the open project right away. It already saves itself, so you only need this before closing the
+window in a hurry. With no project open, ⌘S opens Projects so you can name the edit.
+
+### Opening the edit an export was made from
+
+Each export keeps a copy of its edit in `out/projects/exports/`. In the exports library, open an export and
+click Open the edit. The edit opens outside any project, so changing it doesn't touch a project until you save
+it as one. Exports made before projects existed don't have an edit, and the button doesn't show for them.
+Deleting an export deletes its copy of the edit too.
+
+### What stays in the browser
+
+Your looks (★ Save as look), the open tab, Player UI, Safe zones, Sound, the snap setting and the Roll options
+belong to the studio rather than to one edit, so they stay in the browser and don't change when you switch
+projects. The browser also keeps the edit you're working on, so a reload never loses it. If the open project is
+saved from another tab or browser while this one is closed, the studio opens the newer file the next time it
+starts.
+
+## 14. Preview and transport
 
 The preview shows what the export will look like, on a device of the export's shape: a phone for Spotify
 9:16, a landscape screen for YouTube 16:9, a tablet for Apple 3:4, and a square screen for the 1:1 formats.
@@ -525,7 +582,7 @@ look still apply on top, and so does any modulation on the camera zoom (many loo
 Auto, or Back to auto, drops the segment's framing. Like the other segment settings, it goes back to automatic
 when you change the clips, the rhythm or the transitions.
 
-## 14. Exporting
+## 15. Exporting
 
 Press E or Export Canvas.
 
@@ -534,18 +591,21 @@ Press E or Export Canvas.
 | Spotify 9:16 | A silent 3 to 8 second canvas. Sizes: Master 1080×1920, Lite 720×1280, or Spec-literal 608×1080 if Spotify rejects an upload |
 | Apple 3:4 | 2048×2732 motion artwork, silent, repeated to at least 15 seconds |
 | Apple 1:1 | Rendered at 2048 and delivered at 3840×3840 |
-| YouTube 16:9 | A 1920×1080 visualizer with the song |
-| Social 1:1 | A 1080×1080 loop, with the song if you want it |
+| YouTube 16:9 | A 1920×1080 visualizer of any length |
+| Social 1:1 | A 1080×1080 loop of any length |
 | Cover 3000² | A 3000×3000 sRGB cover JPEG and a square motion preview |
 
-You can also save a copy with the audio slice, make a 15 or 30 second promo with the song (for Reels, TikTok
-or Spotify Countdown pages), and have finished files copied to Downloads.
+The export itself is silent. For a demo with sound, check Also save a copy with the song: it's off unless you
+check it, works with every format, and writes a second file, ending in `-audio.mp4`, with the song playing from
+the loop start (under the whole repeated file for Apple). With Save to my Downloads folder on, that copy is
+downloaded too. You can also make a 15 or 30 second promo with the song for Spotify, YouTube and Social (for
+Reels, TikTok or Spotify Countdown pages), and have finished files copied to Downloads.
 
 ### Long videos
 
 Spotify takes 3 to 8 seconds and Apple Music motion art at most 35, and the sheet warns you when the loop
 doesn't fit the format you picked. YouTube 16:9 and Social 1:1 take any length, so use those for a
-visualizer. With "Also save a copy with the song" ticked you get a second file with the song playing from the
+visualizer. With Also save a copy with the song checked you get a second file with the song playing from the
 loop start. The GIF and WebP teasers use the first 10 seconds.
 
 Videos over a minute are encoded at 20 Mbps instead of 50, which is about 150 MB a minute. How fast they
@@ -581,7 +641,7 @@ The sheet says which render it's on and names its look or song. Cancel stops the
 that fails. Either way the batch ends on a summary: how many were exported, how many passed every check, where
 it stopped if it did, and a download link for each file.
 
-## 15. Shortcuts
+## 16. Shortcuts
 
 | Key | Action |
 |---|---|
@@ -605,6 +665,8 @@ it stopped if it did, and a download link for each file.
 | ? | Shortcut list |
 | Esc | Close menus and dialogs, or clear the selected block |
 | ⌘Z, ⇧⌘Z | Undo, redo (Ctrl on Windows and Linux, where Ctrl+Y also redoes) |
+| ⌘S | Save the open project now, or name the edit to save it as one |
+| ⌘O | Projects |
 
 | Mouse | Where | Action |
 |---|---|---|
@@ -618,7 +680,7 @@ it stopped if it did, and a download link for each file.
 | Double-click, right-click, Enter, or long-press on a touch screen | timeline block | Segment menu: split, repeat, put a clip in, delete, timing, clip, in-point, direction, speed ramp, transition and its length, framing |
 | Drag | clip | Reorder |
 
-## 16. Effects
+## 17. Effects
 
 Layers run top to bottom. Time effects remember earlier frames, so they start fresh whenever the stack
 changes.
@@ -705,7 +767,7 @@ changes.
 | Acid Solarize | A pastel pink tint on the highlights that pulses every bar, 2 beats, beat or kick. Unlike Solarize, it never inverts |
 | Film Stock | Bleach Bypass, Cyberpunk, Golden Hour, Sepia Noir, Cross Process, Teal & Orange |
 
-## 17. Rhythms, transitions and speed ramps
+## 18. Rhythms, transitions and speed ramps
 
 ### Cut rhythms
 
@@ -741,7 +803,7 @@ The loop seam favors the softer ones so the restart is harder to spot.
 | Wave | Speeds up and slows down every two beats |
 | Bar ramp | Slow motion that speeds up through the bar |
 
-## 18. Troubleshooting
+## 19. Troubleshooting
 
 ### I moved a slider and the preview didn't change
 
@@ -795,7 +857,7 @@ The studio draws with WebGL2, and the browser wouldn't give it a WebGL2 context.
 browser's reason. Use a current Chrome or Edge, turn on "Use graphics acceleration when available" in its
 System settings, and relaunch it. `chrome://gpu` should list WebGL2 as hardware accelerated.
 
-## 19. Notes for developers
+## 20. Notes for developers
 
 - `compose(ctx, t)` in `downbeat/studio/src/engine/composer.ts` turns the look, the edit, the audio and a time into
   one frame for the engine. Preview, look thumbnails, variations and export all call it, which is why export
@@ -821,6 +883,14 @@ System settings, and relaunch it. `chrome://gpu` should list WebGL2 as hardware 
   the real loop time.
 - Session state is saved to `localStorage` under `downbeat.studio.v1`. Undo history is kept in memory: 100
   steps, with a snapshot taken 350 ms after each change.
+- `editState()` in `state/historyController.ts` is the edit itself, without the studio's own settings. Undo
+  snapshots, the session, project files and the copy sent with each export (`meta.edit`) all use it, and
+  `editFields()` reads one back with defaults for anything missing. `state/projectController.ts` keeps the
+  open project's id in `localStorage` under `downbeat.project.v1` and writes the edit to its file after each
+  session save, one request at a time and only when it changed. On the server, `downbeat/server/projects.py`
+  stores them: GET `/api/projects` lists, GET `/api/projects/<id>` reads one, POST
+  `/api/projects/{create,save,rename,delete}` writes, and GET `/api/projects/exports/<file>` reads an export's
+  edit. Files are written to a temp file and moved into place.
 - Per-clip stacks are rendered into `frame.pre`, before the transition. Camera and Finish always come from the
   main look.
 - Exports stream to the server while they render. `/api/export/raw/begin` with `stream: "h264"` opens a

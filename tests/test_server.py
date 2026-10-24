@@ -246,6 +246,48 @@ class TestServerRouting(_ServerCase):
         self.assertFalse(any(n.startswith(stem) for n in os.listdir(self.out)))
         self.assertNotIn(stem + ".mp4", [r["filename"] for r in self.get_json("/api/state")[1]["renders"]])
 
+    def test_projects_can_be_saved_listed_opened_renamed_and_deleted(self) -> None:
+        edit = {"selected": ["a", "b"], "look": {"name": "Neon Tide", "layers": []}, "bars": 4}
+        status, made = self.post_json("/api/projects/create", {"name": "  Night  Drive ", "data": edit})
+        self.assertEqual(status, 200)
+        pid = made["project"]["id"]
+        self.assertEqual((made["project"]["name"], made["project"]["clips"], made["project"]["look"]), ("Night Drive", 2, "Neon Tide"))
+        self.assertTrue(os.path.isfile(os.path.join(self.out, "projects", f"{pid}.json")))
+        listed = lambda: {p["id"]: p["name"] for p in self.get_json("/api/projects")[1]["projects"]}
+        self.assertEqual(listed()[pid], "Night Drive")
+
+        status, opened = self.get_json(f"/api/projects/{pid}")
+        self.assertEqual((status, opened["project"]["data"]), (200, edit))
+        status, saved = self.post_json("/api/projects/save", {"id": pid, "data": {**edit, "bars": 8}})
+        self.assertEqual((status, saved["project"]["bars"]), (200, 8))
+        self.assertEqual(self.get_json(f"/api/projects/{pid}")[1]["project"]["data"]["bars"], 8)
+        status, renamed = self.post_json("/api/projects/rename", {"id": pid, "name": "Club mix"})
+        self.assertEqual((status, renamed["project"]["name"]), (200, "Club mix"))
+        self.assertEqual(listed()[pid], "Club mix")
+
+        self.assertEqual(self.post_json("/api/projects/delete", {"id": pid}), (200, {"ok": True}))
+        self.assertNotIn(pid, listed())
+        self.assertEqual(self.get_json(f"/api/projects/{pid}")[0], 404)
+        # an autosave that arrives after the delete doesn't bring it back
+        status, late = self.post_json("/api/projects/save", {"id": pid, "data": edit})
+        self.assertEqual((status, late["ok"]), (404, False))
+        self.assertNotIn(pid, listed())
+
+    def test_project_requests_that_cannot_work_say_why(self) -> None:
+        status, body = self.post_json("/api/projects/create", {"name": "x", "data": [1, 2]})
+        self.assertEqual((status, body["error"]), (400, "The edit must be a JSON object"))
+        self.assertEqual(self.request("POST", "/api/projects/create", b"{not json", {"Content-Type": "application/json"})[0], 400)
+        self.assertEqual(self.request("POST", "/api/projects/create", b"[1]", {"Content-Type": "application/json"})[0], 400)
+        self.assertEqual(self.post_json("/api/projects/rename", {"id": "../../etc", "name": "x"})[0], 404)
+        self.assertEqual(self.request("POST", "/api/projects/nope", b"{}")[0], 404)
+        self.assertEqual(self.get_json("/api/projects/0123456789ab")[0], 404)
+        self.assertEqual(self.get_json("/api/projects/exports/nothing.mp4")[0], 404)
+        # another site can't write projects
+        status, _, _ = self.request("POST", "/api/projects/create", b'{"data": {}}', {"Origin": "http://evil.example"})
+        self.assertEqual(status, 403)
+        self.assertFalse(os.path.isdir(os.path.join(self.out, "projects")) and
+                         [n for n in os.listdir(os.path.join(self.out, "projects")) if n.endswith(".json")])
+
     def test_raw_export_calls_with_an_unknown_session_are_404(self) -> None:
         status, _, raw = self.request("POST", "/api/export/raw/frames?sid=nope", b"\0" * 16)
         self.assertEqual((status, json.loads(raw)), (404, {"ok": False, "error": "unknown session"}))
@@ -552,10 +594,21 @@ class TestServerMedia(_ServerCase):
         self.assertEqual((clip["width"], clip["height"], clip["fps"], clip["duration"]), (96, 160, 30.0, 2.0))
         self.assertTrue(clip["is_stock"])
         self.assertFalse(clip["still"])
+        self.assertEqual((clip["source"], clip["dir"]), (self.videos, ""), "listed from the picked folder, at its top")
         self.assertIn(clip["proxy"], ("none", "ready"), "no playback copy is started until the studio asks")
         self.assertEqual(self.track()["source"], self.videos)
         self.assertEqual(self.get_json("/api/state")[1]["folders"], [self.videos])
         self.assertEqual(set(self.get_json("/api/state?only=clips")[1]), {"clips"})
+
+    def test_reveal_shows_a_clip_where_it_is(self) -> None:
+        clip = self.clip()
+        with mock.patch.object(server_mod.sys, "platform", "darwin"), mock.patch.object(server_mod.subprocess, "Popen") as popen:
+            self.assertEqual(self.post_json("/api/reveal", {"clip_id": clip["id"]}), (200, {"ok": True}))
+        popen.assert_called_once_with(["open", "-R", clip["path"]])
+        with mock.patch.object(server_mod.sys, "platform", "linux"), mock.patch.object(server_mod.subprocess, "Popen") as popen:
+            self.assertEqual(self.post_json("/api/reveal", {"clip_id": clip["id"]}), (200, {"ok": False, "path": clip["path"]}))
+        popen.assert_not_called()
+        self.assertFalse(self.post_json("/api/reveal", {"clip_id": "nope"})[1]["ok"])
 
     def test_the_studio_asks_for_playback_copies_of_the_clips_in_its_edit(self) -> None:
         cid = self.clip()["id"]
@@ -674,7 +727,8 @@ class TestServerMedia(_ServerCase):
         video = json.loads(raw)
         self.assertEqual((status, video["ok"], video["kind"], video["name"], video["still"]), (200, True, "video", "my clip.mp4", False))
         self.assertTrue(os.path.isfile(os.path.join(self.out, "uploads", "my clip.mp4")), "the name is reduced to its last part")
-        self.assertIn(video["id"], [c["id"] for c in self.get_json("/api/state")[1]["clips"]])
+        listed = next(c for c in self.get_json("/api/state")[1]["clips"] if c["id"] == video["id"])
+        self.assertEqual((listed["source"], listed["dir"]), ("added", ""))
 
         png = cv2.imencode(".png", np.full((90, 60, 3), 200, np.uint8))[1].tobytes()
         status, _, raw = self.request("POST", "/api/upload", png, {"X-Filename": "cover.png"})
@@ -810,6 +864,18 @@ class TestServerMedia(_ServerCase):
         self.assertEqual((levels["codec"], levels["height"], levels["length"]), ("ok", "fail", "fail"))
         info = _ffprobe(os.path.join(self.out, sid))
         self.assertEqual(int(info["streams"][0]["nb_frames"]), 30)
+
+    def test_an_export_keeps_its_edit_until_it_is_deleted(self) -> None:
+        edit = {"selected": ["a"], "look": {"name": "Raw Edit", "layers": []}, "bars": 1}
+        meta = {"look": "Raw Edit", "bpm": 128, "duration": 0.5, "width": 64, "height": 112, "fps": 30, "edit": edit}
+        sid = self.post_json("/api/export/raw/begin", meta)[1]["sid"]
+        self.request("POST", f"/api/export/raw/frames?sid={sid}", np.zeros((15, 112, 64, 4), np.uint8).tobytes())
+        status, done = self.post_json(f"/api/export/raw/end?sid={sid}", {})
+        self.assertEqual((status, done["render"]["has_edit"]), (200, True))
+        self.assertEqual(self.get_json(f"/api/projects/exports/{sid}"), (200, {"ok": True, "data": edit}))
+        self.assertTrue(next(r for r in self.get_json("/api/state")[1]["renders"] if r["filename"] == sid)["has_edit"])
+        self.post_json("/api/export/delete", {"filename": sid})
+        self.assertEqual(self.get_json(f"/api/projects/exports/{sid}")[0], 404)
 
     def test_aborting_an_export_removes_its_files(self) -> None:
         for meta in ({"look": "Gone", "bpm": 90, "duration": 2, "width": 64, "height": 112, "fps": 30},

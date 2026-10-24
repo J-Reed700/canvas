@@ -11,6 +11,7 @@ import urllib.parse
 
 from .. import delivery
 from .library import Library, Track, track_id
+from .projects import ProjectStore
 from ..media.proxy import ProxyManager
 from ..media.source import IMAGE_EXTS, Source, probe
 
@@ -48,6 +49,11 @@ class StudioState:
             self._discover_existing_renders()
             self._initialized = True
         return self
+
+    @property
+    def projects(self) -> ProjectStore:
+        """Saved projects, and the edits kept with exports, in out/projects/."""
+        return ProjectStore(os.path.join(OUT_DIR, "projects"))
 
     @property
     def proxies(self) -> ProxyManager:
@@ -132,6 +138,7 @@ class StudioState:
                     "created_at": int(os.path.getmtime(path)),
                     "resolution": "1080x1920" if "master" in name or "sample" in name else "540x960",
                     "preset": "canvas",
+                    "has_edit": self.projects.has_export_edit(name),
                     **parse_export_name(name),
                 }
             )
@@ -195,6 +202,7 @@ class StudioState:
             "look": meta.get("look"),
             "checks": result["checks"],
             "engine": "gpu",
+            "has_edit": self.projects.has_export_edit(name),
         }
         with self.lock:
             self.renders = [r for r in self.renders if r.get("filename") != name]
@@ -216,6 +224,7 @@ class StudioState:
         ]
         for p in targets:
             os.remove(p)
+        self.projects.delete_export_edit(name)
         with self.lock:
             self.renders = [r for r in self.renders if r.get("filename") != name]
         return [os.path.basename(p) for p in targets]
@@ -307,8 +316,14 @@ def _finish_export(dest: str, meta: dict) -> dict:
         meta.get("stats"),
         fmt=_export_format(meta),
         promo_seconds=promo,
-        with_audio=bool(meta.get("with_audio", True)),
+        with_audio=bool(meta.get("with_audio", False)),
     )
+    # The edit the export was made from, so the studio can open it again from the Exports list.
+    if isinstance(meta.get("edit"), dict):
+        try:
+            STATE.projects.save_export_edit(os.path.basename(dest), meta["edit"])
+        except (OSError, ValueError):
+            pass  # the render is fine without it
     return STATE.add_export(dest, meta, result)
 
 
