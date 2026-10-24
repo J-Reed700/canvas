@@ -1,6 +1,7 @@
 """The studio's state: export names, rediscovered renders, and removing clips and exports."""
 from __future__ import annotations
 
+import json
 import os
 import shutil
 import tempfile
@@ -95,7 +96,7 @@ class TestStateHelpers(unittest.TestCase):
                 requested.append(("shutdown", 0))
 
         st._proxies = Proxies()
-        st.library = library.Library(self.out, downloads=os.path.join(self.out, "Downloads"))
+        st.library = library.Library(self.out)
         fake = source.Source(os.path.join(self.out, "uploads", "a.mp4"), 64, 112, 30.0, 30, 1.0)
         with mock.patch.object(state_mod, "probe", return_value=fake):
             self.assertIs(st.add_clip_path(fake.path), fake)
@@ -108,6 +109,38 @@ class TestStateHelpers(unittest.TestCase):
             st.add_track_path(os.path.join(self.out, "uploads", "notes.txt"))
         st.shutdown()
         self.assertEqual(requested[-1], ("shutdown", 0))
+
+    def test_clips_are_the_videos_in_uploads_and_the_picked_folders(self) -> None:
+        picked = os.path.join(self.out, "picked")
+        for name in ("uploads/mine.mp4", "picked/a.mp4", "picked/broken.mp4", "picked/hidden.mp4",
+                     "picked/canvas-neon-128bpm-7.5s-1080x1920-20261023-120000.mp4"):
+            self.touch(name)
+        with open(os.path.join(self.out, ".hidden-clips.json"), "w") as f:
+            json.dump([os.path.join(picked, "hidden.mp4")], f)
+        probed = []
+
+        def fake_probe(path: str) -> source.Source:
+            probed.append(os.path.basename(path))
+            if "broken" in path:
+                raise RuntimeError("cannot open video")
+            return source.Source(path, 64, 112, 30.0, 30, 1.0)
+
+        st = state_mod.StudioState()
+        st._initialized = True
+        st._proxies = mock.Mock()
+        st.library = library.Library(self.out)
+        with mock.patch.object(state_mod, "OUT_DIR", self.out), mock.patch.object(state_mod, "probe", side_effect=fake_probe):
+            st.rescan()
+            self.assertEqual(sorted(s.name for s in st.clips.values()), ["mine.mp4"], "nothing from a folder until it's picked")
+            st.library.add_folder(picked)
+            st.rescan()
+            self.assertEqual(sorted(s.name for s in st.clips.values()), ["a.mp4", "mine.mp4"], "no hidden clips, exports or unreadable files")
+            st.rescan()
+            st.library.remove_folder(picked)
+            st.rescan()
+        self.assertEqual(sorted(s.name for s in st.clips.values()), ["mine.mp4"])
+        self.assertEqual((probed.count("a.mp4"), probed.count("broken.mp4")), (1, 1), "nothing is probed twice")
+        st._proxies.request.assert_not_called()  # playback copies wait until a clip is put in the edit
         state_mod.StudioState().shutdown()  # nothing started yet
 
 
@@ -172,14 +205,14 @@ class TestLibraryCleanup(unittest.TestCase):
         from downbeat.server import state as state_mod
 
         out = tempfile.mkdtemp(prefix="db-out-")
-        dl = tempfile.mkdtemp(prefix="db-dl-")
+        picked = tempfile.mkdtemp(prefix="db-picked-")
         self.addCleanup(shutil.rmtree, out, True)
-        self.addCleanup(shutil.rmtree, dl, True)
+        self.addCleanup(shutil.rmtree, picked, True)
         os.makedirs(os.path.join(out, "uploads"))
         still = os.path.join(out, "uploads", "cover.still.mp4")
         image = os.path.join(out, "uploads", "cover.png")
         other_upload = os.path.join(out, "uploads", "cover-b.png")
-        mine = os.path.join(dl, "1234_my-clip.mp4")
+        mine = os.path.join(picked, "1234_my-clip.mp4")
         for p in (still, image, other_upload, mine):
             open(p, "wb").close()
         proxy_dir = os.path.join(out, ".proxies")
@@ -200,15 +233,16 @@ class TestLibraryCleanup(unittest.TestCase):
         for s_ in (a, b):
             open(st._proxies.path_for(s_), "wb").close()
 
-        with mock.patch.object(state_mod, "OUT_DIR", out), mock.patch.object(state_mod.os.path, "expanduser", return_value=dl):
+        with mock.patch.object(state_mod, "OUT_DIR", out):
             self.assertTrue(st.remove_clip(a.id))
             self.assertFalse(st.remove_clip(b.id))
             with self.assertRaises(KeyError):
                 st.remove_clip(a.id)
-            # the Downloads file is hidden, so a fresh start doesn't pick it up again
+            # the file in the picked folder is hidden, so a fresh start doesn't pick it up again
             fresh = state_mod.StudioState()
+            fresh.library.add_folder(picked)
             with mock.patch.object(state_mod, "probe", side_effect=src):
-                fresh._discover_initial_clips()
+                fresh._tracks, fresh._clips = fresh._scan()
 
         self.assertEqual(sorted(os.listdir(os.path.join(out, "uploads"))), ["cover-b.png"])
         self.assertTrue(os.path.isfile(mine))

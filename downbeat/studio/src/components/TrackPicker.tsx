@@ -1,43 +1,29 @@
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useStudioStore } from '../state/store.ts';
-import { fetchJSON, postJSON, songTitle, sourceLabel, toast } from '../lib/utils.ts';
+import { fetchJSON, homeShort, songTitle, sourceLabel } from '../lib/utils.ts';
 import { timeAgo } from '../lib/exportsView.ts';
+import { applyLibrary, removeFolder, type LibraryInfo } from '../state/mediaActions.ts';
 import type { TrackMeta } from '../engine/types.ts';
 import { SearchField } from './ui.tsx';
-
-interface LibraryInfo {
-  ok?: boolean;
-  error?: string;
-  tracks: TrackMeta[];
-  folders: string[];
-  suggestions: string[];
-  can_pick: boolean;
-  picked?: string | null;
-}
+import { ChooserNote, FolderPathForm, useFolderPicker } from './Folders.tsx';
 
 type Row = { kind: 'none' } | { kind: 'track'; t: TrackMeta };
 
 // Enough to scroll through comfortably; search narrows the rest.
 const MAX_ROWS = 250;
 
-const homeShort = (p: string) => p.replace(/^\/Users\/[^/]+/, '~');
-
-
-
 const TrackPickerMenu: React.FC<{ onAddSong: () => void }> = ({ onAddSong }) => {
   const trackId = useStudioStore((s) => s.trackId);
   const tracks = useStudioStore((s) => s.tracks);
   const selectTrack = useStudioStore((s) => s.selectTrack);
+  const folders = useStudioStore((s) => s.folders);
+  const suggestions = useStudioStore((s) => s.folderSuggestions);
+  const f = useFolderPicker();
 
   const [open, setOpen] = useState(false);
   const [q, setQ] = useState('');
   const [hi, setHi] = useState(0);
-  const [lib, setLib] = useState<LibraryInfo | null>(null);
-  const [waiting, setWaiting] = useState(false);
-  const [typing, setTyping] = useState(false);
-  const [pathText, setPathText] = useState('');
-  const [err, setErr] = useState('');
   const [pos, setPos] = useState<React.CSSProperties>({});
   const btnRef = useRef<HTMLButtonElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
@@ -45,18 +31,12 @@ const TrackPickerMenu: React.FC<{ onAddSong: () => void }> = ({ onAddSong }) => 
 
   const current = tracks.find((t) => t.id === trackId);
 
-  const apply = (r: LibraryInfo) => {
-    useStudioStore.setState({ tracks: r.tracks });
-    setLib(r);
-  };
-
   // Rescan every time the picker opens, so songs saved since the last look show up.
   useEffect(() => {
     if (!open) return;
     setQ('');
-    setErr('');
-    setTyping(false);
-    fetchJSON<LibraryInfo>('/api/tracks').then(apply).catch(() => {});
+    f.reset();
+    fetchJSON<LibraryInfo>('/api/tracks').then(applyLibrary).catch(() => {});
   }, [open]);
 
   useLayoutEffect(() => {
@@ -91,12 +71,12 @@ const TrackPickerMenu: React.FC<{ onAddSong: () => void }> = ({ onAddSong }) => 
     if (!open) return [];
     const words = q.toLowerCase().split(/\s+/).filter(Boolean);
     const match = (t: TrackMeta) => words.every((w) => `${t.name} ${t.dir || ''}`.toLowerCase().includes(w));
-    const order = ['added', 'downloads', ...(lib?.folders || [])];
+    const order = ['added', ...folders];
     for (const t of tracks) if (t.source && !order.includes(t.source)) order.push(t.source);
     return order
-      .map((key) => ({ key, items: tracks.filter((t) => (t.source || 'downloads') === key && match(t)) }))
-      .filter((g) => g.items.length || (lib?.folders || []).includes(g.key));
-  }, [open, tracks, q, lib]);
+      .map((key) => ({ key, items: tracks.filter((t) => t.source === key && match(t)) }))
+      .filter((g) => g.items.length || folders.includes(g.key));
+  }, [open, tracks, q, folders]);
 
   const total = groups.reduce((n, g) => n + g.items.length, 0);
   let budget = MAX_ROWS;
@@ -115,37 +95,6 @@ const TrackPickerMenu: React.FC<{ onAddSong: () => void }> = ({ onAddSong }) => 
   const pick = (id: string) => {
     setOpen(false);
     if (id !== trackId) selectTrack(id);
-  };
-
-  const folderAction = async (body: { add?: string; remove?: string }) => {
-    setErr('');
-    const r = await postJSON<LibraryInfo>('/api/library/folders', body);
-    if (r.ok === false) {
-      setErr(r.error || 'That folder could not be added');
-      return;
-    }
-    apply(r);
-    setTyping(false);
-    setPathText('');
-    if (body.add) toast(`Added ${homeShort(body.add)}. Its songs are in the list`);
-  };
-
-  const chooseFolder = async () => {
-    if (!lib?.can_pick) {
-      setTyping(true);
-      return;
-    }
-    setWaiting(true);
-    setErr('');
-    const r = await postJSON<LibraryInfo>('/api/library/pick_folder', {});
-    setWaiting(false);
-    if (r.ok === false) {
-      setTyping(true);
-      setErr(r.error || 'The folder chooser did not open. Type the path instead.');
-      return;
-    }
-    apply(r);
-    if (r.picked) toast(`Added ${homeShort(r.picked)}. Its songs are in the list`);
   };
 
   const onKey = (e: React.KeyboardEvent) => {
@@ -198,7 +147,7 @@ const TrackPickerMenu: React.FC<{ onAddSong: () => void }> = ({ onAddSong }) => 
                 </button>
               )}
               {shown.map((g) => {
-                const isFolder = g.key !== 'added' && g.key !== 'downloads';
+                const isFolder = g.key !== 'added';
                 const all = groups.find((x) => x.key === g.key)?.items.length || 0;
                 return (
                   <div key={g.key} className="tp-group">
@@ -206,12 +155,12 @@ const TrackPickerMenu: React.FC<{ onAddSong: () => void }> = ({ onAddSong }) => 
                       <span>{sourceLabel(g.key)}</span>
                       <small>{all}</small>
                       {isFolder && (
-                        <button className="tp-x" title={`Stop listing songs from ${homeShort(g.key)} (the files stay where they are)`} onClick={() => folderAction({ remove: g.key })}>
+                        <button className="tp-x" title={`Stop listing videos and songs from ${homeShort(g.key)} (the files stay where they are)`} onClick={() => removeFolder(g.key)}>
                           ✕
                         </button>
                       )}
                     </div>
-                    {!g.items.length && all === 0 && <div className="tp-empty">No songs in this folder yet</div>}
+                    {!g.items.length && all === 0 && <div className="tp-empty">No songs in this folder</div>}
                     {g.items.map((t) => {
                       const i = rowIndex++;
                       const ext = t.name.split('.').pop()?.toUpperCase();
@@ -245,22 +194,9 @@ const TrackPickerMenu: React.FC<{ onAddSong: () => void }> = ({ onAddSong }) => 
             </div>
 
             <div className="tp-foot">
-              {waiting && <div className="note">A folder chooser opened. If you don't see it, look behind the browser window.</div>}
-              {err && <div className="tp-err">{err}</div>}
-              {typing && (
-                <form
-                  className="tp-path"
-                  onSubmit={(e) => {
-                    e.preventDefault();
-                    if (pathText.trim()) folderAction({ add: pathText.trim() });
-                  }}
-                >
-                  <input className="numin" autoFocus placeholder="~/Music" value={pathText} onChange={(e) => setPathText(e.target.value)} />
-                  <button className="btn sm" type="submit">
-                    Add folder
-                  </button>
-                </form>
-              )}
+              {f.waiting && <ChooserNote />}
+              {f.err && <div className="tp-err">{f.err}</div>}
+              {f.typing && <FolderPathForm f={f} />}
               <div className="tp-actions">
                 <button
                   className="btn sm"
@@ -272,16 +208,16 @@ const TrackPickerMenu: React.FC<{ onAddSong: () => void }> = ({ onAddSong }) => 
                 >
                   + Add a song
                 </button>
-                <button className="btn sm" disabled={waiting} title="List every song in a folder and its subfolders" onClick={chooseFolder}>
-                  + Add a music folder
+                <button className="btn sm" disabled={f.waiting} title="List the videos and songs in a folder and its subfolders" onClick={f.choose}>
+                  + Add a folder
                 </button>
-                {lib?.suggestions.map((p) => (
-                  <button key={p} className="btn sm" onClick={() => folderAction({ add: p })}>
+                {suggestions.map((p) => (
+                  <button key={p} className="btn sm" onClick={() => f.add(p)}>
                     + {homeShort(p)}
                   </button>
                 ))}
-                {lib?.can_pick && !typing && (
-                  <button className="link tp-typelink" onClick={() => setTyping(true)}>
+                {f.canPick && !f.typing && (
+                  <button className="link tp-typelink" onClick={() => f.setTyping(true)}>
                     Type a path
                   </button>
                 )}

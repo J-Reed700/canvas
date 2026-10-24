@@ -9,6 +9,7 @@ import { TimelinePanel } from './components/TimelinePanel.tsx';
 import { InspectorPanel } from './components/InspectorPanel.tsx';
 import { Modals } from './components/Modals.tsx';
 import { ExportsLibrary } from './components/Exports.tsx';
+import { Welcome } from './components/Folders.tsx';
 
 export const App: React.FC = () => {
   const ambientRef = useRef<HTMLCanvasElement>(null);
@@ -33,14 +34,14 @@ export const App: React.FC = () => {
         (e.key === 'z' || e.key === 'Z' || e.key === 'y') &&
         !target?.closest?.('input[type=text], input[type=number], textarea, [contenteditable]')
       ) {
-        if (s.exporting) return;
+        if (s.exporting || s.welcome) return;
         e.preventDefault();
         if (e.key === 'y' || e.shiftKey) s.redo();
         else s.undo();
         return;
       }
 
-      if (target?.closest?.('input, select, textarea, [contenteditable]') || e.metaKey || e.ctrlKey || s.exporting || s.libraryOpen) {
+      if (target?.closest?.('input, select, textarea, [contenteditable]') || e.metaKey || e.ctrlKey || s.exporting || s.libraryOpen || s.welcome) {
         return;
       }
 
@@ -141,6 +142,7 @@ export const App: React.FC = () => {
 
       <Modals />
       <ExportsLibrary />
+      <Welcome />
     </>
   );
 };

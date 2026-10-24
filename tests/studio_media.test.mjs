@@ -24,7 +24,7 @@ class FakeAudioContext {
     FakeAudioContext.last = this;
   }
   createGain() { return { gain: { value: 1, setTargetAtTime(v) { this.value = v; } }, connect() {} }; }
-  resume() {}
+  resume() { this.resumed = true; }
   createBufferSource() {
     const n = { connect() {}, disconnect() { n.disconnected = true; }, stop() { n.stopped = true; }, start(when, offset) { n.offset = offset; } };
     this.nodes.push(n);
@@ -83,6 +83,19 @@ test('listen mode plays through the song from the loop start, offset by its phas
   assert.equal(tr.songTime(), 23);
 });
 
+test('pressing play before the song has loaded wakes the audio, so the song is heard when it arrives', (t) => {
+  withAudio(t);
+  FakeAudioContext.last = null;
+  const tr = new Transport();
+  tr.play();
+  const ac = FakeAudioContext.last;
+  assert.equal(ac?.resumed, true, 'Safari only lets a click or a key start audio');
+  assert.equal(ac.nodes.length, 0);
+  tr.setBuffer({ duration: 30 });
+  assert.equal(ac.nodes.length, 1, 'the song starts playing where the clock is');
+  assert.equal(tr.node, ac.nodes[0]);
+});
+
 test('a looping song is scheduled between the loop points and never past the end of the song', async (t) => {
   withAudio(t);
   const tr = new Transport();
@@ -135,6 +148,16 @@ test('the video bank makes one muted element per clip slot and reuses it', () =>
   assert.equal(e.playsInline, true);
   assert.equal(e.preload, 'auto');
   assert.equal(root.children.length, 2);
+});
+
+test('a video gets its source only once its playback copy is ready', () => {
+  let ready = false;
+  const b = new VideoBank(new FakeElement('div'), (id) => (ready ? `/api/proxy/${id}` : null));
+  const e = b.get('a#0');
+  assert.ok(!e.src, 'a request now would hold a connection until the copy is made');
+  ready = true;
+  assert.equal(b.get('a#0'), e);
+  assert.equal(e.src, '/api/proxy/a');
 });
 
 test('a clip whose proxy is still building is retried a few times', (t) => {

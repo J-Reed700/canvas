@@ -202,9 +202,11 @@ export const songTitle = (t: TrackMeta): string => t.name.replace(/\.[^.]+$/, ''
 /** Where a song was found, as shown in the track picker. */
 export function sourceLabel(source = ''): string {
   if (source === 'added') return 'Added in the studio';
-  if (source === 'downloads') return 'Downloads';
   return source.split('/').filter(Boolean).pop() || source;
 }
+
+/** A path with the home folder written as ~. */
+export const homeShort = (p: string) => p.replace(/^\/(Users|home)\/[^/]+/, '~');
 
 /** Songs in the same folder as this one, newest first: the set a "this look on every song" batch renders. */
 export function siblingTracks(tracks: TrackMeta[], id: string, max = 12): TrackMeta[] {

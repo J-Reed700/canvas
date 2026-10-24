@@ -35,8 +35,8 @@ export const SONG = {
 };
 
 export const TRACKS = [
-  { id: 't1', name: 'Night Drive.wav', path: '/Users/me/Downloads/Night Drive.wav', source: 'downloads', dir: '', mtime: 3 },
-  { id: 't2', name: 'Sunrise.mp3', path: '/Users/me/Downloads/Sunrise.mp3', source: 'downloads', dir: '', mtime: 2 },
+  { id: 't1', name: 'Night Drive.wav', path: '/Users/me/Movies/Canvas/Night Drive.wav', source: '/Users/me/Movies/Canvas', dir: '', mtime: 3 },
+  { id: 't2', name: 'Sunrise.mp3', path: '/Users/me/Movies/Canvas/Sunrise.mp3', source: '/Users/me/Movies/Canvas', dir: '', mtime: 2 },
 ];
 
 /** Resets the store to three clips on the first studio look, no song, 4 bars at 120 BPM, then rebuilds and starts the undo history there. */
@@ -79,6 +79,10 @@ export function resetStudio(over: Partial<StudioState> = {}) {
       helpOpen: false,
       libraryOpen: false,
       libraryItem: null,
+      folders: [],
+      folderSuggestions: [],
+      canPick: false,
+      welcome: false,
       exportFilter: { q: '', kind: 'all', sort: 'new' },
       exportOpts: { size: 'master', audio: true, format: 'spotify', promo: 0, autoSave: true },
       rollOpts: { look: true, edit: true, perClip: true, clips: false, loop: false },

@@ -77,9 +77,11 @@ and Export Canvas (E) opens the export sheet.
 
 ## 3. A first canvas
 
-1. Add media. Drop video clips, album art (JPG/PNG) and your song anywhere on the window, or use
-   + Add clips, art or tracks. The server also loads clips and songs from `~/Downloads`.
-2. Choose the song in the Track menu. The studio analyzes its tempo, beats, sections and drum hits when you
+1. Pick a folder. The first time you open the studio it shows one button, Pick a folder. Choose the folder
+   your clips are in, and the studio lists its videos and songs, puts up to five clips in the edit and picks
+   the newest song. To add files from elsewhere, drop video clips, album art (JPG/PNG) or songs anywhere on
+   the window, or use + Add files.
+2. Choose the song in the Track menu if it isn't the one you want. The studio analyzes its tempo, beats, sections and drum hits when you
    pick it.
 3. Choose which part of the song loops. The chips above the timeline (Drop, Peak 2, Intro…) are suggestions.
    You can also drag the lime box on the waveform.
@@ -101,11 +103,11 @@ while the studio is running show up.
 | Group | What's in it |
 |---|---|
 | Added in the studio | Songs you dropped on the window or added with + Add a song. They're copied to `out/uploads/` and stay in the list after a restart |
-| Downloads | Every song at the top level of `~/Downloads` (not its subfolders), skipping files under 250 KB such as alert sounds |
-| Your music folders | Folders you added with + Add a music folder, including their subfolders. The subfolder is shown under each song. ✕ stops listing a folder and leaves the files alone |
+| Your folders | One group for each folder you picked, including its subfolders, skipping files under 250 KB such as alert sounds. The subfolder is shown under each song. ✕ stops listing the folder's songs and videos and leaves the files alone |
 
-On a Mac, + Add a music folder opens the system folder chooser. If it doesn't appear, look behind the browser
-window, or use Type a path (for example `~/Music`). The folders you add are saved in `out/.library.json`.
++ Add a folder lists a folder's songs here and its videos in Clips. On a Mac it opens the system folder
+chooser. If that doesn't appear, look behind the browser window, or use Type a path (for example `~/Music`).
+The folders you add are saved in `out/.library.json`.
 
 WAV, MP3, FLAC, M4A, AAC, AIFF, OGG and Opus all work. Formats that some browsers can't play (M4A, AAC, AIFF,
 OGG, Opus) are converted to WAV with ffmpeg the first time you play them, and the 20 most recent
@@ -129,7 +131,9 @@ are dimmed underneath. Drag a numbered clip onto another to change the order.
 
 | Button | Does |
 |---|---|
-| All | Puts every clip in the library into the edit |
+| + Add files | Copies video clips, images or songs into the studio (`out/uploads/`). Dropping them on the window does the same |
+| + Add a folder | Lists the videos and songs in a folder and its subfolders, the 50 newest videos from each folder. The files stay where they are |
+| All | Puts every loaded clip into the edit. Videos that aren't loaded yet stay out |
 | Solo | Keeps only clip 1 |
 | Reverse | Reverses the order |
 | Shuffle | Shuffles the order |
@@ -139,7 +143,9 @@ When per-clip FX is on, each clip gets a small label in its top-right corner: "M
 otherwise the name of its own look. Clicking the label opens that clip's stack in the Layers tab (see
 [Per-clip FX](#10-per-clip-fx)).
 
-A pulsing dot on a clip means its playback proxy is still being made. Still images become clips too, and
+Only clips that have been in the edit are loaded. Each gets a playback proxy, and a pulsing dot means it's
+still being made. The other videos from your folders are dimmed with a dashed border. Hover over one and click
++ Add (or tap it) to put it in the edit, which starts its proxy. Still images become clips too, and
 adding one switches to the Living Cover Art look, which is designed for a single image.
 
 The Exports section below lists your renders. Each one shows whether it passed the format's spec check

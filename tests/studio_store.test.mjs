@@ -328,6 +328,9 @@ test('picking a song loads its analysis and suggested loop, and ignores a slower
   st().transport.decode = async () => FAKE_BUFFER;
   const first = st().selectTrack('t1');
   assert.equal(st().trackStateText, 'Analyzing…');
+  await tick();
+  assert.equal(st().transport.buffer, FAKE_BUFFER, 'the song can be heard before its analysis is in');
+  assert.equal(st().transport.trackId, 't1');
   await st().selectTrack('t2');
   release();
   await first;
@@ -622,6 +625,28 @@ test('clip toggles and reordering update the selection and clear per-cut overrid
   assert.equal(st().ctx, null, 'no clips, nothing to play');
 });
 
+test('videos not in the edit stay unloaded until one is put in, which asks for its playback copy', async () => {
+  const reqs = stubFetch({ 'POST /api/proxies': () => ({ ok: true, proxies: { b: 'building' } }) });
+  fresh({ clips: CLIPS.map((c) => ({ ...c, proxy: c.id === 'a' ? 'ready' : 'none' })), selected: ['a'] });
+  assert.deepEqual(st().clips.filter((c) => !media.isLoaded(c, st().selected)).map((c) => c.id), ['b', 'c']);
+  st().reorderClips('all');
+  assert.deepEqual(st().selected, ['a'], 'All leaves out the clips that are not loaded');
+  assert.equal(lastToast(), 'Using the one loaded clip');
+  await media.requestProxies();
+  assert.equal(reqs.length, 0, 'nothing to ask for');
+
+  st().toggleClip('b');
+  const asking = media.requestProxies();
+  assert.equal(st().clips.find((c) => c.id === 'b').proxy, 'queued', 'marked at once, so it is asked for once');
+  await asking;
+  assert.deepEqual(JSON.parse(reqs[0].body), { ids: ['b'] });
+  assert.equal(st().clips.find((c) => c.id === 'b').proxy, 'building');
+  await media.requestProxies();
+  assert.equal(reqs.length, 1);
+  st().toggleClip('b');
+  assert.equal(media.isLoaded(st().clips.find((c) => c.id === 'b'), st().selected), true, 'taken out of the edit, it stays loaded');
+});
+
 test('removing a clip drops it everywhere, and the message says whether the file was deleted', async () => {
   let reply = { ok: true, deleted: true };
   const reqs = stubFetch({ 'POST /api/clip/remove': () => reply });
@@ -638,7 +663,7 @@ test('removing a clip drops it everywhere, and the message says whether the file
 
   reply = { ok: true, deleted: false };
   await media.removeClip('b');
-  assert.equal(lastToast(), 'Removed city.mp4. The file is still in your Downloads folder.');
+  assert.equal(lastToast(), 'Removed city.mp4. The file is still in its folder.');
 
   reply = { ok: false, error: 'Disk is read-only' };
   await media.removeClip('a');

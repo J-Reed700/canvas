@@ -163,9 +163,9 @@ These steps haven't been tested on a Windows PC yet. The Linux side is the same 
 
 4. WSL can't open a browser tab for you. Open Chrome or Edge on Windows and go to http://localhost:8765.
 
-5. Drag clips, images and songs from File Explorer onto the studio. Finished exports go to your Windows Downloads folder. Copies also stay in `\\wsl$\Ubuntu\home\<your-linux-name>\canvas\out` (`Ubuntu-24.04` instead of `Ubuntu` if you installed that one), which you can paste into File Explorer's address bar.
+5. The studio opens on Pick a folder. Click it and type the path to your videos on the Windows side, such as `/mnt/c/Users/<your-windows-name>/Videos`. You can also drag clips, images and songs from File Explorer onto the studio. Finished exports go to your Windows Downloads folder. Copies also stay in `\\wsl$\Ubuntu\home\<your-linux-name>\canvas\out` (`Ubuntu-24.04` instead of `Ubuntu` if you installed that one), which you can paste into File Explorer's address bar.
 
-The Track menu's Downloads list is the Linux `~/Downloads`, which starts out empty. To list the songs on the Windows side, open the Track menu, choose + Add a music folder, and type a path such as `/mnt/c/Users/<your-windows-name>/Music`.
+To list your Windows music too, open the Track menu, choose + Add a folder, and type a path such as `/mnt/c/Users/<your-windows-name>/Music`.
 
 To start it again later, open Ubuntu from the Start menu, run `cd ~/canvas && ./run.sh`, and go to http://localhost:8765.
 
@@ -295,11 +295,11 @@ ffmpeg, Python and Node are shared tools, so removing them is up to you. On macO
 
 This walk-through takes about ten minutes. You need a song file (WAV, MP3, FLAC, M4A, AAC, AIFF, OGG or Opus) and a few short video clips or a cover image.
 
-1. Start Downbeat with `./run.sh`. The studio opens with three columns: your song and clips on the left, the preview in the middle, and the Looks, Layers and Edit tabs on the right.
+1. Start Downbeat with `./run.sh`. The first time, the studio opens on a Pick a folder button. Click it and choose the folder your clips are in. Downbeat lists the videos and songs in that folder and its subfolders, puts up to five clips in the edit and picks the newest song. The song plays while it's being analyzed, and the loop moves to a suggested section when the analysis is done.
 
-2. Drag your song and two to four clips onto the window, or click + Add clips, art or tracks. Each video gets a playback copy built in the background. Until that's done the clip says "Preparing".
+2. The studio has three columns: your song and clips on the left, the preview in the middle, and the Looks, Layers and Edit tabs on the right. To add files from somewhere else, drag them onto the window or click + Add files. Each clip in the edit gets a playback copy built in the background. Until that's done the clip says "Preparing". The other videos in the folder are dimmed with a dashed border. Hover over one and click + Add to put it in the edit.
 
-3. Pick the song from the Track menu at the top of the left column. Downbeat analyzes it and shows the tempo. If the tempo is half or double what it should be, click ½× or 2×, or click the number and type the right one.
+3. Pick the song from the Track menu at the top of the left column if it isn't the one you want. Downbeat analyzes it and shows the tempo. If the tempo is half or double what it should be, click ½× or 2×, or click the number and type the right one.
 
 4. Pick which part of the song loops. The chips above the timeline (Drop, Peak, Intro and so on) are suggested start points. You can also drag the highlighted box along the waveform.
 
@@ -362,7 +362,10 @@ The right column has three tabs. Looks is the gallery of 44 looks. Layers holds 
 
 ### Adding clips, images and songs
 
-Drag files onto the window or click + Add clips, art or tracks.
+Downbeat lists the videos and songs in the folders you pick, and the files you add.
+
+- + Add a folder (in Clips and in the Track menu) lists a folder's videos and songs, including its subfolders, and leaves the files where they are. On a Mac it opens the system folder chooser. On Linux and WSL you type the folder's path. The folders are saved in `out/.library.json`, and ✕ next to a folder in the Track menu stops listing it.
+- + Add files, or dragging files onto the window, copies them into Downbeat.
 
 | Kind | Formats |
 | :--- | :--- |
@@ -370,13 +373,11 @@ Drag files onto the window or click + Add clips, art or tracks.
 | Images | `.jpg .jpeg .png .webp .heic`, also `.bmp .tif .tiff .heif` |
 | Songs | `.wav .mp3 .flac .m4a .aac .aif .aiff .ogg .opus` |
 
-Added files are copied into `out/uploads/`. Songs you add stay in the Track menu after a restart. Clips and images you add don't come back on their own after a restart, but the copies in `out/uploads/` are still there to add again.
+Added files are copied into `out/uploads/` and come back after a restart.
 
-Each video gets a playback copy in `out/.proxies/` (30 fps H.264 with a keyframe every 8 frames), so scrubbing is smooth and exports can seek to exact frames. 4K files take longer. Images are turned into short still clips.
+Each clip you put in the edit gets a playback copy in `out/.proxies/` (30 fps H.264 with a keyframe every 8 frames), so scrubbing is smooth and exports can seek to exact frames. 4K files take longer. Videos you haven't put in the edit get no copy, so a folder of 50 videos doesn't keep your computer busy. They're dimmed with a dashed border until you add them. Images are turned into short still clips.
 
-When the server starts, it also loads some `.mp4` files from the top of `~/Downloads`: every one whose name starts with a digit (as stock-footage sites name their downloads), plus the first three others by name.
-
-The Track menu lists songs from three places: songs you added in the studio, the top level of `~/Downloads` (skipping files under 250 KB), and any music folders you add with + Add a music folder. On a Mac that button opens the system folder chooser. On Linux and WSL you type the folder's path. Music folders are saved in `out/.library.json`.
+From each folder, Clips lists the 50 newest videos and the Track menu lists every song of 250 KB or more (smaller files are usually alert sounds). Downbeat's own exports are left out, so a folder that holds them, such as Downloads, doesn't list them as clips.
 
 ### Tempo and the loop
 
@@ -581,13 +582,13 @@ On a Mac, the Reveal in Finder button shows the file in Finder. On Linux and WSL
 | The browser didn't open | Go to http://127.0.0.1:8765 yourself. The terminal prints the exact address, which has a different port if 8765 was busy. |
 | `Address already in use`, or an old copy is still running | Running `./run.sh` again replaces a Downbeat server that's already running. To use another port, run `./run.sh --port 8766`. |
 | On WSL, http://localhost:8765 doesn't load in Windows | Update WSL with `wsl --update` in PowerShell. If that doesn't fix it, add `networkingMode=mirrored` under `[wsl2]` in `%UserProfile%\.wslconfig` and run `wsl --shutdown`. |
-| On WSL, the Track menu has no songs | The Downloads group there is the Linux `~/Downloads`. Add your Windows music folder with + Add a music folder, for example `/mnt/c/Users/<your-windows-name>/Music`, or drag songs onto the studio. |
+| On WSL, the Track menu has no songs | Add your Windows music folder with + Add a folder, for example `/mnt/c/Users/<your-windows-name>/Music`, or drag songs onto the studio. |
 | Exports fail or come out broken on Ubuntu 22.04 or Debian 12 | Their ffmpeg (4.4 and 5.1) is too old. Use Ubuntu 24.04 or Debian 13 or newer, or install ffmpeg 6.1 or newer and make sure it's first on your PATH. |
 | The preview stays black, or the browser console says `WebGL2 is not available` | In Chrome, open Settings, then System, turn on "Use graphics acceleration when available" and relaunch. `chrome://gpu` should list WebGL2 as hardware accelerated. On Windows, update your graphics driver. |
 | Export fails with an error about `VideoEncoder` or WebCodecs | Update Chrome or Edge. Without hardware H.264, the studio sends raw frames to ffmpeg instead. That's slower, but it works. |
 | The FPS counter is well under 60 | Try a lighter look (Clean Cut, or fewer layers), close other GPU-heavy tabs, and check `chrome://gpu`. Exports aren't affected: they render every frame however long it takes. |
 | Clips stay on "Preparing" | The playback copies are still being built, and 4K files take longer. They're stored in `out/.proxies/` and are safe to delete. |
-| My clips are gone after a restart | Added songs come back after a restart, but added clips and images don't. Their copies are in `out/uploads/`. Add them again from there. |
+| The folder chooser doesn't appear | It can open behind the browser window. Otherwise use Type a path and type the folder's path. |
 | Some loop lengths are grayed out | That length runs past the end of the song from the loop's first downbeat. |
 | Cuts land early or late | Check the tempo isn't half or double (½× or 2×), then nudge the beat grid in 10 ms steps. |
 | The studio looks out of date after `git pull` | `./run.sh` rebuilds it. To force a rebuild, run `rm -rf downbeat/studio/dist && ./run.sh`. |
@@ -682,7 +683,7 @@ canvas/
 │   ├── server/                 # the studio's backend
 │   │   ├── app.py              #   HTTP routes: media, features, proxies, the export API
 │   │   ├── state.py            #   clips, songs and exports, and export sessions
-│   │   └── library.py          #   song library: Downloads, added songs, your music folders
+│   │   └── library.py          #   media library: added files and the folders you pick
 │   └── studio/                 # the WebGL2 studio (TypeScript, React, Zustand, Vite)
 │       ├── index.html, styles.css
 │       └── src/

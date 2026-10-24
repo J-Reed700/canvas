@@ -32,6 +32,7 @@ class StudioState:
         self.framing: dict[str, dict] = {}  # clip id -> autoframe result
         self.palettes: dict[str, dict] = {}
         self._proxies: ProxyManager | None = None
+        self._unreadable: set[str] = set()  # videos that wouldn't open, so a rescan doesn't try them again
         self._initialized: bool = False
 
     def ensure_initialized(self) -> StudioState:
@@ -42,11 +43,9 @@ class StudioState:
                 return self
             if self._proxies is None:
                 self._proxies = ProxyManager(os.path.join(OUT_DIR, ".proxies"))
-            self._discover_initial_clips()
-            self._discover_initial_tracks()
+            # Playback copies are made only for clips put in the edit (see app.py /api/proxies).
+            self._tracks, self._clips = self._scan()
             self._discover_existing_renders()
-            for src in self._clips.values():
-                self._proxies.request(src)
             self._initialized = True
         return self
 
@@ -79,27 +78,34 @@ class StudioState:
         if self._proxies is not None:
             self._proxies.shutdown()
 
-    def _discover_initial_clips(self) -> None:
-        dl = os.path.expanduser("~/Downloads")
+    def _scan(self) -> tuple[dict[str, Track], dict[str, Source]]:
+        """The songs and the clips in out/uploads and the picked folders. A clip already listed keeps its
+        probe, a video that can't be opened is skipped, and Downbeat's own exports are left out."""
+        tracks, videos = self.library.scan()
         hidden = _hidden_clips()
-        candidates = [p for p in sorted(glob.glob(os.path.join(dl, "*.mp4"))) if os.path.abspath(p) not in hidden]
-        stock = [p for p in candidates if os.path.basename(p)[0].isdigit()]
-        others = [p for p in candidates if p not in stock]
-        for path in stock + others[:3]:
-            try:
-                src = probe(path)
-                self._clips[src.id] = src
-            except Exception:
-                pass
+        known = {s.path: s for s in self._clips.values()}
+        clips: dict[str, Source] = {}
+        for path in videos:
+            if os.path.abspath(path) in hidden or _EXPORT_NAME.match(os.path.basename(path)):
+                continue
+            src = known.get(path)
+            if src is None:
+                if path in self._unreadable:
+                    continue
+                try:
+                    src = probe(path)
+                except Exception:
+                    self._unreadable.add(path)
+                    continue
+            clips[src.id] = src
+        return tracks, clips
 
-    def _discover_initial_tracks(self) -> None:
-        self._tracks = self.library.scan()
-
-    def rescan_tracks(self) -> dict[str, Track]:
-        """Pick up songs added to or removed from the library folders since the last look."""
-        tracks = self.library.scan()
+    def rescan(self) -> dict[str, Track]:
+        """Pick up songs and videos added to or removed from the folders since the last look. Clips from a
+        folder that is no longer picked drop out."""
+        tracks, clips = self._scan()
         with self.lock:
-            self._tracks = tracks
+            self._tracks, self._clips = tracks, clips
         return tracks
 
     def _discover_existing_renders(self) -> None:
@@ -131,7 +137,7 @@ class StudioState:
     def remove_clip(self, clip_id: str) -> bool:
         """Take a clip out of the library and delete its playback proxy. A copy the studio made in
         out/uploads/ is deleted, along with the image a still was made from. Any other file (one
-        found in ~/Downloads) stays on disk and is hidden so it doesn't come back on the next start.
+        found in a picked folder) stays on disk and is hidden so it doesn't come back on the next scan.
         Returns True if the clip's file was deleted."""
         with self.lock:
             src = self._clips.pop(clip_id, None)
@@ -214,7 +220,7 @@ class StudioState:
 
     def add_track_path(self, path: str) -> Track:
         """Add a song copied into out/uploads/. Its analysis runs when it's picked."""
-        tracks = self.rescan_tracks()
+        tracks = self.rescan()
         tid = track_id(path)
         if tid not in tracks:
             raise ValueError(f"{os.path.basename(path)} is too short or not an audio file")

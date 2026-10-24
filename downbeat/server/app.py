@@ -43,8 +43,15 @@ STATIC_TYPES = {
 }
 
 
-def _parse_byte_range(range_header: str | None, file_size: int) -> tuple[int, int, bool]:
-    """Parse an HTTP Range header into (start, end, is_partial)."""
+# The most an open-ended range ("bytes=N-") gets in one response. Browsers ask each <video> for the rest of
+# the file that way; answering with all of it keeps a connection busy for as long as the file plays, and the
+# studio has a video per cut while a browser opens only about six connections to the server.
+RANGE_CHUNK = 4 << 20
+
+
+def _parse_byte_range(range_header: str | None, file_size: int, max_open: int | None = None) -> tuple[int, int, bool]:
+    """Parse an HTTP Range header into (start, end, is_partial). An open-ended range covers at most
+    `max_open` bytes when that's given."""
     if file_size == 0:
         return 0, -1, False
     if not range_header or not range_header.startswith("bytes="):
@@ -53,7 +60,10 @@ def _parse_byte_range(range_header: str | None, file_size: int) -> tuple[int, in
         first, _, last = range_header.split("=", 1)[1].split(",")[0].partition("-")
         if first:
             start = int(first)
-            end = min(int(last), file_size - 1) if last else file_size - 1
+            if last:
+                end = min(int(last), file_size - 1)
+            else:
+                end = file_size - 1 if max_open is None else min(file_size - 1, start + max_open - 1)
         elif last:
             start = max(0, file_size - int(last))
             end = file_size - 1
@@ -87,7 +97,7 @@ class StudioHandler(BaseHTTPRequestHandler):
         file_size = os.path.getsize(path)
         range_header = self.headers.get("Range")
 
-        start, end, partial = _parse_byte_range(range_header, file_size)
+        start, end, partial = _parse_byte_range(range_header, file_size, max_open=RANGE_CHUNK)
         length = max(0, end - start + 1)
         self.send_response(HTTPStatus.PARTIAL_CONTENT if partial else HTTPStatus.OK)
         self.send_header("Content-Type", ctype)
@@ -249,8 +259,8 @@ class StudioHandler(BaseHTTPRequestHandler):
             return
         self._serve_file(path, "video/mp4")
 
-    def _get_state(self, query: dict[str, list[str]]) -> None:
-        clips_list = [
+    def _clip_dicts(self) -> list[dict]:
+        return [
             {
                 "id": s.id,
                 "name": s.name,
@@ -265,6 +275,9 @@ class StudioHandler(BaseHTTPRequestHandler):
             }
             for s in STATE.clips.values()
         ]
+
+    def _get_state(self, query: dict[str, list[str]]) -> None:
+        clips_list = self._clip_dicts()
         # The studio polls ?only=clips while playback proxies build; that needn't carry the song library.
         if query.get("only") == ["clips"]:
             self._send_json({"clips": clips_list})
@@ -276,6 +289,9 @@ class StudioHandler(BaseHTTPRequestHandler):
                 "clips": clips_list,
                 "tracks": [t.to_dict() for t in STATE.tracks.values()],
                 "renders": renders,
+                # With no folder picked and nothing added, the studio opens on Pick a folder.
+                "folders": STATE.library.folders(),
+                "can_pick": sys.platform == "darwin",
             }
         )
 
@@ -317,10 +333,11 @@ class StudioHandler(BaseHTTPRequestHandler):
         self._serve_file(path, ctype)
 
     def _library_payload(self, rescan: bool = False) -> dict:
-        tracks = STATE.rescan_tracks() if rescan else STATE.tracks
+        tracks = STATE.rescan() if rescan else STATE.tracks
         return {
             "ok": True,
             "tracks": [t.to_dict() for t in tracks.values()],
+            "clips": self._clip_dicts(),
             "folders": STATE.library.folders(),
             "suggestions": STATE.library.suggestions(),
             "can_pick": sys.platform == "darwin",
@@ -328,24 +345,24 @@ class StudioHandler(BaseHTTPRequestHandler):
 
     def _post_library_folders(self, body: bytes) -> None:
         data = _json_body(body)
+        added = None
         try:
             if data.get("add"):
-                STATE.library.add_folder(str(data["add"]))
+                added = STATE.library.add_folder(str(data["add"]))
             if data.get("remove"):
                 STATE.library.remove_folder(str(data["remove"]))
         except FileNotFoundError as exc:
             self._send_json({"ok": False, "error": str(exc)}, status=400)
             return
-        self._send_json(self._library_payload(rescan=True))
+        self._send_json({**self._library_payload(rescan=True), "added": added})
 
     def _post_pick_folder(self) -> None:
         if sys.platform != "darwin":
             self._send_json({"ok": False, "error": "The folder chooser needs macOS. Type the folder's path instead."}, status=501)
             return
         picked = pick_folder_dialog()
-        if picked:
-            STATE.library.add_folder(picked)
-        self._send_json({**self._library_payload(rescan=True), "picked": picked})
+        added = STATE.library.add_folder(picked) if picked else None
+        self._send_json({**self._library_payload(rescan=True), "added": added})
 
     def _get_out(self, route: str) -> None:
         fname = urllib.parse.unquote(route.split("/out/", 1)[1])
@@ -382,6 +399,8 @@ class StudioHandler(BaseHTTPRequestHandler):
             self._post_delete_export(body)
         elif route == "/api/clip/remove":
             self._post_remove_clip(body)
+        elif route == "/api/proxies":
+            self._post_proxies(body)
         elif route == "/api/library/folders":
             self._post_library_folders(body)
         elif route == "/api/library/pick_folder":
@@ -525,6 +544,18 @@ class StudioHandler(BaseHTTPRequestHandler):
             return
         self._send_json({"ok": True, "removed": removed})
 
+    def _post_proxies(self, body: bytes) -> None:
+        """Queue playback copies for the clips the studio put in the edit, in the order given. Other videos in
+        the folders stay as they are until they're added, so a big folder doesn't keep the machine busy."""
+        clips = STATE.clips
+        statuses = {}
+        for cid in _json_body(body).get("ids") or []:
+            src = clips.get(str(cid))
+            if src:
+                STATE.proxies.request(src, priority=0)
+                statuses[src.id] = STATE.proxies.status(src)
+        self._send_json({"ok": True, "proxies": statuses})
+
     def _post_remove_clip(self, body: bytes) -> None:
         data = _json_body(body)
         try:
@@ -569,6 +600,8 @@ class StudioHandler(BaseHTTPRequestHandler):
                 src = STATE.add_clip_path(still_to_clip(dest) if still else dest)
                 self._send_json({"ok": True, "kind": "video", "id": src.id, "name": src.name, "still": still})
         except Exception as exc:
+            # Files in out/uploads come back on the next start, so one that can't be used isn't kept.
+            os.remove(dest)
             self._send_json({"ok": False, "error": str(exc)}, status=400)
 
 
@@ -629,7 +662,10 @@ def serve_studio(host: str = "127.0.0.1", port: int = 8765, open_browser: bool =
 
     url = f"http://{host}:{chosen_port}"
     print(f"\nDownbeat Studio running at {url}")
-    print(f"Loaded {len(STATE.clips)} video clips from ~/Downloads and {len(STATE.tracks)} songs from the library")
+    if STATE.library.folders() or STATE.clips:
+        print(f"Loaded {len(STATE.clips)} video clips and {len(STATE.tracks)} songs")
+    else:
+        print("No folder picked yet, so the studio opens on Pick a folder")
     print("Press Ctrl+C to stop\n")
     if open_browser:
         threading.Timer(0.4, lambda: webbrowser.open(url)).start()

@@ -244,11 +244,13 @@ test('saveToDownloads clicks a temporary download link and removes it', () => {
 test('song names, library sources and sibling songs for batch renders', () => {
   assert.equal(U.songTitle({ id: '1', name: 'My Song.final.mp3' }), 'My Song.final');
   assert.equal(U.sourceLabel('added'), 'Added in the studio');
-  assert.equal(U.sourceLabel('downloads'), 'Downloads');
   assert.equal(U.sourceLabel('/Users/x/Music/'), 'Music');
+  assert.equal(U.homeShort('/Users/x/Music'), '~/Music');
+  assert.equal(U.homeShort('/home/x/Videos'), '~/Videos');
+  assert.equal(U.homeShort('/Volumes/Drive/Clips'), '/Volumes/Drive/Clips');
   assert.equal(U.sourceLabel(), '');
   const t = (id, source, dir, mtime) => ({ id, name: `${id}.mp3`, source, dir, mtime });
-  const tracks = [t('a', 'downloads', '', 1), t('b', 'downloads', '', 3), t('c', 'downloads', 'sub', 9), t('d', '/m', '', 5), t('e', 'downloads', '', 2)];
+  const tracks = [t('a', '/v', '', 1), t('b', '/v', '', 3), t('c', '/v', 'sub', 9), t('d', '/m', '', 5), t('e', '/v', '', 2)];
   assert.deepEqual(U.siblingTracks(tracks, 'a').map((x) => x.id), ['b', 'e', 'a']);
   assert.deepEqual(U.siblingTracks(tracks, 'a', 2).map((x) => x.id), ['b', 'e']);
   assert.deepEqual(U.siblingTracks(tracks, 'c').map((x) => x.id), ['c']);

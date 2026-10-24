@@ -4,7 +4,7 @@ import { act, fireEvent, waitFor, within } from '@testing-library/react';
 import { MediaPanel } from '../../downbeat/studio/src/components/MediaPanel.tsx';
 import { TrackPicker } from '../../downbeat/studio/src/components/TrackPicker.tsx';
 import { METERS } from '../../downbeat/studio/src/lib/utils.ts';
-import { LOOKS, SONG, TRACKS, posted, renderStudio, resetStudio, screen, serve, st, toastText, update, withSong } from './studio.tsx';
+import { CLIPS, LOOKS, SONG, TRACKS, posted, renderStudio, resetStudio, screen, serve, st, toastText, update, withSong } from './studio.tsx';
 
 const clipEls = () => Array.from(document.querySelectorAll<HTMLElement>('#clips .clip'));
 const clipEl = (name: string) => clipEls().find((c) => c.querySelector('.cap')!.textContent!.includes(name)) as HTMLElement;
@@ -47,6 +47,20 @@ describe('clips', () => {
     expect(nums()).toEqual(['1', '-', '-']);
   });
 
+  test('a video that is not loaded is dimmed and offers + Add, which puts it in the edit', () => {
+    resetStudio({ clips: [...CLIPS, { id: 'd', name: 'beach.mp4', duration: 30, proxy: 'none' }] as any, selected: ['a'] });
+    renderStudio(<MediaPanel />);
+    const beach = clipEl('beach.mp4');
+    expect(beach.className).toBe('clip off idle');
+    expect(beach.querySelector('.add-hint')!.textContent).toBe('+ Add');
+    expect(beach.title).toContain('Not loaded yet');
+    expect(clipEl('city.mp4').className, 'a loaded clip out of the edit is only dimmed').toBe('clip off');
+    expect(clipEl('city.mp4').querySelector('.add-hint')).toBeNull();
+    fireEvent.click(beach);
+    expect(st().selected).toEqual(['a', 'd']);
+    expect(clipEl('beach.mp4').className).toBe('clip on');
+  });
+
   test('dragging a picked clip onto another moves it there', () => {
     resetStudio();
     renderStudio(<MediaPanel />);
@@ -76,7 +90,7 @@ describe('clips', () => {
     await waitFor(() => expect(st().clips.map((c) => c.id)).toEqual(['a', 'c']));
     expect(posted(fetch, '/api/clip/remove')).toEqual([{ id: 'b' }]);
     expect(caps()).toEqual(['12.0s · 1 sunrise.mp4', 'Still · cover']);
-    expect(toastText()).toBe('Removed city.mp4. The file is still in your Downloads folder.');
+    expect(toastText()).toBe('Removed city.mp4. The file is still in its folder.');
   });
 
   test('a clip whose playback copy is still building shows that', () => {
@@ -180,7 +194,8 @@ describe('track picker', () => {
   const LIB = {
     ok: true,
     tracks: [...TRACKS, { id: 't3', name: 'Intro.flac', path: '/Users/me/Music/Album/Intro.flac', source: '/Users/me/Music', dir: 'Album', mtime: 1 }],
-    folders: ['/Users/me/Music'],
+    clips: CLIPS,
+    folders: ['/Users/me/Movies/Canvas', '/Users/me/Music'],
     suggestions: ['/Users/me/Dropbox/Songs'],
     can_pick: false,
   };
@@ -196,7 +211,7 @@ describe('track picker', () => {
     open();
     await waitFor(() => expect(rows()).toEqual(['⏱ No track', 'Night Drive', 'Sunrise', 'Intro']));
     expect(fetch).toHaveBeenCalledWith('/api/tracks', undefined);
-    expect(Array.from(panel().querySelectorAll('.tp-gh span')).map((s) => s.textContent)).toEqual(['Downloads', 'Music']);
+    expect(Array.from(panel().querySelectorAll('.tp-gh span')).map((s) => s.textContent)).toEqual(['Canvas', 'Music']);
     expect(st().tracks).toHaveLength(3);
     expect(panel().querySelector('.tp-sub:not(:first-child)')).toBeTruthy();
   });
@@ -241,31 +256,33 @@ describe('track picker', () => {
     expect(panel()).toBeNull();
   });
 
-  test('a music folder can be added by path, removed, or picked from the suggestions', async () => {
+  test('a folder can be added by path, removed, or picked from the suggestions', async () => {
     const fetch = serve({
       '/api/tracks': () => LIB,
       'POST /api/library/folders': (_u, init) => {
         const b = JSON.parse(String(init.body));
-        return b.add === '/nope' ? new Response(JSON.stringify({ ok: false, error: 'No folder at /nope' }), { status: 400 }) : { ...LIB, folders: b.remove ? [] : [...LIB.folders, b.add] };
+        return b.add === '/nope'
+          ? new Response(JSON.stringify({ ok: false, error: 'No folder at /nope' }), { status: 400 })
+          : { ...LIB, folders: b.remove ? [] : [...LIB.folders, b.add], added: b.add || null };
       },
     });
     resetStudio();
     renderStudio(<TrackPicker onAddSong={() => {}} />);
     open();
     await waitFor(() => expect(rows()).toHaveLength(4));
-    fireEvent.click(within(panel()).getByText('+ Add a music folder'));
+    fireEvent.click(within(panel()).getByText('+ Add a folder'));
     const path = panel().querySelector('.tp-path input') as HTMLInputElement;
     fireEvent.change(path, { target: { value: '/nope' } });
     fireEvent.submit(panel().querySelector('.tp-path')!);
     await waitFor(() => expect(panel().querySelector('.tp-err')!.textContent).toBe('No folder at /nope'));
     fireEvent.change(path, { target: { value: '/Users/me/Beats' } });
     fireEvent.submit(panel().querySelector('.tp-path')!);
-    await waitFor(() => expect(toastText()).toBe('Added ~/Beats. Its songs are in the list'));
+    await waitFor(() => expect(toastText()).toBe('Added the Beats folder. It has no videos or songs yet'));
     expect(panel().querySelector('.tp-path'), 'the path box closes once the folder is added').toBeNull();
 
     fireEvent.click(within(panel()).getByText('+ ~/Dropbox/Songs'));
     await waitFor(() => expect(posted(fetch, '/api/library/folders').at(-1)).toEqual({ add: '/Users/me/Dropbox/Songs' }));
-    fireEvent.click(within(panel()).getByTitle(/Stop listing songs from ~\/Music/));
+    fireEvent.click(within(panel()).getByTitle(/Stop listing videos and songs from ~\/Music/));
     await waitFor(() => expect(posted(fetch, '/api/library/folders').at(-1)).toEqual({ remove: '/Users/me/Music' }));
   });
 

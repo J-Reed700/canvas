@@ -275,8 +275,8 @@ test('cancelling one render of a batch stops the rest', async (t) => {
 
 test('a batch over songs renders each song in the folder and comes back to the first one', async (t) => {
   const tracks = [
-    { id: 't1', name: 'one.mp3', source: 'downloads', dir: '', mtime: 3 },
-    { id: 't2', name: 'two.mp3', source: 'downloads', dir: '', mtime: 2 },
+    { id: 't1', name: 'one.mp3', source: '/Videos', dir: '', mtime: 3 },
+    { id: 't2', name: 'two.mp3', source: '/Videos', dir: '', mtime: 2 },
     { id: 't3', name: 'other.mp3', source: '/Music', dir: '', mtime: 9 },
   ];
   const reqs = server({ routes: { 'GET /api/features/*': (u) => ({ ...SONG, id: u.split('/').pop().split('?')[0] }) } });

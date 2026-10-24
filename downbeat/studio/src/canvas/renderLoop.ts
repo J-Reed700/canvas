@@ -208,7 +208,7 @@ export function startRenderLoop(viewCanvas: HTMLCanvasElement, ambientCanvas?: H
 export function pollProxies() {
   setTimeout(async () => {
     const cur = useStudioStore.getState();
-    if (cur.clips.some((c) => c.proxy && c.proxy !== 'ready' && c.proxy !== 'error')) {
+    if (cur.clips.some((c) => c.proxy === 'queued' || c.proxy === 'building')) {
       const fresh = await fetchJSON<{ clips: ClipMeta[] }>('/api/state?only=clips').catch(() => null);
       if (fresh) useStudioStore.setState({ clips: fresh.clips });
     }

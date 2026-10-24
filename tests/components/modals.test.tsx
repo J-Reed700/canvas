@@ -143,7 +143,7 @@ describe('export sheet', () => {
     fireEvent.click(screen.getByText('🎲 Export 4 rolls'));
     expect(spies.runBatch).toHaveBeenCalledWith('rolls');
     expect(st().exportOpen).toBe(false);
-    fireEvent.click(screen.getByText('This look on 2 songs in Downloads'));
+    fireEvent.click(screen.getByText('This look on 2 songs in Canvas'));
     expect(spies.runBatch).toHaveBeenLastCalledWith('tracks');
   });
 

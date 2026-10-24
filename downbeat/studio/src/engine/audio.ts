@@ -106,6 +106,9 @@ export class Transport {
       this.node = node;
       this.t0 = ctx.currentTime - this.offset;
     } else {
+      // No song yet. Wake the audio from this press anyway: Safari only starts audio from a click or a key,
+      // so a song that finishes loading while the clock runs would otherwise play silently.
+      if (typeof window !== 'undefined' && (window.AudioContext || (window as any).webkitAudioContext)) this._ensureCtx().resume();
       this.t0 = performance.now() / 1000 - this.offset;
     }
     this.playing = true;

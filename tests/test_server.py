@@ -22,11 +22,12 @@ import numpy as np
 
 from downbeat.server import app as server_mod
 from downbeat.server import state as state_mod
+from downbeat.server.library import Library
 from helpers import HAS_FFMPEG, _ffprobe
 
 
 def _write_wav(path: str, seconds: float, bpm: float = 120.0, rate: int = 44100) -> str:
-    """Stereo thumps on every beat: long enough to list in Downloads and to find a tempo in."""
+    """Stereo thumps on every beat: long enough to list from a folder and to find a tempo in."""
     os.makedirs(os.path.dirname(path), exist_ok=True)
     n = np.arange(int(rate * 0.1))
     thump = np.sin(2 * np.pi * 60 * n / rate) * np.exp(-n / (rate * 0.03))
@@ -61,8 +62,8 @@ class _ServerCase(unittest.TestCase):
         cls.tmp = tempfile.mkdtemp(prefix="db-server-")
         cls.home = os.path.join(cls.tmp, "home")
         cls.out = os.path.join(cls.tmp, "out")
-        cls.downloads = os.path.join(cls.home, "Downloads")
-        for d in (cls.out, cls.downloads):
+        cls.videos = os.path.join(cls.home, "Videos")  # the folder a test picks, if it picks one
+        for d in (cls.out, cls.videos):
             os.makedirs(d)
         cls.prepare()
         cls._patches = [
@@ -129,6 +130,13 @@ class TestByteRanges(unittest.TestCase):
             self.assertEqual(parse(bad, 1000), (0, 999, False), bad)
         self.assertEqual(parse(None, 0), (0, -1, False))
 
+    def test_open_ended_ranges_can_be_capped(self) -> None:
+        parse = server_mod._parse_byte_range
+        self.assertEqual(parse("bytes=0-", 1000, max_open=100), (0, 99, True))
+        self.assertEqual(parse("bytes=950-", 1000, max_open=100), (950, 999, True))
+        self.assertEqual(parse("bytes=0-499", 1000, max_open=100), (0, 499, True), "a range with an end is served whole")
+        self.assertEqual(parse(None, 1000, max_open=100), (0, 999, False), "so is a request with no range")
+
 
 class TestServerRouting(_ServerCase):
     """Routing and request checks; nothing here needs ffmpeg."""
@@ -175,9 +183,14 @@ class TestServerRouting(_ServerCase):
         for path in ("/studio/..%2F..%2Fserver.py", "/studio/%2E%2E/%2E%2E/state.py", "/out/..%2FREADME.md", "/out/..%2F..%2Fetc%2Fpasswd"):
             self.assertEqual(self.request("GET", path)[0], 403, path)
 
-    def test_state_lists_an_empty_library(self) -> None:
+    def test_state_lists_an_empty_library_until_a_folder_is_picked(self) -> None:
+        _write_wav(os.path.join(self.home, "Downloads", "song.wav"), 3.0)
+        self.addCleanup(shutil.rmtree, os.path.join(self.home, "Downloads"), True)
+        self.assertEqual(self.get_json("/api/tracks")[1]["tracks"], [], "~/Downloads isn't looked in")
         status, data = self.get_json("/api/state")
-        self.assertEqual((status, sorted(data), data["clips"]), (200, ["clips", "renders", "tracks"], []))
+        self.assertEqual((status, sorted(data)), (200, ["can_pick", "clips", "folders", "renders", "tracks"]))
+        self.assertEqual((data["clips"], data["tracks"], data["folders"]), ([], [], []))
+        self.assertEqual(data["can_pick"], sys.platform == "darwin")
         self.assertEqual(self.get_json("/api/state?only=clips"), (200, {"clips": []}))
 
     def test_unknown_ids_are_404(self) -> None:
@@ -203,6 +216,11 @@ class TestServerRouting(_ServerCase):
 
         status, _, raw = self.request("GET", "/out/range%20test.bin", headers={"Range": "bytes=2000-"})
         self.assertEqual((status, raw), (200, blob), "an unsatisfiable range falls back to the whole file")
+
+        with mock.patch.object(server_mod, "RANGE_CHUNK", 300):
+            status, headers, raw = self.request("GET", "/out/range%20test.bin", headers={"Range": "bytes=100-"})
+        self.assertEqual((status, raw, headers["Content-Range"]), (206, blob[100:400], "bytes 100-399/1024"),
+                         "the rest of a file comes a chunk at a time, so a playing video doesn't hold a connection")
         self.assertEqual(self.request("GET", "/out/missing.mp4")[0], 404)
 
     def test_an_empty_file_is_served_with_no_body(self) -> None:
@@ -254,15 +272,19 @@ class TestServerRouting(_ServerCase):
 
         music = os.path.join(self.tmp, "Music")
         _write_wav(os.path.join(music, "Album", "track.wav"), 3.0)
-        status, data = self.post_json("/api/library/folders", {"add": music})
+        if HAS_FFMPEG:
+            _lavfi_clip(os.path.join(music, "Album", "video.mp4"))
+        status, data = self.post_json("/api/library/folders", {"add": music + "/"})
         self.assertEqual(status, 200)
-        self.assertEqual(data["folders"], [music])
+        self.assertEqual((data["folders"], data["added"]), ([music], music))
         self.assertEqual([(t["name"], t["dir"], t["source"]) for t in data["tracks"]], [("track.wav", "Album", music)])
+        if HAS_FFMPEG:
+            self.assertEqual([c["name"] for c in data["clips"]], ["video.mp4"])
         self.assertIsInstance(data["can_pick"], bool)
         self.assertEqual(self.get_json("/api/tracks")[1]["folders"], [music])
 
         status, data = self.post_json("/api/library/folders", {"remove": music})
-        self.assertEqual((status, data["folders"], data["tracks"]), (200, [], []))
+        self.assertEqual((status, data["folders"], data["tracks"], data["clips"], data["added"]), (200, [], [], [], None))
 
     def test_library_suggests_the_music_folder_until_it_is_added(self) -> None:
         music = os.path.join(self.home, "Music")
@@ -299,9 +321,9 @@ class TestServerRouting(_ServerCase):
         with mock.patch.object(server_mod.sys, "platform", "darwin"), \
              mock.patch.object(server_mod, "pick_folder_dialog", side_effect=[picked, None]):
             status, data = self.post_json("/api/library/pick_folder")
-            self.assertEqual((status, data["picked"], data["folders"]), (200, picked, [picked]))
+            self.assertEqual((status, data["added"], data["folders"]), (200, picked, [picked]))
             status, data = self.post_json("/api/library/pick_folder")
-            self.assertEqual((status, data["picked"], data["folders"]), (200, None, [picked]), "cancelling adds nothing")
+            self.assertEqual((status, data["added"], data["folders"]), (200, None, [picked]), "cancelling adds nothing")
         self.post_json("/api/library/folders", {"remove": picked})
 
     def test_a_dead_encoder_aborts_its_export(self) -> None:
@@ -481,8 +503,9 @@ class TestServerMedia(_ServerCase):
 
     @classmethod
     def prepare(cls) -> None:
-        cls.clip_path = _lavfi_clip(os.path.join(cls.downloads, "1001_stock.mp4"))
-        cls.song_path = _write_wav(os.path.join(cls.downloads, "beat.wav"), 4.0)
+        cls.clip_path = _lavfi_clip(os.path.join(cls.videos, "1001_stock.mp4"))
+        cls.song_path = _write_wav(os.path.join(cls.videos, "beat.wav"), 4.0)
+        Library(cls.out).add_folder(cls.videos)
 
     def clip(self) -> dict:
         return next(c for c in self.get_json("/api/state")[1]["clips"] if c["name"] == "1001_stock.mp4")
@@ -490,14 +513,23 @@ class TestServerMedia(_ServerCase):
     def track(self) -> dict:
         return next(t for t in self.get_json("/api/state")[1]["tracks"] if t["name"] == "beat.wav")
 
-    def test_state_lists_clips_from_downloads_and_songs(self) -> None:
+    def test_state_lists_the_clips_and_songs_in_the_picked_folder(self) -> None:
         clip = self.clip()
         self.assertEqual((clip["width"], clip["height"], clip["fps"], clip["duration"]), (96, 160, 30.0, 2.0))
         self.assertTrue(clip["is_stock"])
         self.assertFalse(clip["still"])
-        self.assertIn(clip["proxy"], ("queued", "building", "ready"))
-        self.assertEqual(self.track()["source"], "downloads")
+        self.assertIn(clip["proxy"], ("none", "ready"), "no playback copy is started until the studio asks")
+        self.assertEqual(self.track()["source"], self.videos)
+        self.assertEqual(self.get_json("/api/state")[1]["folders"], [self.videos])
         self.assertEqual(set(self.get_json("/api/state?only=clips")[1]), {"clips"})
+
+    def test_the_studio_asks_for_playback_copies_of_the_clips_in_its_edit(self) -> None:
+        cid = self.clip()["id"]
+        status, data = self.post_json("/api/proxies", {"ids": [cid, "gone"]})
+        self.assertEqual((status, list(data["proxies"])), (200, [cid]), "unknown clips are skipped")
+        self.assertIn(data["proxies"][cid], ("queued", "building", "ready"))
+        self.assertIsNotNone(self.state.proxies.ensure(self.state.clips[cid]))
+        self.assertEqual(self.post_json("/api/proxies", {"ids": [cid]})[1]["proxies"], {cid: "ready"})
 
     def test_proxy_is_built_on_request_and_served_with_ranges(self) -> None:
         cid = self.clip()["id"]
@@ -569,10 +601,10 @@ class TestServerMedia(_ServerCase):
     def test_uploads_add_videos_stills_and_songs(self) -> None:
         clip = _lavfi_clip(os.path.join(self.tmp, "src", "my clip.mp4"), seconds=1.0)
         with open(clip, "rb") as f:
-            status, _, raw = self.request("POST", "/api/upload", f.read(), {"X-Filename": "my%20clip.mp4"})
+            status, _, raw = self.request("POST", "/api/upload", f.read(), {"X-Filename": "..%2F..%2Fmy%20clip.mp4"})
         video = json.loads(raw)
         self.assertEqual((status, video["ok"], video["kind"], video["name"], video["still"]), (200, True, "video", "my clip.mp4", False))
-        self.assertTrue(os.path.isfile(os.path.join(self.out, "uploads", "my clip.mp4")))
+        self.assertTrue(os.path.isfile(os.path.join(self.out, "uploads", "my clip.mp4")), "the name is reduced to its last part")
         self.assertIn(video["id"], [c["id"] for c in self.get_json("/api/state")[1]["clips"]])
 
         png = cv2.imencode(".png", np.full((90, 60, 3), 200, np.uint8))[1].tobytes()
@@ -599,8 +631,7 @@ class TestServerMedia(_ServerCase):
         status, _, raw = self.request("POST", "/api/upload", b"not a video", {"X-Filename": "..%2F..%2Fnotes.mp4"})
         self.assertEqual(status, 400)
         self.assertFalse(json.loads(raw)["ok"])
-        self.assertTrue(os.path.isfile(os.path.join(self.out, "uploads", "notes.mp4")), "the name is reduced to its last part")
-        self.assertFalse(os.path.exists(os.path.join(self.tmp, "notes.mp4")))
+        self.assertFalse(os.path.exists(os.path.join(self.out, "uploads", "notes.mp4")), "a refused upload isn't kept")
 
         status, _, raw = self.request("POST", "/api/upload", b"RIFF", {"X-Filename": "segment-1.wav"})
         self.assertEqual(status, 400)
