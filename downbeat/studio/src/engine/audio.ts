@@ -161,41 +161,32 @@ export function makeSampler({ features, loopStart, beatDur, seed, L = beatDur * 
   const cyc = (beats: number): number => Math.max(1, Math.round(L / (beats * beatDur)));
   const curves = features?.curves;
   const fps = features?.fps || 30;
-  const a0: ModValues = {};
-  if (curves) {
-    const x0 = loopStart * fps;
-    const i0 = Math.floor(x0), f0 = x0 - i0;
-    for (const k in curves) {
-      const c = curves[k];
-      const v0 = c[Math.min(c.length - 1, Math.max(0, i0))] || 0;
-      const v1 = c[Math.min(c.length - 1, Math.max(0, i0 + 1))] || 0;
-      a0[k] = v0 + (v1 - v0) * f0;
-    }
-  }
+  // Song value at `s` seconds, read between analysis frames.
+  const read = (c: number[], s: number): number => {
+    const x = s * fps, i = Math.floor(x), f = x - i;
+    const v0 = c[Math.min(c.length - 1, Math.max(0, i))] || 0;
+    const v1 = c[Math.min(c.length - 1, Math.max(0, i + 1))] || 0;
+    return v0 + (v1 - v0) * f;
+  };
+  // A loop often ends louder or quieter than it starts. Over its last bar the curves ease into the audio
+  // just before the loop start, which arrives exactly at the start's values, and since the loop is whole
+  // bars its kicks land on the same beats. A shorter fade snaps the zoom and glow back at the wrap.
+  const wrapDur = Math.min(beatDur * 4, L * 0.25);
   return (rawT: number): ModValues => {
     const t = L > 0 ? ((rawT % L) + L) % L : rawT;
     const beat = t / beatDur;
     const ph = fract(beat);
     const att = smoothstep(0, 0.05, ph);
+    const u = t / L;
     let a: ModValues;
     if (curves) {
-      const x = (loopStart + t) * fps;
-      const i = Math.floor(x), f = x - i;
+      const w = wrapDur > 0 && t > L - wrapDur ? smoothstep(L - wrapDur, L, t) : 0;
       a = {};
       for (const k in curves) {
-        const c = curves[k];
-        const v0 = c[Math.min(c.length - 1, Math.max(0, i))] || 0;
-        const v1 = c[Math.min(c.length - 1, Math.max(0, i + 1))] || 0;
-        a[k] = v0 + (v1 - v0) * f;
+        const v = read(curves[k], loopStart + t);
+        a[k] = w ? v + (read(curves[k], loopStart + t - L) - v) * w : v;
       }
-      const fadeDur = Math.min(beatDur * 0.5, L * 0.12);
-      if (fadeDur > 0 && t > L - fadeDur) {
-        const w = smoothstep(L - fadeDur, L, t);
-        for (const k in a) {
-          a[k] = a[k] * (1 - w) + a0[k] * w;
-        }
-      }
-      if (a.vocals === undefined) a.vocals = 0.5 + 0.35 * Math.sin((Math.PI * 2 * beat) / 8);
+      if (a.vocals === undefined) a.vocals = 0.5 + 0.35 * Math.sin(Math.PI * 2 * u * cyc(8));
       if (a.presence === undefined) a.presence = 0.5 + 0.4 * Math.sin((Math.PI * 2 * t) / L);
     } else {
       const kick = att * Math.exp(-ph * 6);
@@ -207,11 +198,10 @@ export function makeSampler({ features, loopStart, beatDur, seed, L = beatDur * 
         bass: 0.55 + 0.35 * kick,
         energy: 0.75,
         bright: 0.5,
-        vocals: 0.5 + 0.35 * Math.sin((Math.PI * 2 * beat) / 8),
+        vocals: 0.5 + 0.35 * Math.sin(Math.PI * 2 * u * cyc(8)),
         presence: 0.5 + 0.4 * Math.sin((Math.PI * 2 * t) / L),
       };
     }
-    const u = t / L;
     a.beat = att * Math.exp(-ph * 5);
     const phOff = fract(beat + 0.5);
     a.off = smoothstep(0, 0.05, phOff) * Math.exp(-phOff * 6);

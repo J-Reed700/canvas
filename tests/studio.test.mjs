@@ -258,7 +258,7 @@ test('flash counter follows the WCAG pair-of-opposing-changes rule', () => {
 });
 
 test('every modulation source stays in 0..1 and the clocks repeat exactly once per loop', () => {
-  for (const L of [base.beatDur * 4, base.beatDur * 16, base.beatDur * 32]) {
+  for (const L of [base.beatDur * 4, base.beatDur * 16, base.beatDur * 20, base.beatDur * 32]) {
     const sampler = makeSampler({ features: null, loopStart: 0, beatDur: base.beatDur, seed: 3, L });
     const look = { ...LOOKS[0], env: [0, 1, 0.2, 0.9, 0.5, 0, 1, 0.3], seq: Array.from({ length: 16 }, (_, i) => i % 3 === 0 ? 1 : 0), macro: { a: 0.7, b: 0.2 } };
     const at = (t) => withLook(sampler(t), look, (t % L) / L, t / base.beatDur, L / base.beatDur);
@@ -269,6 +269,12 @@ test('every modulation source stays in 0..1 and the clocks repeat exactly once p
         assert.ok(v[k] >= 0 && v[k] <= 1, `${k} = ${v[k]}`);
         if (k !== 'build' && k !== 'rand') assert.ok(Math.abs(v[k] - w[k]) < 1e-6, `${k} is not loop-periodic (L=${L})`);
       }
+    }
+    // a smooth clock also keeps its direction across the wrap, or it visibly bounces there
+    const h = 1e-3;
+    for (const k of ['vocals', 'presence', 'lfo', 'lfoH', 'lfo2', 'arc']) {
+      const before = at(L - h)[k] - at(L - 2 * h)[k], after = at(h)[k] - at(0)[k];
+      assert.ok(Math.abs(before - after) < 1e-4, `${k} turns around at the wrap (L=${L})`);
     }
     assert.equal(at(0).macroA, 0.7);
   }
