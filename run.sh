@@ -231,6 +231,9 @@ if [ "$need_build" = 1 ] || [ ! -d node_modules ]; then
       command -v curl >/dev/null 2>&1 || install_pkgs "curl" curl -- curl -- curl -- curl -- curl
       confirm "Install Node.js LTS with nvm (into ~/.nvm, no sudo)?" \
         || die "Install Node.js 22 LTS from https://nodejs.org, then run ./run.sh again."
+      # nvm's installer refuses a missing $NVM_DIR when XDG_CONFIG_HOME is set (openSUSE sets it).
+      export NVM_DIR="${NVM_DIR:-$HOME/.nvm}"
+      mkdir -p "$NVM_DIR"
       curl -fsSL https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.3/install.sh | bash
       load_nvm
       set +eu

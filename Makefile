@@ -19,7 +19,7 @@ test: setup
 
 # Real server + headless Chrome + one real export; skips itself without Chrome or ffmpeg.
 e2e: setup
-	node --test tests/e2e/
+	node --test tests/e2e/*.test.mjs
 
 list: setup
 	./.venv/bin/python -m downbeat --list

@@ -441,8 +441,8 @@ The Release pack row makes stills from clip 1 (a 3000² cover, a 2660×1140 Spot
 banner, a 2480×520 SoundCloud header) and GIF or WebP loops from your latest render.
 
 Batch has two options. Export 4 rolls renders four random rolls and then returns to your edit. "This look on
-all tracks" renders the current look on every song in the library, each at its top loop suggestion, which is
-handy for giving a release one visual style.
+N songs" renders the current look and edit on the 12 newest songs in the same folder as the current one, each
+at its top loop suggestion, so every song on a release shares one style.
 
 ## 15. Shortcuts
 
