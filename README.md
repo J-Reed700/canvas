@@ -6,6 +6,8 @@ It runs on your own computer. A small Python server reads the song and handles f
 
 ![The Downbeat studio: five selected clips on the left, each tagged with its own look, the Canvas playing on a phone with the Spotify player overlay in the middle, the cut timeline below it, and the Looks gallery on the right](docs/studio.jpg)
 
+![The studio on the Landscape 16:9 screen: the video plays on a wide screen with the song title beside the shuffle, skip, play and repeat buttons, the transport bar below shows the 16:9 Screen button, the cut timeline runs along the bottom, and the Layers tab on the right shows LFO B, the drawn envelope and the step sequencer for clip 1's own effect stack](docs/studio-landscape.jpg)
+
 Version 4.0. MIT license. Runs on macOS and Linux, and on Windows through WSL.
 
 ## Contents
@@ -668,7 +670,8 @@ canvas/
 ├── package.json                # studio dependencies and build scripts
 ├── docs/
 │   ├── STUDIO_GUIDE.md         # every panel and control in the studio
-│   └── studio.jpg              # the screenshot above
+│   ├── studio.jpg              # the screenshots at the top: the phone screen
+│   └── studio-landscape.jpg    #   and the Landscape screen
 ├── downbeat/
 │   ├── cli.py                  # command line: renders a canvas with the CPU engine
 │   ├── delivery.py             # export formats, Annex B remux, cover art, banners, GIF/WebP, spec checks

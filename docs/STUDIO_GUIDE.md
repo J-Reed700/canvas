@@ -374,7 +374,7 @@ the layer tools says so. Reset clip N or Same look on all brings the main look b
 | Undo last roll | Shift+D | Goes back one roll at a time, up to 40 |
 | ⚄ Surprise me | R | A random two-layer look: one main effect plus a light or color layer. Like clicking a look, it resets your cuts unless Keep my edit is ticked |
 | Variations | M | Six mutations of the current look, playing live. Subtle/Wild sets how far they drift, ⟳ Mutate again deals six more, and clicking one keeps it without touching your edit |
-| ↶ Undo, ↷ Redo | ⌘Z, ⇧⌘Z | The arrows in the top bar. Undoes nearly any change: looks, layers, sliders, modulation, palette tints, cuts, clip order. Each button is greyed out when there's nothing to step to |
+| ↶ Undo, ↷ Redo | ⌘Z, ⇧⌘Z | The arrows in the top bar. Undoes any change to the work: looks, layers, sliders, modulation, palette tints, cuts, clip order and framing, the song and its tempo and beat grid, and the screen and export settings. View toggles (Player UI, Safe zones, Sound, Loop/Listener, the open tab) aren't undone. Each button is greyed out when there's nothing to step to |
 
 The studio saves your session (clips, look, edit, saved looks, toggles) in the browser and restores it next
 time you open it.
