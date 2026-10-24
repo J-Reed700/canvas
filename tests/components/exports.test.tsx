@@ -44,6 +44,8 @@ describe('exports panel', () => {
     expect(first.querySelectorAll('.m')[0].textContent).toBe('1080×1920 · 8.00 s · 1 MB');
     expect(first.querySelectorAll('.m')[1].textContent).toMatch(/^Spotify Canvas · (\d+ min ago|just now) ✓ spec$/);
     expect(sideRows()[2].querySelector('.badge.bad')!.textContent).toBe('✕ 1');
+    // the promo copy with the song gets its own download next to the video
+    expect(sideRows().map((r) => r.querySelector('a.promo')?.getAttribute('href') ?? null)).toEqual([null, '/out/2-promo.mp4', null, null]);
     expect(document.querySelector('.pager-of')!.textContent).toBe('1 / 2');
     fireEvent.click(screen.getByLabelText('Next page'));
     expect(sideTitles()).toEqual(['Look 5']);

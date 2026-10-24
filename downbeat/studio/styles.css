@@ -148,6 +148,8 @@
   .exp .acts { display: grid; grid-template-columns: 23px 23px; gap: 4px; flex: none; }
   .exp .acts .btn { height: 23px; width: 23px; border-radius: 7px; }
   .exp .acts .btn.del { grid-column: span 2; width: auto; font-size: 10.5px; }
+  .exp .acts:has(.promo) { grid-template-columns: 23px 23px 23px; }
+  .exp .acts:has(.promo) .btn.del { grid-column: span 3; }
   .btn.del:hover { color: var(--bad); }
   .btn.del.armed { background: var(--bad); border-color: var(--bad); color: #fff; font-weight: 650; }
   .exp-empty { padding: 14px 10px; border-radius: 10px; border: 1px dashed var(--line-2); text-align: center; color: var(--text-3); font-size: 12px; }
@@ -349,6 +351,10 @@
   .card-h .ib { width: 24px; height: 24px; border-radius: 7px; color: var(--text-3); display: flex; align-items: center; justify-content: center; font-size: 13px; }
   .card-h .ib:hover:not(:disabled) { background: var(--raised-2); color: var(--text); }
   .card-h .ib:disabled { opacity: 0.3; cursor: default; }
+  .card-h { cursor: pointer; }
+  .card-h .fold { transition: transform 0.15s ease; }
+  .card.collapsed .card-h .fold { transform: rotate(-90deg); }
+  .card.collapsed > .prms { display: none; }
   .card.off .prms { opacity: 0.35; pointer-events: none; }
   .sw { width: 30px; height: 18px; border-radius: 10px; background: rgba(255,255,255,0.14); position: relative; transition: background .15s; flex: none; }
   .sw::after { content: ""; position: absolute; top: 2px; left: 2px; width: 14px; height: 14px; border-radius: 50%; background: #fff; transition: transform .15s; }
@@ -493,6 +499,7 @@
   .sheet.on { display: flex; }
   .sheet h2 { font-size: 18px; font-weight: 700; letter-spacing: -0.01em; }
   #exportForm { display: flex; flex-direction: column; gap: 10px; }
+  #exportForm[hidden] { display: none; }
   #exportForm .fmt-seg { margin: 2px 0 0; }
   #exportForm .field, #exportForm .warn-note { margin: 0; }
   #exportForm .field .note { margin-top: 6px; }

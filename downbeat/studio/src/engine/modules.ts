@@ -99,6 +99,38 @@ export const MODULES: Record<string, ModuleDef> = {
       outColor = vec4(mix(texture(uSrc, vUv).rgb, c, p_mix), 1.0);
     }`,
   },
+  fractal: {
+    name: 'Fractal Tunnel', cat: 'space', desc: 'Smaller copies of the frame nested inside it, each with a thin colored border. They swell on the beat',
+    params: [P('count', 'Copies', 1, 6, 2, { step: 1 }), P('size', 'Size', 0.3, 0.95, 0.68), P('inner', 'Inner size', 0.4, 0.9, 0.65),
+      P('opacity', 'Opacity', 0, 1, 0.65), P('border', 'Border', 0, 12, 2), P('hue', 'Border hue', 0, 1, 0.52),
+      OPT('trigger', 'Trigger', ['Beat', 'Kick', 'None'])],
+    glsl: ENV + `void main() {
+      int tr = int(p_trigger + 0.5);
+      float env = tr == 0 ? beatEnv(3.0) : tr == 1 ? clamp(uKick, 0.0, 1.0) : 0.0;
+      // blends in display values, as the CPU version did
+      vec3 c = toSRGB(texture(uSrc, vUv).rgb);
+      vec3 rim = hsv2rgb(vec3(p_hue, 0.58, 0.94)) * (0.6 + 0.4 * env);
+      float bw = p_border > 0.01 ? max(p_border * uScale, 1.0) : 0.0;   // line width in pixels
+      vec2 q = vUv - 0.5;
+      float s = p_size, grow = 0.05;
+      for (int i = 0; i < 6; i++) {
+        if (float(i) >= p_count) break;
+        float sc = s + grow * env;
+        vec2 d = (abs(q) - 0.5 * sc) * uRes;                          // pixels past the copy's edges
+        float edge = length(max(d, 0.0)) + min(max(d.x, d.y), 0.0);   // signed distance to its outline
+        float inside = clamp(0.5 - edge, 0.0, 1.0);
+        if (inside > 0.0) {
+          // the whole frame shrunk to this size, box-filtered so fine detail doesn't shimmer
+          vec2 l = q / sc + 0.5, o = 0.25 / (sc * uRes);
+          vec3 cp = texture(uSrc, l + o).rgb + texture(uSrc, l - o).rgb + texture(uSrc, l + vec2(o.x, -o.y)).rgb + texture(uSrc, l - vec2(o.x, -o.y)).rgb;
+          c = mix(c, toSRGB(cp * 0.25), p_opacity * inside);
+        }
+        c = mix(c, rim, (1.0 - smoothstep(bw * 0.5 - 0.5, bw * 0.5 + 0.5, abs(edge))) * step(0.5, bw));
+        s *= p_inner; grow *= 0.8;
+      }
+      outColor = vec4(toLin(c), 1.0);
+    }`,
+  },
   tile: {
     name: 'Clone Grid', cat: 'space', desc: 'A mirrored grid of copies whose rows slide on the beat',
     params: [P('count', 'Grid', 1, 6, 3, { step: 1 }), P('slide', 'Beat slide', 0, 1, 0.35), P('gap', 'Gap', 0, 0.15, 0.02),
@@ -443,6 +475,21 @@ export const MODULES: Record<string, ModuleDef> = {
       int m = int(p_mode + 0.5);
       vec3 c = m == 0 ? a + b * 0.65 * (1.0 - min(a, vec3(1.0))) : m == 1 ? (a + b) * 0.62 : mix(a, b, 0.5);
       outColor = vec4(c, 1.0);
+    }`,
+  },
+  prismecho: {
+    name: 'Prism Echo', cat: 'light', desc: 'Adds a faint enlarged copy with red and blue pulled apart. It snaps back on each beat and grows until the next',
+    params: [P('amount', 'Strength', 0, 0.6, 0.22), P('zoom', 'Zoom', 1, 1.4, 1.08), P('expand', 'Expand', 0, 0.25, 0.1),
+      P('split', 'Color split', 0, 24, 4), OPT('trigger', 'Trigger', ['Beat', 'Kick'])],
+    glsl: ENV + `vec3 ghostAt(vec2 uv, float z) { return texture(uSrc, (uv - 0.5) / z + 0.5).rgb; }
+    void main() {
+      float env = p_trigger < 0.5 ? beatEnv(2.5) : clamp(uKick, 0.0, 1.0);
+      float z = p_zoom + p_expand * (1.0 - env);            // the copy zooms in further as the hit fades
+      vec2 sp = vec2(p_split * uScale / uRes.x, 0.0);       // the split is in pixels at 1080 x 1920
+      vec3 g = vec3(ghostAt(vUv + sp, z).r, ghostAt(vUv, z).g, ghostAt(vUv - sp, z).b);
+      // added in display values, as the CPU version did, so the copy lifts the shadows too
+      vec3 o = toSRGB(texture(uSrc, vUv).rgb) + toSRGB(g) * p_amount * (0.5 + 0.5 * env);
+      outColor = vec4(toLin(o), 1.0);
     }`,
   },
   pulse: {
@@ -913,6 +960,22 @@ export const MODULES: Record<string, ModuleDef> = {
         o = mix(vec3(luma(o)), o, 1.7);
       }
       outColor = vec4(toLin(mix(s, clamp(o, 0.0, 1.0), p_amount)), 1.0);
+    }`,
+  },
+  acidsolar: {
+    name: 'Acid Solarize', cat: 'color', desc: 'Tints the highlights pastel pink in a pulse on every bar. Unlike Solarize, it never inverts',
+    params: [P('amount', 'Amount', 0, 1, 0.25), P('threshold', 'Threshold', 0, 0.9, 0.51),
+      OPT('trigger', 'Trigger', ['Every bar', 'Every 2 beats', 'Every beat', 'Kick'])],
+    glsl: `void main() {
+      int tr = int(p_trigger + 0.5);
+      float per = tr == 0 ? 4.0 : tr == 1 ? 2.0 : 1.0;
+      float ph = fract(uBeat / per) * per;                   // beats since the last pulse
+      float env = tr == 3 ? clamp(uKick, 0.0, 1.0) : smoothstep(0.0, 0.06, ph) * exp(-2.5 * ph);
+      vec3 s = toSRGB(texture(uSrc, vUv).rgb);
+      float m = clamp((dot(s, vec3(0.299, 0.587, 0.114)) - p_threshold) / 0.39, 0.0, 1.0);
+      // lift red and blue and trim green, a pink that stays light; HDR highlights keep their level
+      vec3 tint = min(s * vec3(1.10, 0.96, 1.12) + vec3(0.063, 0.0, 0.047), max(s, 1.0));
+      outColor = vec4(toLin(mix(s, tint, m * p_amount * env)), 1.0);
     }`,
   },
   filmstock: {

@@ -90,6 +90,15 @@ export function rng(seed: number): () => number {
 
 const wrap = (x: number, L: number): number => ((x % L) + L) % L;
 
+/** Where loop time t falls in the edit. A Rebound loop plays the edit forward and then backward, so the
+ * footage turns round at the middle and meets itself at the seam. */
+export function editTime(tl: Pick<TimelinePlan, 'L' | 'rebound'>, t: number): { t: number; back: boolean } {
+  if (!tl.rebound) return { t: wrap(t, tl.L), back: false };
+  const x = wrap(t, 2 * tl.L);
+  // the turn itself is the end of the last segment, not the start of the first
+  return x < tl.L ? { t: x, back: false } : { t: Math.min(2 * tl.L - x, tl.L - 1e-6), back: true };
+}
+
 // Beat times inside the loop, relative to its start (the loop starts on a downbeat).
 export function loopBeats(L: number, beatDur: number): number[] {
   const out: number[] = [];
@@ -151,6 +160,25 @@ function cutTimes(opts: TimelinePlanOptions): number[] {
   return Array.from({ length: n }, (_, k) => beats[Math.round((k * nb) / n)]);
 }
 
+/** Splits the longest cut until there's one for every clip. Splits land on whole beats while the cut is
+ * 2 beats or longer, then on half and quarter beats; a quarter beat is as short as a cut gets. */
+export function fitClips(cuts: number[], L: number, beatDur: number, nClips: number): number[] {
+  const out = [...cuts];
+  while (out.length < nClips) {
+    let at = -1;
+    let len = 0;
+    out.forEach((t0, i) => {
+      const d = (i + 1 < out.length ? out[i + 1] : L) - t0;
+      if (d > len + 1e-9) { len = d; at = i; }
+    });
+    const beats = len / beatDur;
+    const grid = beats >= 2 ? 1 : beats >= 1 ? 0.5 : 0.25;
+    if (at < 0 || beats < 2 * grid - 1e-6) break;
+    out.splice(at + 1, 0, out[at] + Math.round(beats / 2 / grid) * grid * beatDur);
+  }
+  return out;
+}
+
 const SMOOTH_TRANS = ['dissolve', 'morph', 'luma', 'prism', 'swirl', 'kaleido', 'iris', 'ripple'];
 const DIRS3 = ['forward', 'reverse', 'pingpong'] as const;
 
@@ -168,7 +196,8 @@ const toBeats = (t: number, beatDur: number): number => Math.round((t / beatDur)
 export function generateBlocks(opts: TimelinePlanOptions): Block[] {
   const { L, beatDur, clips, transBeats, seed, speed = 1, order = 'cycle', velocity = 'none' } = opts;
   const r = rng(seed * 2654435761);
-  const cuts = cutTimes({ ...opts, nClips: clips.length });
+  let cuts = cutTimes({ ...opts, nClips: clips.length });
+  if (opts.fitAll && opts.rhythm !== 'custom') cuts = fitClips(cuts, L, beatDur, clips.length);
   const n = cuts.length;
   const durs = cuts.map((t0, i) => (i + 1 < n ? cuts[i + 1] : L) - t0);
   const room = durs.map((d, i) => fitTrans(transBeats * beatDur, d, durs[(i - 1 + n) % n]));
@@ -194,7 +223,7 @@ export function generateBlocks(opts: TimelinePlanOptions): Block[] {
 // Blocks into segments: times in seconds, and everything a block leaves unset taken from the look's cut
 // settings, the edit's direction and speed, and the transition pool.
 export function resolve(blocks: Block[], opts: TimelinePlanOptions, rolled: Block[] = generateBlocks(opts)): TimelinePlan {
-  const { L, beatDur, clips, transitions, transBeats, seed, speed = 1, direction = 'forward', order = 'cycle', velocity = 'none' } = opts;
+  const { L, beatDur, clips, transitions, transBeats, seed, speed = 1, direction = 'forward', order = 'cycle', velocity = 'none', rebound = false } = opts;
   const end = L / beatDur;
   // in beat order and inside the loop
   const list: Block[] = [];
@@ -240,7 +269,8 @@ export function resolve(blocks: Block[], opts: TimelinePlanOptions, rolled: Bloc
         : direction === 'alternate'
           ? (b.slot ?? k) % 2 ? 'reverse' : 'forward'
           : direction);
-    const trans = b.trans ?? deal(b, k, prevTrans);
+    // a Rebound loop has no seam to hide: the footage turns round and meets itself
+    const trans = rebound && k === 0 ? 'cut' : b.trans ?? deal(b, k, prevTrans);
     prevTrans = trans;
     // A block that grew past its footage starts earlier in its clip, so it doesn't stop on a frozen frame.
     const fit = Math.max(0, clip.duration - dur * speed - 0.1);
@@ -268,7 +298,7 @@ export function resolve(blocks: Block[], opts: TimelinePlanOptions, rolled: Bloc
     return seg;
   });
   const handCut = rolled.length !== n || rolled.some((b, k) => Math.abs(b.at - list[k].at) > 1e-6);
-  return { L, beatDur, segs, blocks: list, rolled, handCut };
+  return { L, beatDur, segs, blocks: list, rolled, handCut, rebound };
 }
 
 // Build the edit the rhythm and the seed give.
@@ -281,7 +311,8 @@ export function planTimeline(opts: TimelinePlanOptions): TimelinePlan {
 // block ids, so a player stays with its footage when blocks around it are split or deleted.
 export function sampleTimeline(tl: TimelinePlan, t: number): TimelineSample {
   const { L, segs } = tl;
-  t = wrap(t, L);
+  const { t: x, back } = editTime(tl, t);
+  t = x;
   const n = segs.length;
   for (let k = 0; k < n; k++) {
     const b = segs[k];
@@ -297,10 +328,11 @@ export function sampleTimeline(tl: TimelinePlan, t: number): TimelineSample {
         b: { seg: b, local: d, key: b.id },
         p: (d + b.transDur / 2) / b.transDur,
         trans: b.trans,
+        back,
       };
     }
   }
-  if (n === 1) {
+  if (n === 1 && !tl.rebound) {
     const b = segs[0];
     if (b.transDur <= 1 / 60) {
       const dur = Math.min(0.5 * (tl.beatDur || 0.5), b.dur * 0.25);
@@ -314,15 +346,16 @@ export function sampleTimeline(tl: TimelinePlan, t: number): TimelineSample {
             b: { seg: b, local: d, key: b.id },
             p: (d + dur / 2) / dur,
             trans: 'dissolve',
+            back,
           };
         }
       }
     }
   }
   for (let k = n - 1; k >= 0; k--) {
-    if (t >= segs[k].t0 - 1e-9) return { a: { seg: segs[k], local: t - segs[k].t0, key: segs[k].id }, b: null, p: 0, trans: null };
+    if (t >= segs[k].t0 - 1e-9) return { a: { seg: segs[k], local: t - segs[k].t0, key: segs[k].id }, b: null, p: 0, trans: null, back };
   }
-  return { a: { seg: segs[0], local: t, key: segs[0].id }, b: null, p: 0, trans: null };
+  return { a: { seg: segs[0], local: t, key: segs[0].id }, b: null, p: 0, trans: null, back };
 }
 
 export function clipTime(seg: Segment, local: number, clipDur: number): number {

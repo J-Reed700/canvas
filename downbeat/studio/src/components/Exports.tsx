@@ -231,6 +231,11 @@ const ExportsList: React.FC = () => {
               <a className="btn sm icon" href={r.url} download={r.filename} title="Download">
                 <Icon d={ICONS.download} />
               </a>
+              {r.promo_url && (
+                <a className="btn sm icon promo" href={r.promo_url} download="" title="Download the promo with the song">
+                  ♫
+                </a>
+              )}
               <button className="btn sm icon" title="Reveal in Finder" onClick={() => reveal(r.filename)}>
                 <Icon d={ICONS.folder} />
               </button>

@@ -5,9 +5,12 @@ import { useStudioStore } from './store.ts';
 import { toast } from '../lib/utils.ts';
 import { MIN_BEATS, autoBlock, insertBlock, moveCut, patchBlock, removeBlock, repeatBlock, segAt, snapBeat, splitBlock } from '../engine/blocks.ts';
 import type { SnapDiv } from '../engine/blocks.ts';
+import { editTime } from '../engine/timeline.ts';
 import type { Block, BlockPatch, TimelinePlan } from '../engine/types.ts';
 
 const st = () => useStudioStore.getState();
+/** The playhead's time in the edit, which in the backward half of a Rebound loop runs back from the end. */
+const playhead = (tl: TimelinePlan) => editTime(tl, st().transport.loopTime()).t;
 const same = (a: Block[], b: Block[]) => a.length === b.length && JSON.stringify(a) === JSON.stringify(b);
 
 /** Applies a block edit. When the result is just the rolled edit again, the edit goes back to following
@@ -46,7 +49,7 @@ export function splitAtPlayhead() {
   const s = st();
   const tl = s.ctx?.tl;
   if (!tl) return;
-  const beat = snapBeat(s.transport.loopTime() / tl.beatDur, s.snap);
+  const beat = snapBeat(playhead(tl) / tl.beatDur, s.snap);
   const seg = segAt(tl, beat * tl.beatDur);
   if (seg) splitBlockAt(seg.id, beat);
 }
@@ -58,7 +61,7 @@ export function splitBlockAt(id: string, beat?: number) {
   const seg = tl?.segs.find((x) => x.id === id);
   if (!tl || !seg) return;
   if (beat == null) {
-    const t = s.transport.loopTime();
+    const t = playhead(tl);
     beat = t >= seg.t0 && t < seg.t1 ? snapBeat(t / tl.beatDur, s.snap) : (seg.t0 + seg.dur / 2) / tl.beatDur;
   }
   const at = beat;
@@ -103,7 +106,7 @@ export function insertClip(clipId: string, where: { id?: string } = {}) {
   const tl = s.ctx?.tl;
   if (!tl) return;
   const bd = tl.beatDur;
-  let beat = snapBeat(s.transport.loopTime() / bd, s.snap);
+  let beat = snapBeat(playhead(tl) / bd, s.snap);
   let seg = where.id ? tl.segs.find((x) => x.id === where.id) : segAt(tl, beat * bd);
   if (!seg) return;
   const room = (b: number) => b - seg!.t0 / bd >= MIN_BEATS - 1e-9 && seg!.t1 / bd - b >= MIN_BEATS - 1e-9;

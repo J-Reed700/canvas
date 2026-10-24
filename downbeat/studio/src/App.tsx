@@ -67,7 +67,8 @@ export const App: React.FC = () => {
       } else if (k === 'ArrowLeft') {
         s.stepLook(-1);
       } else if (k === 'm' || k === 'M') {
-        useStudioStore.setState((prev) => ({ varOpen: !prev.varOpen }));
+        // opens Variations, and deals six more while it's open (Esc closes it)
+        useStudioStore.setState((prev) => (prev.varOpen ? { varSeed: prev.varSeed + 1 } : { varOpen: true }));
       } else if (k === 'r' || k === 'R') {
         s.surprise();
       } else if (k === 'd') {

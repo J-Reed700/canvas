@@ -74,7 +74,7 @@ export const POOLS: Record<string, string[]> = {
 
 export const ROLL_OPTS: [keyof RollOptions, string, string][] = [
   ['look', 'Look & layers', 'effects, settings, grade, camera'],
-  ['edit', 'Edit', 'rhythm, transitions, direction, speed, intensity'],
+  ['edit', 'Edit', 'rhythm, transitions, direction, speed, intensity, Rebound, and tempo without a song'],
   ['perClip', 'Per-clip FX', 'same / evolve / per-clip stacks'],
   ['clips', 'Clip order', 'shuffle the sequence'],
   ['loop', 'Song section', 'which part of the track loops'],

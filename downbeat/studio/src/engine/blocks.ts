@@ -2,7 +2,7 @@
 // the plan they resolve to, and returns new blocks, or null when the edit can't be made. A split is a
 // through edit: the footage, the camera and a framing move all carry on across the new cut, so nothing
 // changes on screen until one half is changed.
-import { footageUsed, frameAt, generateBlocks, moveAt, rng } from './timeline.ts';
+import { editTime, footageUsed, frameAt, generateBlocks, moveAt, rng } from './timeline.ts';
 import type { Block, BlockPatch, Segment, SegmentFrame, SegmentOverride, TimelinePlan, TimelinePlanOptions } from './types.ts';
 
 /** The shortest block an edit leaves, in beats. */
@@ -33,7 +33,7 @@ const tidy = <T extends object>(o: T): T => {
 
 /** The segment playing at loop time t. */
 export function segAt(tl: TimelinePlan, t: number): Segment | undefined {
-  const x = ((t % tl.L) + tl.L) % tl.L;
+  const x = editTime(tl, t).t;
   return tl.segs.find((s) => x >= s.t0 - 1e-9 && x < s.t1 - 1e-9) || tl.segs.at(-1);
 }
 

@@ -53,6 +53,8 @@ export function rollAll() {
   let nextClipMode = s.clipMode;
   let nextClipLooks = { ...s.clipLooks };
   let nextEvolveAmt = s.evolveAmt;
+  let nextRebound = s.rebound;
+  let nextBpm = s.bpmManual;
 
   if (o.edit) {
     const ids = shuffle(
@@ -71,7 +73,18 @@ export function rollAll() {
     nextDirection = pick(['forward', 'forward', 'forward', 'alternate', 'reverse', 'pingpong', 'random']);
     l.camera.p.speed = pick([0.6, 0.8, 1, 1, 1, 1.25, 1.5]);
     nextSeed = Math.floor(r() * 1e6);
-    nextIntensity = pick([0.85, 1, 1, 1.1, 1.25, 1.4]);
+    nextIntensity = pick([0.85, 1, 1, 1.1, 1.25, 1.4, 1.6, 1.75]);
+    nextRebound = r() < 0.2;
+    // without a song the tempo is part of the edit, but a loop of Canvas length stays within 3 to 8 s
+    if (!s.trackId) {
+      const L = s.loopLen();
+      const fits = (bpm: number) => {
+        const len = (L * s.bpmManual) / bpm;
+        return L > 8 + 1e-6 || (len <= 8 + 1e-6 && (len >= 3 - 1e-6 || L < 3 - 1e-6));
+      };
+      const tempos = [92, 108, 120, 126, 132, 140, 152].filter(fits);
+      if (tempos.length) nextBpm = pick(tempos);
+    }
   } else {
     l.cut = JSON.parse(JSON.stringify(prev.cut));
     l.camera.p.speed = prev.camera.p.speed;
@@ -103,6 +116,8 @@ export function rollAll() {
     direction: nextDirection,
     seed: nextSeed,
     intensity: nextIntensity,
+    rebound: nextRebound,
+    bpmManual: nextBpm,
     loopStart: nextLoopStart,
     bars: nextBars,
     selected: nextSelected,
@@ -119,7 +134,7 @@ export function rollAll() {
 
   const modeLabel = CLIP_MODES.find(([k]) => k === nextClipMode)?.[1].toLowerCase() || 'same look';
   toast(
-    `Rolled ${l.name} · ${l.layers.length} layers · ${RHYTHMS[l.cut.rhythm]?.name || 'custom'} cuts${nextClipMode === 'one' ? '' : ` · ${modeLabel}`}`,
+    `Rolled ${l.name} · ${l.layers.length} layers · ${RHYTHMS[l.cut.rhythm]?.name || 'custom'} cuts${nextRebound ? ' · Rebound' : ''}${nextClipMode === 'one' ? '' : ` · ${modeLabel}`}${nextBpm !== s.bpmManual ? ` · ${nextBpm} BPM` : ''}`,
     3200,
   );
 }

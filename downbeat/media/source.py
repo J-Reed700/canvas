@@ -56,6 +56,35 @@ def still_to_clip(path: str) -> str:
     return dest
 
 
+def video_to_mp4(path: str, timeout: float = 900) -> str:
+    """Convert a video the library doesn't list (.avi, .mts, .wmv and so on) to an H.264 .mp4 next to it,
+    and return the new path. Clips play muted, so the sound is left out. Interlaced camera footage is
+    deinterlaced on the way."""
+    from .encoder import ffmpeg_path
+
+    base = os.path.splitext(path)[0]
+    dest, n = base + ".mp4", 2
+    while os.path.exists(dest):
+        dest, n = f"{base}-{n}.mp4", n + 1
+    tmp = dest + ".part"
+    cmd = [
+        ffmpeg_path(), "-y", "-v", "error", "-i", path, "-map", "0:v:0", "-an",
+        "-vf", "yadif=deint=interlaced,scale=trunc(iw/2)*2:trunc(ih/2)*2,format=yuv420p",
+        "-c:v", "libx264", "-preset", "veryfast", "-crf", "16", "-movflags", "+faststart", "-f", "mp4", tmp,
+    ]
+    try:
+        res = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+    except subprocess.TimeoutExpired:
+        res = None
+    if res is None or res.returncode != 0 or not os.path.exists(tmp) or os.path.getsize(tmp) == 0:
+        if os.path.exists(tmp):
+            os.remove(tmp)
+        why = "converting it took too long" if res is None else res.stderr.strip().replace(path, os.path.basename(path))[-200:] or "ffmpeg failed"
+        raise RuntimeError(f"could not read it as a video ({why})")
+    os.replace(tmp, dest)
+    return dest
+
+
 def probe(path: str) -> Source:
     path = os.path.expanduser(path)
     if not os.path.exists(path):

@@ -103,7 +103,7 @@ export function flashesPerSecond(series: number[], fps: number): number {
 
 export async function exportLoop({ engine, bank, ctx, width, height, fps = 30, bitrate, meta, onProgress, signal }: ExportLoopOptions): Promise<any> {
   const N = Math.round(ctx.L * fps);
-  const stacks = [ctx.look, ...(ctx.clipLook ? ctx.tl.segs.map((s) => ctx.clipLook?.(s.clipId)).filter(Boolean) : [])];
+  const stacks = [ctx.look, ...(ctx.clipLook ? ctx.tl.segs.map((s) => ctx.clipLook?.(s.clipId, s)).filter(Boolean) : [])];
   const hasFeedback = stacks.some((look: any) => look.layers.some((l: any) => l.on !== false && MODULES[l.m]?.feedback));
   // Pre-roll the end of the loop so frame 0 inherits its feedback history. Feedback fades within a
   // few seconds, so long videos don't need a whole extra pass.

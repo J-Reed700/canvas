@@ -95,7 +95,9 @@ export async function uploadFiles(files: File[]) {
   let n = 0;
   let stills = 0;
   for (const f of files) {
-    toast(`Uploading ${f.name}…`, 6000);
+    // the library lists the usual video types; the server turns other videos into an .mp4 first
+    const convert = !/\.(mp4|mov|m4v|webm|mkv)$/i.test(f.name) && (f.type.startsWith('video/') || /\.(avi|mts|m2ts|ts|wmv|flv|mpe?g|3gp|vob|ogv)$/i.test(f.name));
+    toast(convert ? `Uploading ${f.name} and converting it to .mp4…` : `Uploading ${f.name}…`, convert ? 60000 : 6000);
     const r = await fetch('/api/upload', {
       method: 'POST',
       headers: { 'X-Filename': encodeURIComponent(f.name) },
@@ -104,7 +106,7 @@ export async function uploadFiles(files: File[]) {
       .then((x) => x.json())
       .catch(() => ({}));
     if (!r.ok) {
-      toast(`Could not add ${f.name}`);
+      toast(r.error ? `Could not add ${f.name}: ${r.error}` : `Could not add ${f.name}`, 5000);
       continue;
     }
     n++;
@@ -198,16 +200,33 @@ export async function autoFrame() {
   }
 }
 
-export function reorderClips(action: 'all' | 'solo' | 'reverse' | 'shuffle' | { from: number; to: number }) {
+export function reorderClips(action: 'all' | 'stock' | 'solo' | 'reverse' | 'shuffle' | { from: number; to: number }) {
   const s = useStudioStore.getState();
-  if (!s.selected.length) return;
+  if (!s.selected.length && action !== 'all' && action !== 'stock') return;
   let next = [...s.selected];
   if (action === 'all') {
     // Loaded clips only: adding every video in a big folder would start a playback copy for each.
+    // With nothing loaded yet, it starts on a few, as a new studio does.
     const loaded = s.clips.filter((c) => isLoaded(c, s.selected));
-    next = [...s.selected, ...loaded.map((c) => c.id).filter((id) => !s.selected.includes(id))];
-    const n = next.length;
-    toast(`Using ${n === 1 ? 'the one' : `all ${n}`}${loaded.length < s.clips.length ? ' loaded' : ''} clip${n === 1 ? '' : 's'}`);
+    if (!loaded.length) {
+      next = firstClips(s.clips);
+      if (!next.length) {
+        toast('No clips yet. Add videos or pick a folder first');
+        return;
+      }
+      toast(`Using ${next.length} clip${next.length === 1 ? '' : 's'} to start. Click others to add them`);
+    } else {
+      next = [...s.selected, ...loaded.map((c) => c.id).filter((id) => !s.selected.includes(id))];
+      const n = next.length;
+      toast(`Using ${n === 1 ? 'the one' : `all ${n}`}${loaded.length < s.clips.length ? ' loaded' : ''} clip${n === 1 ? '' : 's'}`);
+    }
+  } else if (action === 'stock') {
+    next = s.clips.filter((c) => c.is_stock).slice(0, 5).map((c) => c.id);
+    if (!next.length) {
+      toast('There are no stock clips in the library');
+      return;
+    }
+    toast(`Using ${next.length} stock clip${next.length === 1 ? '' : 's'}`);
   } else if (action === 'solo') {
     next = [s.selected[0]];
     toast('Solo: first clip only');

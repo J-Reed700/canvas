@@ -23,6 +23,7 @@ export const LayersPane: React.FC = () => {
   const clipLooks = useStudioStore((s) => s.clipLooks);
   const editClip = useStudioStore((s) => s.editClip);
   const evolveAmt = useStudioStore((s) => s.evolveAmt);
+  const evolveCuts = useStudioStore((s) => s.evolveCuts);
   const intensity = useStudioStore((s) => s.intensity);
   const engine = useStudioStore((s) => s.engine);
 
@@ -53,7 +54,9 @@ export const LayersPane: React.FC = () => {
         ? mainClips.length
           ? `Main stack: runs on ${mainClips.join(', ')} (clips without their own stack).`
           : 'Main stack: every clip has its own stack right now, so these layers are not on screen. Camera and Finish still apply to all.'
-        : `Main stack: runs on #1. Later clips get ${clipMode === 'evolve' ? 'a mutation of it' : 'a different studio look'}.`;
+        : clipMode === 'evolve' && evolveCuts
+          ? 'Main stack: runs on the first cut. Every later cut gets a mutation of it.'
+          : `Main stack: runs on #1. Later clips get ${clipMode === 'evolve' ? 'a mutation of it' : 'a different studio look'}.`;
 
   const handleAddEffect = (e: React.MouseEvent<HTMLButtonElement>) => {
     const anchor = e.currentTarget;
@@ -117,9 +120,9 @@ export const LayersPane: React.FC = () => {
       >
         <SliderRow
           label="FX intensity"
-          title="Below 100% fades every layer toward clean footage; above 100% modulation hits harder"
+          title="Below 100% fades every layer toward clean footage. Above 100% turns up each layer's strength settings and makes modulation hit harder"
           min={0}
-          max={1.5}
+          max={1.8}
           step={0.01}
           value={intensity}
           def={1}
@@ -146,7 +149,9 @@ export const LayersPane: React.FC = () => {
           {
             {
               one: 'Every clip runs through the main look.',
-              evolve: 'Clip 1 uses the main look; each later clip gets its own mutation of it.',
+              evolve: evolveCuts
+                ? 'The first cut uses the main look; every later cut gets its own mutation of it, even when its clip has been on before.'
+                : 'Clip 1 uses the main look; each later clip gets its own mutation of it.',
               cycle: 'Clip 1 uses the main look; each later clip gets another look from the library.',
               custom: 'Pick a clip to give it its own stack, or click a look while a clip is picked.',
             }[clipMode]
@@ -168,6 +173,21 @@ export const LayersPane: React.FC = () => {
               save();
             }}
           />
+        )}
+        {clipMode === 'evolve' && (
+          <label className="check" style={{ margin: '2px 0 6px' }}>
+            <input
+              type="checkbox"
+              checked={evolveCuts}
+              onChange={(e) => {
+                useStudioStore.setState({ evolveCuts: e.target.checked });
+                engine?.main?.reset();
+                touch();
+                save();
+              }}
+            />
+            A new mutation on every cut, not just every clip
+          </label>
         )}
 
         {clipMode === 'custom' && (

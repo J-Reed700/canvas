@@ -34,6 +34,7 @@ export const StagePanel: React.FC = () => {
   const safe = useStudioStore((s) => s.safe);
   const muted = useStudioStore((s) => s.muted);
   const exporting = useStudioStore((s) => s.exporting);
+  const glError = useStudioStore((s) => s.glError);
   const transport = useStudioStore((s) => s.transport);
   const save = useStudioStore((s) => s.save);
   const touch = useStudioStore((s) => s.touch);
@@ -270,9 +271,17 @@ export const StagePanel: React.FC = () => {
               </div>
             </div>
 
-            <div className="empty-stage" id="emptyStage" hidden={selected.length > 0}>
-              <b>Pick a few clips</b>Select clips on the left to build your canvas.
-            </div>
+            {glError ? (
+              <div className="empty-stage" id="emptyStage">
+                <b>The preview can't start</b>
+                {glError.replace(/\.?$/, '.')} The studio needs WebGL2 to draw. Use a current Chrome or Edge, and turn on
+                "Use graphics acceleration when available" in its System settings.
+              </div>
+            ) : (
+              <div className="empty-stage" id="emptyStage" hidden={selected.length > 0}>
+                <b>Pick a few clips</b>Select clips on the left to build your canvas.
+              </div>
+            )}
           </div>
         </div>
       </div>
