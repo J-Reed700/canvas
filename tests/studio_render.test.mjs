@@ -26,6 +26,7 @@ function fakeEngine() {
     thumbs: [],
     resized: [],
     presentOk: true,
+    videoTex: new Map(),
     resize(w, h) { eng.resized.push([w, h]); },
     present: () => eng.presentOk,
     video: (vkey) => ({ vkey }),
@@ -60,6 +61,7 @@ function fresh(over = {}) {
     features: null,
     bars: 2,
     bpmManual: 120,
+    direction: 'forward',
     tab: 'looks',
     varOpen: false,
     lookJobs: [],
@@ -169,6 +171,44 @@ test('a clip that is still loading shows a badge and keeps redrawing', () => {
   st().bank.ready = 4;
   frame();
   assert.equal(ids.stageBadge.style.display, 'none');
+});
+
+test('a video between seeks keeps showing its last frame, without the badge', () => {
+  fresh();
+  const el = { readyState: 1 };
+  st().bank.get = () => el;
+  const eng = at(1);
+  assert.equal(ids.stageBadge.style.display, 'block', 'nothing has been drawn from it yet');
+  for (const n of R.getLastFrame().needs) eng.videoTex.set(n.vkey, { el });
+  frame();
+  assert.equal(ids.stageBadge.style.display, 'none');
+  assert.equal(eng.frames.length, 2, 'and the preview keeps redrawing until the seek lands');
+});
+
+test('a cut shown by seeking takes the frame its last seek landed on before the next seek starts', () => {
+  fresh({ direction: 'reverse' });
+  const order = [];
+  const eng = st().engine;
+  const bank = st().bank;
+  eng.video = (vkey) => { order.push(`frame ${vkey}`); return { vkey }; };
+  const sync = bank.sync;
+  bank.sync = (needs, playing) => { order.push('sync'); sync(needs, playing); };
+  st().transport.play();
+  at(1);
+  assert.ok(R.getLastFrame().needs.every((n) => n.rev), 'reversed cuts are shown by seeking');
+  order.length = 0;
+  frame(0);
+  assert.equal(eng.frames.length, 1, 'a frame with nothing new to draw');
+  assert.deepEqual(order, [...R.getLastFrame().needs.map((n) => `frame ${n.vkey}`), 'sync']);
+
+  fresh();
+  st().engine.video = (vkey) => { order.push(`frame ${vkey}`); return { vkey }; };
+  st().transport.play();
+  at(1);
+  order.length = 0;
+  frame(0);
+  assert.deepEqual(order, [], 'footage playing forward is copied only on frames that draw');
+  st().transport.pause();
 });
 
 test('nothing is drawn while exporting or with no clips selected', () => {

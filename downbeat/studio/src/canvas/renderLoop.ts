@@ -92,6 +92,10 @@ export function startRenderLoop(viewCanvas: HTMLCanvasElement, ambientCanvas?: H
     const t = transportInstance.loopTime();
     const fr = compose(ctx, t);
     lastFrame = fr;
+    // A cut shown by seeking (reversed, ping-pong, slowed to a stop, or paused) takes the frame its last
+    // seek landed on before sync starts the next one. Left to the draw below, the frame is lost: sync
+    // starts a new seek as soon as one lands, so the video is mid-seek whenever the draw looks at it.
+    for (const n of fr.needs) if (n.rev || !transportInstance.playing) engineObj.video(n.vkey, bankObj.get(n.vkey, n.clipId));
     bankObj.sync(fr.needs, transportInstance.playing);
 
     if (transportInstance.playing) {
@@ -107,10 +111,15 @@ export function startRenderLoop(viewCanvas: HTMLCanvasElement, ambientCanvas?: H
         cam: n.cam,
       })));
     const waiting = fr.needs.some((n) => bankObj.get(n.vkey, n.clipId).readyState < 2);
+    // Only a video that hasn't drawn a frame yet is waiting for its clip: one between seeks still shows its last frame.
+    const loading = waiting && fr.needs.some((n) => {
+      const e = bankObj.get(n.vkey, n.clipId);
+      return e.readyState < 2 && engineObj.videoTex.get(n.vkey)?.el !== e;
+    });
     const stageBadge = document.getElementById('stageBadge');
     if (stageBadge) {
-      stageBadge.style.display = waiting ? 'block' : 'none';
-      if (waiting) stageBadge.textContent = 'Preparing clip…';
+      stageBadge.style.display = loading ? 'block' : 'none';
+      if (loading) stageBadge.textContent = 'Preparing clip…';
     }
 
     const key = `${Math.round(t * 30)}|${s.version}|${waiting ? frameNo : ''}|${engineObj.main?.w}`;
