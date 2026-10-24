@@ -146,9 +146,9 @@ class TestDelivery(TempDirCase):
         yt = self.copy(src, "yt.mp4")
         res = delivery.deliver(yt, song, 0.0, 2.0, None, fmt="youtube_16_9", with_audio=False)
         self.assertIsNone(res["audio_path"])
-        self.assertEqual(res["promo_path"], yt[:-4] + "-promo-30s.mp4", "a short YouTube loop gets a promo with the song")
-        long_yt = self.copy(src, "yt-long.mp4")
-        self.assertIsNone(delivery.deliver(long_yt, song, 0.0, 31.0, None, fmt="youtube_16_9")["promo_path"])
+        self.assertIsNone(res["promo_path"], "promo Off means no promo, YouTube included")
+        res = delivery.deliver(self.copy(src, "yt-promo.mp4"), song, 0.0, 2.0, None, fmt="youtube_16_9", promo_seconds=3)
+        self.assertTrue(res["promo_path"].endswith("yt-promo-promo-3s.mp4"))
 
         silent = self.copy(src, "nosong.mp4")
         res = delivery.deliver(silent, self.path("missing.wav"), 0.0, 2.0, None)

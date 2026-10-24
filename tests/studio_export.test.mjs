@@ -115,11 +115,11 @@ test('what an export asks the server for depends on the format, the song and the
   assert.deepEqual([r.meta.width, r.meta.height, r.meta.with_audio], [720, 1280, false]);
 
   r = await render({ format: 'youtube_16_9', audio: false }, { song: true });
-  assert.deepEqual([r.meta.width, r.meta.height, r.meta.with_audio, r.meta.promo_seconds], [1920, 1080, true, 30]);
+  assert.deepEqual([r.meta.width, r.meta.height, r.meta.with_audio, r.meta.promo_seconds], [1920, 1080, false, 0], 'the sheet\'s choices hold for YouTube too');
   assert.equal(r.bitrate, 50_000_000);
 
-  r = await render({ format: 'youtube_16_9' }, { song: true, bars: 20 });
-  assert.equal(r.meta.promo_seconds, 0, 'a 40 s video needs no separate 30 s promo');
+  r = await render({ format: 'youtube_16_9', promo: 30 }, { song: true });
+  assert.deepEqual([r.meta.with_audio, r.meta.promo_seconds], [true, 30]);
   r = await render({ format: 'youtube_16_9' }, { song: true, bars: 40 });
   assert.equal(r.bitrate, 20_000_000, 'past a minute the bitrate drops to keep files manageable');
   assert.equal(r.meta.duration, 80);

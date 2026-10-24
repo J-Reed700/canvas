@@ -401,6 +401,7 @@ export const useStudioStore = create<StudioState>((set, get) => ({
     } else if (Number.isFinite(v) && v >= 40 && v <= 220) {
       nextOverrides[s.trackId] = +v.toFixed(2);
     } else {
+      toast('The tempo can be 40 to 220 BPM');
       return;
     }
     set({ bpmOverride: nextOverrides });

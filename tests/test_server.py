@@ -344,6 +344,32 @@ class TestServerRouting(_ServerCase):
         self.assertTrue(Session.aborted)
         self.assertNotIn("dead.mp4", self.state.raw_sessions)
 
+    def test_an_export_that_cannot_start_says_why(self) -> None:
+        status, data = self.post_json("/api/export/raw/begin", {"look": "x", "bpm": 120, "duration": 4})
+        self.assertEqual(status, 500)
+        self.assertFalse(data["ok"])
+        self.assertTrue(data["error"].startswith("Could not start the export"), data["error"])
+
+    def test_an_export_that_fails_to_finish_leaves_nothing_behind(self) -> None:
+        dest = os.path.join(self.out, "canvas-broken-120bpm-4.0s-720x1280-20261024-120000.mp4")
+        for p in (dest, dest[:-4] + "-audio.mp4"):
+            with open(p, "wb") as f:
+                f.write(b"x")
+
+        class Session:
+            def __init__(self) -> None:
+                self.dest = dest
+
+            def finish(self) -> None:
+                pass
+
+        with self.state.lock:
+            self.state.raw_sessions["broken"] = (Session(), {})
+        with mock.patch.object(server_mod, "_finish_export", side_effect=RuntimeError("mux failed")):
+            status, data = self.post_json("/api/export/raw/end?sid=broken", {"stats": {}})
+        self.assertEqual((status, data), (500, {"ok": False, "error": "mux failed"}))
+        self.assertFalse(os.path.exists(dest) or os.path.exists(dest[:-4] + "-audio.mp4"), "a failed export isn't listed later")
+
     def test_dropped_connections_are_not_logged(self) -> None:
         err = io.StringIO()
         with contextlib.redirect_stderr(err):
@@ -479,6 +505,13 @@ class TestServeStudio(unittest.TestCase):
 
     def test_ctrl_c_closes_the_server(self) -> None:
         closed = []
+        aborted = []
+
+        class Session:
+            def abort(self) -> None:
+                aborted.append(True)
+
+        server_mod.STATE.raw_sessions["open.mp4"] = (Session(), {})
 
         class Server:
             def __init__(self, addr: tuple, handler: type) -> None:
@@ -495,6 +528,7 @@ class TestServeStudio(unittest.TestCase):
             server_mod.serve_studio(port=9100, open_browser=False)
         self.assertEqual(closed, [("127.0.0.1", 9100)])
         self.assertIn("Shutting down Downbeat Studio.", self.out.getvalue())
+        self.assertEqual((aborted, server_mod.STATE.raw_sessions), ([True], {}), "an export left open is cleaned up")
 
 
 @unittest.skipUnless(HAS_FFMPEG, "ffmpeg/ffprobe required")
@@ -658,6 +692,12 @@ class TestServerMedia(_ServerCase):
         status, _, raw = self.request("POST", "/api/upload", b"not a png", {"X-Filename": "corrupt.png"})
         self.assertEqual(status, 400)
         self.assertFalse(json.loads(raw)["ok"])
+
+        # The library lists only these video types, so another kind would vanish on the next rescan.
+        status, _, raw = self.request("POST", "/api/upload", b"avi data", {"X-Filename": "old.avi"})
+        self.assertEqual(status, 400)
+        self.assertIn("Videos need to be .mp4, .mov, .m4v, .webm or .mkv", json.loads(raw)["error"])
+        self.assertFalse(os.path.exists(os.path.join(self.out, "uploads", "old.avi")))
 
     def _annexb(self, size: str, frames: int) -> bytes:
         path = os.path.join(self.tmp, f"{size}-{frames}.h264")

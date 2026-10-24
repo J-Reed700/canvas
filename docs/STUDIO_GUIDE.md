@@ -143,14 +143,15 @@ When per-clip FX is on, each clip gets a small label in its top-right corner: "M
 otherwise the name of its own look. Clicking the label opens that clip's stack in the Layers tab (see
 [Per-clip FX](#10-per-clip-fx)).
 
-Only clips that have been in the edit are loaded. Each gets a playback proxy, and a pulsing dot means it's
+Only clips that have been in the edit are loaded. Each gets a playback proxy, and a spinning ring means it's
 still being made. The other videos from your folders are dimmed with a dashed border. Hover over one and click
 + Add (or tap it) to put it in the edit, which starts its proxy. Still images become clips too, and
 adding one switches to the Living Cover Art look, which is designed for a single image.
 
 The Exports section below lists your renders. Each one shows whether it passed the format's spec check
-(✓ spec, or ✕ and the number of failures), with download links and Reveal in Finder. The search box filters
-the list and Browse opens the full library.
+(✓ spec, or ✕ and the number of failures), with Reveal in Finder and a Delete button that asks for a second
+click. The search box and the kind chips (Canvas, Apple, YouTube and so on) filter the list, and Browse opens
+the full library. In the library, ← and → step through exports, / jumps to the search box and Esc closes it.
 
 ## 6. The timeline
 
@@ -189,8 +190,9 @@ A transition can use up to 90% of the shorter block on either side, so two trans
 On every block. The stack in the Layers tab processes whatever footage the timeline puts on screen, all the
 way through the loop.
 
-The one exception is per-clip FX in Custom mode, where a clip can have a stack of its own that only runs
-while that clip is on screen. When you open a clip's stack in the Layers tab, the timeline outlines that
+The exceptions are the per-clip modes. In Evolve and Look per clip, clip 1 plays the Layers stack and the
+later clips get a mutation of it or a different studio look. In Custom, a clip can have a stack of its own that
+only runs while that clip is on screen. When you open a clip's stack in the Layers tab, the timeline outlines that
 clip's blocks, dims the rest, and the header says which clip is highlighted.
 
 ### Working with the timeline
@@ -275,7 +277,7 @@ tab has 44 built in, plus any you save. Every card plays a live preview on your 
 | Your looks (★) | yours | Saved with ★ Save as look |
 | Studio looks | 18 | Restrained designs: Liquid Chrome, Hyperspace, Super 8 Memory… |
 | Album art & stills | 8 | For a single image: 2.5D parallax, cover visualizer, sparkle, tape |
-| Classic stacks | 18 | Busier 3 to 5 layer stacks from the classic studio |
+| Classic stacks | 18 | Busier 3 or 4 layer stacks from the classic studio |
 
 Clicking a look replaces your layers, camera and Finish. It also replaces your cut settings, unless "Keep my
 edit" is ticked in the Edit tab. While you're editing one clip's own stack, clicking a look applies it to that
@@ -331,7 +333,7 @@ The line above the tools says where the stack below it runs, for example "every 
 
 | Tool | Does |
 |---|---|
-| + Add effect | Opens a menu of all 45 effects, grouped by category |
+| + Add effect | Opens a menu of all 49 effects, grouped by category |
 | 🎲 Random | Adds an effect you don't have yet, slotted in at its usual place in the stack |
 | ⇅ Shuffle | Shuffles the order. Order matters, since each layer works on the output of the one above it |
 | Clear | Removes every layer. Revert or ⌘Z brings them back |
@@ -345,7 +347,7 @@ On each layer card:
 | ↑ ↓ ✕ | Move up, move down, remove |
 | Slider | Drag to set; double-click for the default. On a modulated slider, a thin tick shows where the music has pushed it |
 | Option buttons | Pick a mode, e.g. Halftone's CMYK, Ink or Color dots |
-| ● | Modulate this slider. Colored when in use; gray when the setting is stepped and can't be modulated |
+| ● | Modulate this slider. Colored when in use. Stepped sliders and option buttons have none, since they can't be modulated |
 
 ### Camera
 
@@ -431,7 +433,7 @@ the layer tools says so. Reset clip N or Same look on all brings the main look b
 | Transition order | Cycle through the list in order, or Shuffle (never the same one twice in a row) |
 | Clip direction | Forward, Reverse, Alternate (every other cut reversed), Ping-pong, Random |
 | Speed ramp | Speed curves locked to the beat. Each one averages out to normal speed, so cut timing doesn't change. Double-click a block on the timeline to ramp only that cut |
-| Edit seed | The random seed behind in-points, cut variety and transition picks. ⚄ Re-roll picks a new one. Changing it starts hand cuts over. See [Where each clip starts](#where-each-clip-starts) |
+| Edit seed | The random seed behind in-points, cut variety and transition picks. ⚄ Re-roll in-points & order picks a new one. Changing it starts hand cuts over. See [Where each clip starts](#where-each-clip-starts) |
 | Tempo (no track) | The BPM of the synthetic beat when no song is loaded |
 | Keep my edit | When ticked, switching looks leaves your cuts and transitions alone |
 
@@ -441,7 +443,7 @@ the layer tools says so. Reset clip N or Same look on all brings the main look b
 |---|---|---|
 | 🎲 Roll | D | Randomizes the canvas. By default that's the look (a 4 to 6 layer stack), the edit (rhythm, transitions, transition length and order, speed ramp, direction, clip speed, seed, FX intensity) and the per-clip mode. Tick Clip order or Song section under ▾ to roll those as well |
 | Undo last roll | Shift+D | Goes back one roll at a time, up to 40 |
-| ⚄ Surprise me | R | A random two-layer look: one main effect plus a light or color layer. Like clicking a look, it resets your cuts unless Keep my edit is ticked |
+| ⚄ Surprise me | R | A random look, usually two layers: one main effect plus a light or color layer, sometimes one more or one fewer. Like clicking a look, it resets your cuts unless Keep my edit is ticked |
 | Variations | M | Six mutations of the current look, playing live. Subtle/Wild sets how far they drift, ⟳ Mutate again deals six more, and clicking one keeps it without touching your edit |
 | ↶ Undo, ↷ Redo | ⌘Z, ⇧⌘Z | The arrows in the top bar. Undoes any change to the work: looks, layers, sliders, modulation, palette tints, cuts, clip order and framing, the song and its tempo and beat grid, and the screen and export settings. View toggles (Player UI, Safe zones, Sound, Loop/Listener, the open tab) aren't undone. Each button is greyed out when there's nothing to step to |
 
@@ -512,8 +514,7 @@ or Spotify Countdown pages), and have finished files copied to Downloads.
 Spotify takes 3 to 8 seconds and Apple Music motion art at most 35, and the sheet warns you when the loop
 doesn't fit the format you picked. YouTube 16:9 and Social 1:1 take any length, so use those for a
 visualizer. With "Also save a copy with the song" ticked you get a second file with the song playing from the
-loop start. YouTube's automatic 30 second promo is skipped when the video is already that long, and the GIF
-and WebP teasers use the first 10 seconds.
+loop start. The GIF and WebP teasers use the first 10 seconds.
 
 Videos over a minute are encoded at 20 Mbps instead of 50, which is about 150 MB a minute. How fast they
 render depends on the look, the size and the machine; the progress line shows the time left. The video streams to disk as it
@@ -529,7 +530,7 @@ there are more than 2.5 cuts a second; a slower rhythm like ½ bar or Bar fixes 
 Render & verify renders every frame on the GPU, encodes H.264 in hardware, and checks the file against the
 format's spec. The result appears in the Exports list with a pass or fail badge.
 
-The Release pack row makes stills from clip 1 (a 3000² cover, a 2660×1140 Spotify header, a 2560×1440 YouTube
+The Stills and teasers row makes stills from clip 1 (a 3000² cover, a 2660×1140 Spotify header, a 2560×1440 YouTube
 banner, a 2480×520 SoundCloud header) and GIF or WebP loops from your latest render.
 
 Batch has two options. Export 4 rolls renders four random rolls and then returns to your edit. "This look on
@@ -559,7 +560,7 @@ at its top loop suggestion, so every song on a release shares one style.
 | N | Snap: beat, ½, ¼, off |
 | ? | Shortcut list |
 | Esc | Close menus and dialogs, or clear the selected block |
-| ⌘Z, ⇧⌘Z | Undo, redo |
+| ⌘Z, ⇧⌘Z | Undo, redo (Ctrl on Windows and Linux, where Ctrl+Y also redoes) |
 
 | Mouse | Where | Action |
 |---|---|---|
@@ -737,7 +738,7 @@ songs, and clicking a look with Keep my edit unticked. Press ⌘Z to get them ba
 That preset is longer than the song from its first downbeat. Every other length is allowed, including ones
 outside Spotify's 3 to 8 seconds; the note under Loop length says when a length won't pass as a Canvas.
 
-### A clip says "Preparing clip…" or has a pulsing dot
+### A clip has a spinning ring, or the preview says "Preparing clip…"
 
 Its playback proxy is still being built. Big 4K files take a while.
 

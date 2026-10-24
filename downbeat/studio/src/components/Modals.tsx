@@ -216,7 +216,11 @@ export const Modals: React.FC = () => {
             <span className="kbd">N</span>
             <span>What cuts snap to: beat, ½, ¼, off</span>
             <span className="kbd">⌘ Z</span>
-            <span>Undo any edit · ⇧⌘Z redo</span>
+            <span>Undo any edit · ⇧⌘Z or ⌘Y redo · Ctrl on Windows and Linux</span>
+            <span className="kbd">?</span>
+            <span>This list</span>
+            <span className="kbd">Esc</span>
+            <span>Close menus and dialogs, or clear the selected block</span>
             <span className="kbd">Drag</span>
             <span>On the preview: reframe the current clip · scroll to zoom · double-click to reset</span>
             <span className="kbd">⇧ Drag</span>
@@ -322,8 +326,8 @@ export const Modals: React.FC = () => {
                 {L > 8 + 1e-6 ? 'Also save a copy with the song' : 'Also save a copy with the audio slice'}
               </label>
 
-              <div className="field" style={{ margin: '8px 0 0' }}>
-                <label>Promo copy with the song · Reels / TikTok / Spotify countdown</label>
+              <div className="field">
+                <label>Promo copy with the song</label>
                 <div className="seg">
                   {[
                     [0, 'Off'],
@@ -342,6 +346,7 @@ export const Modals: React.FC = () => {
                     </button>
                   ))}
                 </div>
+                <div className="note">The loop repeated under the song, for Reels, TikTok or a Spotify Countdown Page.</div>
               </div>
             </>
           )}
@@ -412,7 +417,7 @@ export const Modals: React.FC = () => {
               <button
                 className="btn sm"
                 disabled={!selected.length}
-                title="Export 3000 × 3000 release cover art from current clip"
+                title="Export 3000 × 3000 release cover art from clip 1"
                 onClick={() => exportCompanion({ clip_id: selected[0], kind: 'cover' })}
               >
                 Cover 3000×3000

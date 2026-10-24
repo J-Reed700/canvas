@@ -310,6 +310,7 @@ export const LayersPane: React.FC = () => {
                 <button
                   className="ib"
                   title="Move up"
+                  disabled={i === 0}
                   onClick={() => {
                     if (i > 0) {
                       [target.layers[i - 1], target.layers[i]] = [target.layers[i], target.layers[i - 1]];
@@ -324,6 +325,7 @@ export const LayersPane: React.FC = () => {
                 <button
                   className="ib"
                   title="Move down"
+                  disabled={i === target.layers.length - 1}
                   onClick={() => {
                     if (i < target.layers.length - 1) {
                       [target.layers[i + 1], target.layers[i]] = [target.layers[i], target.layers[i + 1]];

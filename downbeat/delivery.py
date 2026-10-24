@@ -468,8 +468,6 @@ def deliver(
             mux_audio_preview(dest, track, audio_dest, start_sec=audio_start, duration_sec=duration)
         if track and promo_seconds and promo_seconds > 0:
             promo_dest = mux_promo(dest, track, f"{dest[:-4]}-promo-{int(round(promo_seconds))}s.mp4", audio_start, promo_seconds)
-        elif fmt == "youtube_16_9" and track and (not promo_seconds or promo_seconds <= 0) and duration < 30.0:
-            promo_dest = mux_promo(dest, track, f"{dest[:-4]}-promo-30s.mp4", audio_start, 30.0)
     info = probe(dest)
     vs = next((x for x in info.get("streams", []) if x.get("codec_type") == "video"), {})
     target = cover_dest if cover_dest else dest

@@ -32,7 +32,7 @@ describe('exports panel', () => {
   test('says where exports will appear before there are any', () => {
     resetStudio();
     renderStudio(<ExportsSection />);
-    expect(screen.getByText('Exports appear here, each checked against the Spotify Canvas spec.')).toBeTruthy();
+    expect(screen.getByText("Exports appear here, each checked against its format's spec.")).toBeTruthy();
     expect(screen.queryByText(/Browse/)).toBeNull();
   });
 

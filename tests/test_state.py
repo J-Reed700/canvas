@@ -38,6 +38,7 @@ class TestStateHelpers(unittest.TestCase):
         self.touch(stem + "-audio.mp4", age=10)
         self.touch(stem + "-promo-15s.mp4", age=10)
         self.touch(stem + "-promo-30s.mp4", age=10)
+        self.touch(stem + "-cover-3000x3000.jpg", age=10)
         self.touch("sample-canvas.mp4", age=5)
         self.touch("old.mp4", age=100)
         st = state_mod.StudioState()
@@ -45,9 +46,11 @@ class TestStateHelpers(unittest.TestCase):
         self.assertEqual([r["filename"] for r in st._renders], ["sample-canvas.mp4", stem + ".mp4", "old.mp4"])
         tide = st._renders[1]
         self.assertEqual((tide["audio_url"], tide["promo_url"]), (f"/out/{stem}-audio.mp4", f"/out/{stem}-promo-30s.mp4"))
+        self.assertEqual(tide["cover_url"], f"/out/{stem}-cover-3000x3000.jpg", "the cover JPG comes back after a restart")
         self.assertEqual((tide["format"], tide["look"], tide["resolution"], tide["size_mb"]), ("youtube_16_9", "Neon Tide", "1920x1080", 2.0))
         self.assertEqual((st._renders[0]["resolution"], st._renders[2]["resolution"]), ("1080x1920", "540x960"))
         self.assertIsNone(st._renders[2]["audio_url"])
+        self.assertIsNone(st._renders[2]["cover_url"])
 
     def test_export_names_are_safe_and_carry_the_delivered_size(self) -> None:
         name = os.path.basename(state_mod._export_dest({"look": "Ünïcode & Co!!", "bpm": 127.6, "duration": 4.0, "format": "apple_square"}))
@@ -162,9 +165,9 @@ class TestExportNames(TempDirCase):
         dest_yt = _export_dest(meta_yt)
         self.assertIn("-4.0s-", dest_yt)
 
-        meta_cover = {"format": "cover_art", "duration": 4.0, "width": 3000, "height": 3000, "look": "neon", "bpm": 120}
+        meta_cover = {"format": "cover_art", "duration": 4.0, "width": 1500, "height": 1500, "look": "neon", "bpm": 120}
         dest_cover = _export_dest(meta_cover)
-        self.assertIn("-4.0s-", dest_cover)
+        self.assertIn("-4.0s-1500x1500-", dest_cover, "the motion preview is named for the size it's rendered at")
 
         entry = st.add_export(
             dest_apple,

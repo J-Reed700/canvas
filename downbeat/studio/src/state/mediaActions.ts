@@ -53,7 +53,7 @@ async function folderAdded(r: LibraryInfo) {
   applyLibrary(r);
   if (!r.added) return;
   const folder = r.added;
-  const clips = r.clips.filter((c) => c.path?.startsWith(folder + '/'));
+  const clips = r.clips.filter((c) => c.path?.startsWith(folder + '/') || c.path?.startsWith(folder + '\\'));
   const songs = r.tracks.filter((t) => t.source === folder);
   const name = `the ${sourceLabel(folder)} folder`;
   toast(
