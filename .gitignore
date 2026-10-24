@@ -24,11 +24,12 @@ htmlcov/
 .tox/
 .nox/
 
-# ── Node (only used to run the studio's JS tests) ───────────────────────────
+# ── Node / Studio build ─────────────────────────────────────────────────────
 node_modules/
 npm-debug.log*
+downbeat/studio/dist/
 
-# ── Canvas Forge output ─────────────────────────────────────────────────────
+# ── Downbeat output ─────────────────────────────────────────────────────
 # Exports, uploads and playback proxies (out/.proxies) are all regenerated on demand.
 out/
 *.part.mp4

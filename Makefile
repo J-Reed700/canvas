@@ -1,19 +1,24 @@
-.PHONY: run studio install test list clean
+.PHONY: run studio setup install test list clean
+
+# Everything goes through run.sh, which installs anything missing (ffmpeg, Python, Node, packages)
+# and rebuilds the studio UI when its sources changed.
 
 run: studio
 
-studio: install
-	./.venv/bin/python -m canvasforge --studio
+studio:
+	./run.sh --studio
 
-install:
-	@if [ ! -d ".venv" ]; then python3 -m venv .venv; fi
-	@./.venv/bin/python -c "import cv2, numpy" >/dev/null 2>&1 || ./.venv/bin/pip install -e .
+setup:
+	./run.sh --setup
 
-test: install
+install: setup
+
+test: setup
 	./.venv/bin/python -m unittest discover -s tests -v
+	@if command -v node >/dev/null 2>&1; then node --test tests/studio.test.mjs; fi
 
-list: install
-	./.venv/bin/python -m canvasforge --list
+list: setup
+	./.venv/bin/python -m downbeat --list
 
 clean:
-	rm -rf build dist *.egg-info __pycache__ canvasforge/__pycache__ tests/__pycache__
+	rm -rf build dist *.egg-info __pycache__ downbeat/__pycache__ tests/__pycache__ downbeat/studio/dist

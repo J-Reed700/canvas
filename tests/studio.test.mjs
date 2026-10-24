@@ -1,14 +1,13 @@
-// Unit tests for the GPU Studio's pure modules (run: node --test tests/).
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { planTimeline, sampleTimeline, clipTime, cameraFor, loopBeats, velocityAt, RHYTHMS, DIRECTIONS, VELOCITY } from '../canvasforge/studio/timeline.js';
-import { compose, resolveParams } from '../canvasforge/studio/composer.js';
-import { flashesPerSecond } from '../canvasforge/studio/exporter.js';
-import { LOOKS, chaosLook, evolveLook, mutate, randomLook } from '../canvasforge/studio/looks.js';
-import { CAMERA, FINISH_DEF, MODULES } from '../canvasforge/studio/modules.js';
-import { TRANSITIONS } from '../canvasforge/studio/shaders.js';
-import { makeSampler, withLook } from '../canvasforge/studio/audio.js';
-import { MOD_SOURCES } from '../canvasforge/studio/modules.js';
+import { planTimeline, sampleTimeline, clipTime, cameraFor, loopBeats, velocityAt, RHYTHMS, DIRECTIONS, VELOCITY } from '../downbeat/studio/timeline.ts';
+import { compose, resolveParams } from '../downbeat/studio/composer.ts';
+import { flashesPerSecond } from '../downbeat/studio/exporter.ts';
+import { LOOKS, chaosLook, evolveLook, mutate, randomLook } from '../downbeat/studio/looks.ts';
+import { CAMERA, FINISH_DEF, MODULES, moduleSource, buildStageSource } from '../downbeat/studio/modules.ts';
+import { TRANSITIONS } from '../downbeat/studio/shaders.ts';
+import { makeSampler, withLook, lfoAt, lfoCycles, LFO_SHAPES, LFO_RATES } from '../downbeat/studio/audio.ts';
+import { MOD_SOURCES } from '../downbeat/studio/modules.ts';
 
 const FPS = 30;
 const clips = [{ id: 'a', duration: 12 }, { id: 'b', duration: 9 }, { id: 'c', duration: 20 }];
@@ -99,6 +98,26 @@ test('clip framing moves the crop centre and zoom', () => {
   const c = cameraFor(seg, 0.1, cam, 0.1, base.L, 0.25, 1);
   assert.deepEqual(c.center, [0.2, 0.7]);
   assert.equal(c.zoom, 1.5);
+});
+
+test('camera shake rattles within a step and repeats exactly at the loop seam', () => {
+  const seg = planTimeline({ ...base, rhythm: 'bar' }).segs[0];
+  const cam = { zoom: 1.06, drift: 0, shake: 1, sway: 0 };
+  const at = (t) => cameraFor(seg, 0.1, cam, t, base.L, t / base.beatDur, 1).shake;
+  for (let i = 0; i < 2; i++) assert.ok(Math.abs(at(0)[i] - at(base.L)[i]) < 1e-9);
+  // over one sixteenth (3 frames at 30 fps here) the frame has to move noticeably, or a short hit reads as a nudge
+  const step = base.beatDur / 4;
+  let moved = 0;
+  for (let t = 0; t < base.L; t += step) moved = Math.max(moved, Math.hypot(at(t + step)[0] - at(t)[0], at(t + step)[1] - at(t)[1]));
+  assert.ok(moved > 0.01, `moved ${moved}`);
+});
+
+test('a step hit decays over a few frames instead of cutting off at the next step', () => {
+  const look = { ...LOOKS[0], seq: [1, ...Array(15).fill(0)] };
+  const seqAt = (steps) => withLook({}, look, 0, steps / 4).seq;
+  assert.equal(seqAt(0), 1);
+  assert.ok(seqAt(0.999) > 0.25 && Math.abs(seqAt(1) - seqAt(0.999)) < 0.01);
+  assert.ok(seqAt(3) < 0.05);
 });
 
 test('transitions are centred on their beat (p = 0.5 exactly on the cut)', () => {
@@ -230,7 +249,7 @@ test('every modulation source stays in 0..1 and the clocks repeat exactly once p
   for (const L of [base.beatDur * 4, base.beatDur * 16, base.beatDur * 32]) {
     const sampler = makeSampler({ features: null, loopStart: 0, beatDur: base.beatDur, seed: 3, L });
     const look = { ...LOOKS[0], env: [0, 1, 0.2, 0.9, 0.5, 0, 1, 0.3], seq: Array.from({ length: 16 }, (_, i) => i % 3 === 0 ? 1 : 0), macro: { a: 0.7, b: 0.2 } };
-    const at = (t) => withLook(sampler(t), look, (t % L) / L, t / base.beatDur);
+    const at = (t) => withLook(sampler(t), look, (t % L) / L, t / base.beatDur, L / base.beatDur);
     for (let i = 0; i < 97; i++) {
       const t = (i / 97) * L;
       const v = at(t), w = at(t + L);
@@ -241,4 +260,222 @@ test('every modulation source stays in 0..1 and the clocks repeat exactly once p
     }
     assert.equal(at(0).macroA, 0.7);
   }
+});
+
+test('vocals and presence modulation sources and seamless loop wrap of makeSampler', () => {
+  assert.ok(MOD_SOURCES.vocals);
+  assert.equal(MOD_SOURCES.vocals.name, 'Vocals');
+  assert.equal(MOD_SOURCES.vocals.short, 'VOC');
+  assert.equal(MOD_SOURCES.vocals.color, '#FF94D2');
+
+  assert.ok(MOD_SOURCES.presence);
+  assert.equal(MOD_SOURCES.presence.name, 'Presence');
+  assert.equal(MOD_SOURCES.presence.short, 'PRS');
+  assert.equal(MOD_SOURCES.presence.color, '#80FFE5');
+
+  const L = base.beatDur * 16;
+  const synthSampler = makeSampler({ features: null, loopStart: 0, beatDur: base.beatDur, seed: 5, L });
+  const v0 = synthSampler(0);
+  const vEnd = synthSampler(L - 1e-4);
+
+  assert.ok(v0.vocals >= 0 && v0.vocals <= 1);
+  assert.ok(v0.presence >= 0 && v0.presence <= 1);
+  assert.ok(Math.abs(v0.vocals - vEnd.vocals) < 0.01, `vocals seam jump: ${Math.abs(v0.vocals - vEnd.vocals)}`);
+  assert.ok(Math.abs(v0.presence - vEnd.presence) < 0.01, `presence seam jump: ${Math.abs(v0.presence - vEnd.presence)}`);
+
+  assert.equal(v0.build, 0);
+  assert.ok(vEnd.build < 0.001, `build at end is ${vEnd.build}`);
+
+  assert.equal(v0.bar, 0);
+  assert.ok(vEnd.bar < 0.001, `bar at end is ${vEnd.bar}`);
+
+  assert.equal(v0.beat, 0);
+  assert.ok(Math.abs(v0.beat - vEnd.beat) < 0.01, `beat jump: ${Math.abs(v0.beat - vEnd.beat)}`);
+  assert.ok(Math.abs(v0.off - vEnd.off) < 0.01, `off jump: ${Math.abs(v0.off - vEnd.off)}`);
+
+  const fps = 30;
+  const nFrames = Math.round((0 + L + 2) * fps);
+  const testCurves = {
+    vocals: Array.from({ length: nFrames }, (_, i) => 0.2 + 0.6 * ((i / nFrames) ** 2)),
+    presence: Array.from({ length: nFrames }, (_, i) => 0.8 - 0.5 * (i / nFrames)),
+    kick: Array.from({ length: nFrames }, (_, i) => (i % 12 === 0 ? 0.9 : 0.05)),
+  };
+  const realSampler = makeSampler({ features: { curves: testCurves, fps }, loopStart: 0, beatDur: base.beatDur, seed: 1, L });
+  const r0 = realSampler(0);
+  const rEnd = realSampler(L - 1e-4);
+  for (const k of ['vocals', 'presence', 'kick']) {
+    assert.ok(Math.abs(r0[k] - rEnd[k]) < 0.02, `real curve ${k} crossfade seam jump: ${Math.abs(r0[k] - rEnd[k])}`);
+  }
+});
+
+test('broll module shader compilation and composition', () => {
+  const broll = MODULES.broll;
+  assert.ok(broll, 'broll module exists in MODULES');
+  assert.equal(broll.name, 'B-Roll Blend');
+  assert.equal(broll.cat, 'space');
+  assert.equal(broll.aux, 'clipB');
+  const paramIds = broll.params.map((p) => p.id);
+  assert.deepEqual(paramIds, ['mode', 'mix', 'thresh', 'soft', 'zoom']);
+
+  const src = moduleSource('broll');
+  assert.ok(typeof src === 'string' && src.length > 100);
+  assert.ok(src.includes('uniform sampler2D uAux;'), 'contains uAux sampler');
+  assert.ok(src.includes('p_mode') && src.includes('p_mix') && src.includes('p_thresh') && src.includes('p_zoom'));
+  assert.ok(src.includes('outColor = vec4(mix(a, blended, p_mix), 1.0);'));
+
+  const tl = planTimeline({ ...base, rhythm: 'bar' });
+  const sampler = makeSampler({ features: null, loopStart: 0, beatDur: base.beatDur, seed: 1 });
+  const lookWithBroll = {
+    ...LOOKS[0],
+    layers: [{ m: 'broll', on: true, p: { mode: 1, mix: 0.6, thresh: 0.35, soft: 0.15, zoom: 1 } }],
+  };
+
+  const ctxMulti = { look: lookWithBroll, tl, sampler, clipDur: () => 10, L: base.L, beatDur: base.beatDur, seed: 1, clips };
+  const frMulti = compose(ctxMulti, 0.4);
+  assert.ok(frMulti.broll, 'broll descriptor present in compose result');
+  assert.equal(frMulti.broll.aux, 'clipB');
+  assert.ok(frMulti.needs.some((n) => n.aux === 'clipB'), 'needs includes broll need with aux: clipB');
+  assert.equal(frMulti.broll.clipId, tl.segs[1].clipId, 'picks next clip in timeline');
+  assert.equal(frMulti.broll.vkey, `${tl.segs[1].clipId}#broll`);
+
+  const singleTl = planTimeline({ ...base, clips: [clips[0]], rhythm: 'bar2' });
+  const ctxSingle = { look: lookWithBroll, tl: singleTl, sampler, clipDur: () => 10, L: base.L, beatDur: base.beatDur, seed: 1, clips: [clips[0]] };
+  const frSingle = compose(ctxSingle, 0.2);
+  assert.ok(frSingle.broll);
+  assert.equal(frSingle.broll.clipId, clips[0].id);
+  assert.ok(frSingle.needs.some((n) => n.aux === 'clipB'));
+
+  const lookBrollOff = {
+    ...LOOKS[0],
+    layers: [{ m: 'broll', on: false, p: {} }],
+  };
+  const frOff = compose({ ...ctxMulti, look: lookBrollOff }, 0.4);
+  assert.ok(!frOff.needs.some((n) => n.aux === 'clipB'), 'disabled broll is not added to needs');
+});
+
+test('timeline seam transitions prefer smooth transitions and single-clip loop dissolves at wrap', () => {
+  const tlCutDissolve = planTimeline({ ...base, transitions: ['cut', 'dissolve'] });
+  assert.notEqual(tlCutDissolve.segs[0].trans, 'cut');
+  assert.equal(tlCutDissolve.segs[0].trans, 'dissolve');
+
+  const tlHarshSmooth = planTimeline({ ...base, transitions: ['zoom', 'morph'] });
+  assert.equal(tlHarshSmooth.segs[0].trans, 'morph');
+
+  const singleCut = planTimeline({ ...base, clips: [clips[0]], transitions: ['cut'], transBeats: 0 });
+  const seamSample = sampleTimeline(singleCut, 0);
+  assert.ok(seamSample.b, 'single-clip seam at t = 0 is a 2-source blend');
+  assert.equal(seamSample.trans, 'dissolve');
+  assert.equal(seamSample.p, 0.5);
+});
+
+test('audio visualizer module shader compilation, composition, and art looks', () => {
+  const vis = MODULES.visualizer;
+  assert.ok(vis, 'visualizer module exists in MODULES');
+  assert.equal(vis.name, 'Audio Visualizer');
+  assert.equal(vis.cat, 'stylize');
+  const paramIds = vis.params.map((p) => p.id);
+  assert.deepEqual(paramIds, ['mode', 'scale', 'glow', 'hue', 'mix']);
+  assert.deepEqual(vis.params[0].opts, ['Ring Spectrum', 'EQ Bars', 'Oscilloscope', 'Dual Horizon']);
+
+  const stageSourceFn = typeof buildStageSource === 'function' ? buildStageSource : moduleSource;
+  const src = stageSourceFn('visualizer');
+  assert.ok(typeof src === 'string' && src.length > 200, 'shader source generated');
+  for (const p of ['p_mode', 'p_scale', 'p_glow', 'p_hue', 'p_mix']) {
+    assert.ok(src.includes(p), `shader declares uniform ${p}`);
+  }
+  assert.ok(src.includes('loopPhase'), 'shader computes seamless loopPhase');
+  assert.ok(src.includes('uKick') && src.includes('uBass') && src.includes('uSnare') && src.includes('uHats'), 'audio reactivity uniforms used');
+  assert.ok(src.includes('outColor = vec4(mix(c, blended, p_mix), 1.0);'), 'composites over c = tex(vUv)');
+
+  const livingCover = LOOKS.find((l) => l.id === 'art-living-cover');
+  assert.ok(livingCover, 'LOOKS contains art-living-cover');
+  assert.equal(livingCover.name, 'Living Cover Art');
+  assert.equal(livingCover.group, 'art');
+  assert.ok(livingCover.layers.some((l) => l.m === 'parallax'));
+  assert.ok(livingCover.layers.some((l) => l.m === 'pulse'));
+  assert.ok(livingCover.layers.some((l) => l.m === 'bloom'));
+
+  const trackVis = LOOKS.find((l) => l.id === 'art-visualizer');
+  assert.ok(trackVis, 'LOOKS contains art-visualizer');
+  assert.equal(trackVis.name, 'Track Visualizer');
+  assert.equal(trackVis.group, 'art');
+  assert.ok(trackVis.layers.some((l) => l.m === 'parallax'));
+  assert.ok(trackVis.layers.some((l) => l.m === 'visualizer'));
+  assert.ok(trackVis.layers.some((l) => l.m === 'bloom'));
+
+  const tl = planTimeline({ ...base, rhythm: 'bar' });
+  const sampler = makeSampler({ features: null, loopStart: 0, beatDur: base.beatDur, seed: 1 });
+  for (const lk of [livingCover, trackVis]) {
+    const ctx = { look: lk, tl, sampler, clipDur: () => 10, L: base.L, beatDur: base.beatDur, seed: 1 };
+    for (const t of [0, 1.2, base.L - 0.05]) {
+      const fr = compose(ctx, t);
+      assert.ok(fr.layers.length >= 1);
+      for (const layer of fr.layers) {
+        const m = MODULES[layer.m];
+        assert.ok(m, `Module ${layer.m} exists`);
+        for (const p of m.params) {
+          const val = layer.params[`p_${p.id}`];
+          assert.ok(val >= p.min && val <= p.max, `${layer.m}.${p.id}=${val} within [${p.min}, ${p.max}]`);
+        }
+      }
+    }
+  }
+
+  for (let m = 0; m < 4; m++) {
+    const customLook = {
+      ...trackVis,
+      layers: [
+        {
+          m: 'visualizer',
+          on: true,
+          p: { mode: m, scale: 0.5, glow: 0.8, hue: 0.3, mix: 0.9 },
+          mods: { scale: { src: 'kick', amt: 0.1 }, glow: { src: 'energy', amt: 0.2 } },
+        },
+      ],
+    };
+    const ctx = { look: customLook, tl, sampler, clipDur: () => 10, L: base.L, beatDur: base.beatDur, seed: 1 };
+    const fr = compose(ctx, 0.4);
+    assert.equal(fr.layers[0].params.p_mode, m);
+    assert.ok(fr.layers[0].params.p_scale >= 0.15 && fr.layers[0].params.p_scale <= 1.0);
+  }
+});
+
+test('LFOs make whole cycles per loop in every shape, rate and phase, so the seam never jumps', () => {
+  for (const loopBeats of [4, 8, 16, 32]) {
+    for (const [shape] of LFO_SHAPES) {
+      for (const [rate] of LFO_RATES) {
+        for (const phase of [0, 0.25, 0.6]) {
+          const lfo = { shape, rate, phase, seed: 3 };
+          const first = lfoAt(lfo, 0, loopBeats);
+          const last = lfoAt(lfo, 1 - 1e-9, loopBeats);
+          assert.ok(Math.abs(first - last) < 1e-3, `${shape} ${rate} bars, phase ${phase}, ${loopBeats}-beat loop: ${first} vs ${last}`);
+          for (let f = 0; f < 97; f++) {
+            const v = lfoAt(lfo, f / 97, loopBeats);
+            assert.ok(v >= 0 && v <= 1, `${shape} out of range: ${v}`);
+          }
+        }
+      }
+    }
+  }
+  assert.equal(lfoCycles(1, 16), 4);
+  assert.equal(lfoCycles(0.25, 16), 16);
+  assert.equal(lfoCycles(4, 4), 1, 'a rate longer than the loop plays once per loop');
+  assert.equal(lfoCycles(0, 32), 1);
+  const sine = { shape: 'sine', rate: 1, phase: 0 };
+  assert.ok(lfoAt(sine, 0, 4) < 1e-9 && Math.abs(lfoAt(sine, 0.5, 4) - 1) < 1e-9, 'sine starts low and peaks mid-cycle');
+  assert.ok(Math.abs(lfoAt({ ...sine, phase: 0.5 }, 0, 4) - 1) < 1e-9, 'phase moves the start point');
+  const a = lfoAt({ shape: 'random', rate: 1, phase: 0, seed: 1 }, 0.4, 16);
+  const b = lfoAt({ shape: 'random', rate: 1, phase: 0, seed: 2 }, 0.4, 16);
+  assert.notEqual(a, b, 'a new seed gives a new random pattern');
+});
+
+test('looks route LFO A and B through compose like any other source', () => {
+  const L = base.beatDur * 16;
+  const sampler = makeSampler({ features: null, loopStart: 0, beatDur: base.beatDur, seed: 3, L });
+  const look = { ...LOOKS[0], lfos: [{ shape: 'square', rate: 0.5, phase: 0, seed: 1 }, { shape: 'saw', rate: 0, phase: 0, seed: 1 }] };
+  const mv = withLook(sampler(L * 0.3), look, 0.3, (L * 0.3) / base.beatDur, 16);
+  assert.equal(mv.lfoA, lfoAt(look.lfos[0], 0.3, 16));
+  assert.equal(mv.lfoB, lfoAt(look.lfos[1], 0.3, 16));
+  const plain = withLook(sampler(0), LOOKS[0], 0, 0, 16);
+  assert.ok(plain.lfoA >= 0 && plain.lfoB >= 0, 'looks saved before LFOs existed get the default LFOs');
 });

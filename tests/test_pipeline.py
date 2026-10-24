@@ -1,15 +1,14 @@
-"""Automated test suite for Canvas Forge v2.5 (shaders, transitions, recipes, loop topologies)."""
 from __future__ import annotations
 
 import unittest
 import numpy as np
 
-from canvasforge import EFFECTS, PRESETS, make_recipe
-from canvasforge.compositor import _blend_transition
-from canvasforge.source import fit_portrait
+from downbeat import EFFECTS, PRESETS, make_recipe
+from downbeat.compositor import _blend_transition
+from downbeat.source import fit_portrait
 
 
-class TestCanvasForgePipeline(unittest.TestCase):
+class TestDownbeatPipeline(unittest.TestCase):
     def setUp(self) -> None:
         rng = np.random.default_rng(2026)
         self.frame_a = rng.integers(0, 256, (320, 180, 3), dtype=np.uint8)
@@ -25,7 +24,6 @@ class TestCanvasForgePipeline(unittest.TestCase):
             self.assertEqual(out_clock.shape, self.frame_a.shape, f"{name} changed shape")
             self.assertEqual(out_clock.dtype, np.uint8, f"{name} changed dtype")
 
-            # Also verify audio-reactive modulation kwargs
             audio_kw = {**kw, "_sub": 0.92, "_transient": 0.85, "_air": 0.74, "_rms": 0.88}
             out_audio = fn(self.frame_a, t=0.35, beat_dur=0.46875, **audio_kw)
             self.assertEqual(out_audio.shape, self.frame_a.shape)
@@ -64,8 +62,8 @@ class TestCanvasForgePipeline(unittest.TestCase):
             self.assertEqual(blended.dtype, np.uint8, f"transition {mode} dtype mismatch")
 
     def test_clip_directions_and_order_preservation(self) -> None:
-        from canvasforge.compositor import build_plan
-        from canvasforge.source import GLOBAL_CACHE, Source
+        from downbeat.compositor import build_plan
+        from downbeat.source import GLOBAL_CACHE, Source
 
         src_a = Source(path="mock_a.mp4", width=180, height=320, fps=30.0, frame_count=60, duration=2.0)
         src_b = Source(path="mock_b.mp4", width=180, height=320, fps=30.0, frame_count=60, duration=2.0)
@@ -91,24 +89,21 @@ class TestCanvasForgePipeline(unittest.TestCase):
         black = np.zeros((100, 100, 3), dtype=np.uint8)
         for mode in ("flash", "dissolve"):
             mid = _blend_transition(black, black, alpha=0.5, mode=mode)
-            # Midpoint cushion must be at most +10, never +135 blinding flash
             self.assertLessEqual(float(mid.mean()), 10.0)
 
     def test_photosensitive_slew_limiter_and_determinism(self) -> None:
-        from canvasforge.compositor import RenderPlan, SegmentSlice
+        from downbeat.compositor import RenderPlan, SegmentSlice
         import cv2
 
         class DummySource:
             path = "dummy"
             frame_count = 100
 
-        # Alternate black and white frames in segment
         black = np.zeros((120, 100, 3), dtype=np.uint8)
         white = np.full((120, 100, 3), 255, dtype=np.uint8)
         strobe_frames = [black, white] * 20
 
         rec = make_recipe(seed=42, preset="hypnotic")
-        # Empty effects to isolate slew limiter on raw strobe frames
         rec.effects = []
         seg = SegmentSlice(source=DummySource(), frames=strobe_frames, start_canvas_frame=0, end_canvas_frame=20, speed=1.0)
         plan = RenderPlan(sources=[DummySource()], recipe=rec, segments=[seg], n_frames=20, beat_dur=0.5)
@@ -125,7 +120,6 @@ class TestCanvasForgePipeline(unittest.TestCase):
                 self.assertLessEqual(delta, 18.05, f"Frame {i} delta {delta} exceeded 18.0 max slew")
             last_luma = luma
 
-        # Test determinism: re-running from frame 0 produces identical frames
         for i in range(20):
             frame = plan.render(i)
             np.testing.assert_array_equal(frame, rendered_first_pass[i], f"Frame {i} non-deterministic")
@@ -149,7 +143,6 @@ class TestCanvasForgePipeline(unittest.TestCase):
         rec2 = make_recipe(seed=9999, bpm=128, effect_names=list(EFFECTS.keys()), intensity=1.35)
         kw_map1 = {name: kw for name, _, kw in rec1.effects}
         kw_map2 = {name: kw for name, _, kw in rec2.effects}
-        # Verify key shader kwargs are present and match effects.py expectations
         self.assertIn("max_deg", kw_map1["pendulum_sway"])
         self.assertIn("twist", kw_map1["vortex_twirl"])
         self.assertIn("slices", kw_map1["kaleido_hex"])
@@ -165,8 +158,8 @@ class TestCanvasForgePipeline(unittest.TestCase):
         self.assertNotEqual(kw_map1, kw_map2)
 
     def test_granular_cuts_fit_all_clips_and_multi_transitions(self) -> None:
-        from canvasforge.compositor import build_plan
-        from canvasforge.source import GLOBAL_CACHE, Source
+        from downbeat.compositor import build_plan
+        from downbeat.source import GLOBAL_CACHE, Source
 
         sources = [
             Source(path=f"mock_{k}.mp4", width=180, height=320, fps=30.0, frame_count=90, duration=3.0)
@@ -177,7 +170,6 @@ class TestCanvasForgePipeline(unittest.TestCase):
         try:
             GLOBAL_CACHE.load_segment = lambda src, start_frame, count, target_w, target_h, **kw: mock_frames[:count]
 
-            # Even at cut_beats=8.0 on an 8s canvas, ensure_all_clips=True must transition all 4 videos
             pool = ["luma", "datamosh", "whip", "prism_split", "zoom_punch", "kaleido_twist"]
             rec = make_recipe(
                 seed=2026,
@@ -195,11 +187,9 @@ class TestCanvasForgePipeline(unittest.TestCase):
             covered_paths = {seg.source.path for seg in plan.segments}
             self.assertEqual(len(covered_paths), 4)
 
-            # Consecutive cuts in random transition_mode must never repeat the same transition back-to-back
             for idx in range(1, len(plan.segments)):
                 self.assertNotEqual(plan.segments[idx].transition, plan.segments[idx - 1].transition)
 
-            # Test all cut rhythm modes and fractional beat intervals
             for mode in ("steady", "fit_all", "fit_all_2x", "build_up", "syncopated", "transient", "chaos"):
                 rec_m = make_recipe(
                     seed=55,
@@ -218,8 +208,8 @@ class TestCanvasForgePipeline(unittest.TestCase):
             GLOBAL_CACHE.load_segment = orig_load
 
     def test_per_video_filters_modes_and_transition_blending(self) -> None:
-        from canvasforge.compositor import build_plan
-        from canvasforge.source import GLOBAL_CACHE, Source
+        from downbeat.compositor import build_plan
+        from downbeat.source import GLOBAL_CACHE, Source
 
         sources = [
             Source(path=f"mock_{k}.mp4", width=180, height=320, fps=30.0, frame_count=90, duration=3.0)
@@ -287,13 +277,11 @@ class TestCanvasForgePipeline(unittest.TestCase):
                     self.assertIsNotNone(plan.segments[1].effects)
                     self.assertNotEqual(plan.segments[0].effect_names, plan.segments[1].effect_names)
 
-                # Render across all frames including cut transitions
                 for i in range(min(45, plan.n_frames)):
                     frame = plan.render(i)
                     self.assertEqual(frame.shape, (320, 180, 3), f"Mode {mode} frame {i} bad shape")
                     self.assertEqual(frame.dtype, np.uint8, f"Mode {mode} frame {i} bad dtype")
 
-                # Specifically test rendering inside transition window of cut between seg 0 and seg 1
                 trans_frame_idx = plan.segments[1].start_canvas_frame + 2
                 trans_out = plan.render(trans_frame_idx)
                 self.assertEqual(trans_out.shape, (320, 180, 3))
