@@ -54,6 +54,8 @@ function writeSession() {
         direction: s.direction,
         lockEdit: s.lockEdit,
         blocks: s.blocks,
+        // an older session's cuts that haven't been turned into blocks yet, kept until they are
+        ...(s.legacyEdit || {}),
         snap: s.snap,
         hud: s.hud,
         safe: s.safe,

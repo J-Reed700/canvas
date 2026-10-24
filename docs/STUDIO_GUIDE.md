@@ -159,6 +159,7 @@ it.
 
 ```
  Drop  Peak 2  Peak 3  Intro   16 cuts · from 0:27        Hits ½beat Beat ½bar Bar 2bars 3-3-2 Build …
+ ✂ Split  Repeat  Put a clip in  Delete                          Snap  Beat ½ ¼ Off
  ▼  ▼          ▼                                    ← suggested loop starts (white triangles)
  ▁▃▅▇▅▃▁▂▃[████]▅▃▂▁▃▅▇▅▃▂▁▂▃▅▃▂                      ← the song; the lime box is the part that loops
  1         2         3         4                     ← bars inside the loop
@@ -180,6 +181,8 @@ Hits on the strongest drum hits, and so on (full list in [section 17](#17-rhythm
 
 The diamonds are transitions. Pink ones are animated, and the pink shading shows how long they last; white
 ones are hard cuts. The diamond at the far left is the loop seam, where the end of the loop joins the start.
+Each cut has its own length. Drag the edge of the pink shading to change it, or set it in the segment menu.
+A transition can use up to 90% of the shorter block on either side, so two transitions never overlap.
 
 ### Where the layers go
 
@@ -196,11 +199,33 @@ clip's blocks, dims the rest, and the header says which clip is highlighted.
 |---|---|---|
 | Click a loop chip | above the waveform | Moves the loop to that section. [ and ] step through them |
 | Click or drag | song waveform | Moves the loop start, snapped to a downbeat |
-| Click | cut lane | Moves the playhead |
-| Drag a cut line | cut lane, cursor shows ↔ | Moves that cut, snapped to the beat. The rhythm switches to Custom |
+| Click | cut lane | Moves the playhead and selects the block, which gets a lime outline |
+| Drag a cut line | cut lane, cursor shows ↔ | Moves that cut, snapped to the Snap setting (the beat at first). Hold Shift to put it anywhere. The rhythm shows Custom |
+| Drag the edge of the pink shading | cut lane, cursor shows ⇹ | Sets how long that one transition lasts, in quarter beats. Hold Shift for any length |
 | Option-drag | a block | Slips the clip: same timing, different moment of the footage |
-| Double-click | a block | Opens the segment menu: the clip, in-point (click a frame in the filmstrip or drag the slider), direction, speed ramp, the transition into that block, and its framing (see [Framing one segment](#framing-one-segment)). A lime dot marks what you've set, and Back to auto clears it. ‹ › or ← → move to the next block, and ▶ Play the cut plays the transition into it |
-| Click a rhythm button | top right | Re-cuts the loop and drops any cuts you dragged |
+| Double-click, or long-press on a touch screen | a block | Opens the segment menu: Split, Repeat, Put a clip in and Delete for that block, then the clip, in-point (click a frame in the filmstrip or drag the slider), direction, speed ramp, the transition into that block and its length, and its framing (see [Framing one segment](#framing-one-segment)). A lime dot marks what you've set, and Back to auto clears it. ‹ › or ← → move to the next block, and ▶ Play the cut plays the transition into it |
+| Click a rhythm button | top right | Re-cuts the loop and starts the cuts over, dropping any you moved, split or added |
+
+### Cutting blocks by hand
+
+The buttons under the rhythm buttons edit the blocks. Each one works on the selected block, or on the block
+under the playhead when nothing is selected, and each is one ⌘Z step.
+
+| Button | Key | Does |
+|---|---|---|
+| ✂ Split | B | Cuts the block under the playhead in two, on the nearest snap line. Nothing changes on screen: the second half carries on with the same footage, speed ramp, direction and camera move, across a hard cut. Change either half afterwards |
+| Repeat | ⌘D | Cuts the block in half and plays its first half twice, a stutter on the beat |
+| Put a clip in | | Pick a clip. It plays from the playhead to the next cut, from footage the edit hasn't shown yet when the clip has some, and takes a transition from the pool |
+| Delete | Delete | Removes the block. The block before it plays on to the next cut, so every other cut stays on its beat. Deleting the first block makes the next one start the loop. The last block can't be deleted |
+| Snap: Beat, ½, ¼, Off | N | Where Split, Put a clip in and dragged cut lines land |
+
+The segment menu has the same four actions for its own block. Its Split cuts at the playhead when the playhead
+is in that block, and in the middle otherwise; its Put a clip in fills the second half.
+
+A hand-cut edit keeps going through changes to the tempo, the beat grid, the transitions the edit uses and
+their order, the default transition length, clip speed, direction and speed ramp, and a 🎲 Roll that only
+changes the look. It starts over when the cuts would no longer make sense: see the list in
+[Where each clip starts](#where-each-clip-starts).
 
 ### Where each clip starts
 
@@ -223,18 +248,20 @@ the block: drag right for an earlier moment, left for a later one. The cuts stay
 A reversed block (Clip direction set to Reverse, Alternate or Random) plays backward and ends on its in-point.
 A Ping-pong block starts and ends on it.
 
-The in-points you set, and any clip, speed ramp or transition you picked for a single block, are cleared
-when you:
+The in-points you set, any clip, speed ramp, transition or framing you picked for a single block, and any
+cuts you moved, split or added, are cleared when you:
 
 - add, remove or reorder clips, including All, Solo, Reverse and Shuffle
 - click a rhythm button
-- change which transitions the edit uses
-- click ⚄ Re-roll in-points & order, or 🎲 Roll
+- change the edit seed or click ⚄ Re-roll in-points & order
+- 🎲 Roll with Edit, Clips or Loop ticked
+- change the loop length or move the loop
 - switch songs
 - click a look or ⚄ Surprise me, unless Keep my edit is ticked
 
-⌘Z brings them back. Changing the loop length or moving the loop keeps them, matched to blocks by number, so
-they can end up on different footage. Set up the clips, rhythm and transitions first and pick in-points last.
+⌘Z brings them back. Changing which transitions the edit uses keeps what you set: a block you gave its own
+transition keeps it, and the rest pick from the new pool. Set up the clips and the rhythm first, then cut and
+pick in-points.
 
 ## 7. Looks
 
@@ -398,11 +425,11 @@ the layer tools says so. Reset clip N or Same look on all brings the main look b
 | Loop length | The 1, 2, 4 and 8 bar presets, Whole song (from the first downbeat to the last full bar), or any length typed into the boxes: a number of bars, or a time such as 2:30, 150 or 2.5m, which rounds to the nearest bar. A loop can't run past the end of the song, and without a song the limit is 10 minutes. The note underneath says whether the length fits a Spotify Canvas (3 to 8 seconds). Lengths are whole bars so beat-synced effects stay in phase when the loop restarts |
 | Cut rhythm | Where cuts fall. Same as the buttons on the timeline |
 | Transitions | Which transitions the edit can use. Pools: All, Smooth, Kinetic, Glitch, Hard cuts. Click one to toggle it; double-click to use only that one |
-| Transition length | Cut (instant), ¼, ½, 1 or 2 beats |
+| Transition length | Cut (instant), ¼, ½, 1 or 2 beats, for every cut that hasn't been given its own. A single cut's length is set in the segment menu or by dragging the edge of its pink shading on the timeline |
 | Transition order | Cycle through the list in order, or Shuffle (never the same one twice in a row) |
 | Clip direction | Forward, Reverse, Alternate (every other cut reversed), Ping-pong, Random |
 | Speed ramp | Speed curves locked to the beat. Each one averages out to normal speed, so cut timing doesn't change. Double-click a block on the timeline to ramp only that cut |
-| Edit seed | The random seed behind in-points, cut variety and transition picks. ⚄ Re-roll picks a new one. See [Where each clip starts](#where-each-clip-starts) |
+| Edit seed | The random seed behind in-points, cut variety and transition picks. ⚄ Re-roll picks a new one. Changing it starts hand cuts over. See [Where each clip starts](#where-each-clip-starts) |
 | Tempo (no track) | The BPM of the synthetic beat when no song is loaded |
 | Keep my edit | When ticked, switching looks leaves your cuts and transitions alone |
 
@@ -524,8 +551,12 @@ at its top loop suggestion, so every song on a release shares one style.
 | H | Player overlay |
 | S | Safe zones |
 | O | Next screen: phone, landscape, tablet, square |
+| B | Split the block at the playhead |
+| ⌘D | Repeat the selected block |
+| Delete | Delete the selected block |
+| N | Snap: beat, ½, ¼, off |
 | ? | Shortcut list |
-| Esc | Close menus and dialogs |
+| Esc | Close menus and dialogs, or clear the selected block |
 | ⌘Z, ⇧⌘Z | Undo, redo |
 
 | Mouse | Where | Action |
@@ -533,9 +564,11 @@ at its top loop suggestion, so every song on a release shares one style.
 | Drag, scroll, double-click | preview | Reframe, zoom, reset framing |
 | Double-click | any slider | Reset to default |
 | Drag | envelope | Draw |
-| Drag | cut line | Move the cut |
+| Click | timeline block | Select it and move the playhead there |
+| Drag | cut line | Move the cut; hold Shift to leave the snap grid |
+| Drag | edge of a transition's pink shading | That transition's length |
 | Option-drag | timeline block | Slip the footage |
-| Double-click | timeline block | Segment menu: clip, in-point, direction, speed ramp, transition, framing |
+| Double-click, or long-press on a touch screen | timeline block | Segment menu: split, repeat, put a clip in, delete, clip, in-point, direction, speed ramp, transition and its length, framing |
 | Drag | clip | Reorder |
 
 ## 16. Effects
@@ -693,8 +726,8 @@ Nudge the beat grid in 10 ms steps, and check the tempo wasn't detected at half 
 
 ### The in-points I picked went back
 
-Changing the clips, the rhythm or the transitions clears them, and so do re-rolling, switching songs, and
-clicking a look with Keep my edit unticked. Press ⌘Z to get them back. The full list is in
+Changing the clips, the rhythm, the loop or the edit seed clears them, and so do rolling the edit, switching
+songs, and clicking a look with Keep my edit unticked. Press ⌘Z to get them back. The full list is in
 [Where each clip starts](#where-each-clip-starts).
 
 ### Some loop lengths are grayed out
@@ -718,6 +751,14 @@ Its playback proxy is still being built. Big 4K files take a while.
   `touch()`, which bumps `version`; components that display look data call `useVersion()` so they re-render.
   `useStudioStore.setState({})` does not re-render anything. That was why the Layers and Modulators controls
   looked dead.
+- The edit is a list of blocks (`Block` in `engine/types.ts`), each with a stable id and a start in beats.
+  `generateBlocks()` in `engine/timeline.ts` rolls them from the rhythm and the seed, and `resolve()` turns
+  blocks into the segments `compose()` samples, filling in whatever a block leaves unset from the look's cut
+  settings. `planTimeline()` is the two together. The store keeps `blocks: null` while the edit follows the
+  rhythm, and the edit's own blocks once one is cut or set by hand. The edits themselves (split, repeat,
+  insert, delete, trim) are pure functions in `engine/blocks.ts`; `state/blockActions.ts` applies them to the
+  store. Player keys and the segment menu use block ids, so they follow a block through edits around it.
+  Sessions saved with the older `customCuts` and `segOverrides` are turned into blocks by `fromLegacy()`.
 - Session state is saved to `localStorage` under `downbeat.studio.v1`. Undo history is kept in memory: 100
   steps, with a snapshot taken 350 ms after each change.
 - Per-clip stacks are rendered into `frame.pre`, before the transition. Camera and Finish always come from the

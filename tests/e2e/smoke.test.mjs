@@ -246,6 +246,25 @@ test('the studio works end to end in a real browser', { skip: missing.length ? `
     await until(() => /^\\d+ fps$/.test($('#fps').textContent), 2000, 'the frame rate readout');
   `);
 
+  await step('Block edits: B splits at the playhead, the toolbar deletes and repeats, and the cut shows as Custom', `
+    await tap(byText('#rhythmSeg button', 'Bar'));
+    const n = () => S.getState().ctx.tl.segs.length;
+    const bd = S.getState().beatDur();
+    await until(() => n() === 2, 2000, 'a cut a bar in the 2-bar loop');
+    S.getState().transport.seek(bd * 2.2);
+    key('b');
+    await until(() => n() === 3, 2000, 'the split');
+    await tap(byText('#blockTools button', 'Delete'));
+    await until(() => n() === 2, 2000, 'the delete');
+    S.getState().transport.seek(bd * 1.1);
+    key('b');
+    await until(() => n() === 3, 2000, 'a split at beat 2');
+    await tap(byText('#blockTools button', 'Repeat'));
+    await until(() => n() === 4 && S.getState().ctx.tl.handCut, 2000, 'the repeat');
+    await until(() => byText('#rhythmSeg button', 'Custom'), 2000, 'the Custom chip');
+    // the export that follows renders this hand cut
+  `);
+
   await step('exports a Spotify Canvas that passes every check', `
     key('e');
     await until(() => S.getState().exportOpen, 2000, 'the export sheet');

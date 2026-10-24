@@ -207,14 +207,24 @@ export const Modals: React.FC = () => {
             <span>Loop / Listener audition</span>
             <span className="kbd">T</span>
             <span>Tap tempo (tap along to the beat)</span>
+            <span className="kbd">B</span>
+            <span>Split the segment at the playhead, on the snap grid</span>
+            <span className="kbd">⌘ D</span>
+            <span>Repeat the selected segment: its first half plays twice</span>
+            <span className="kbd">Delete</span>
+            <span>Delete the selected segment. The one before plays on</span>
+            <span className="kbd">N</span>
+            <span>What cuts snap to: beat, ½, ¼, off</span>
             <span className="kbd">⌘ Z</span>
             <span>Undo any edit · ⇧⌘Z redo</span>
             <span className="kbd">Drag</span>
             <span>On the preview: reframe the current clip · scroll to zoom · double-click to reset</span>
+            <span className="kbd">⇧ Drag</span>
+            <span>On a cut line: move it off the snap grid</span>
             <span className="kbd">⌥ Drag</span>
             <span>On a timeline segment: slip to a different moment of the clip</span>
             <span className="kbd">Dbl-click</span>
-            <span>On a timeline segment: clip, in-point, speed ramp, transition</span>
+            <span>On a timeline segment: clip, in-point, speed ramp, transition, framing. Long-press on a touch screen</span>
           </div>
         </div>
       </div>
