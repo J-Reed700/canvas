@@ -242,7 +242,9 @@ them for you:
   is later in a long video, trim the file first.
 
 To pick one yourself, double-click the block and drag the In-point slider. The playhead jumps to the block so
-you can see the frame, and the slider stops where the block would run out of footage. You can also Option-drag
+you can see the frame, and the slider stops where the block would run out of footage. The menu opens beside the
+preview when the window has room for it. When it doesn't, as on a phone, the menu shows a live copy of the
+preview at its top. You can also Option-drag
 the block: drag right for an earlier moment, left for a later one. The cuts stay where they are.
 
 A reversed block (Clip direction set to Reverse, Alternate or Random) plays backward and ends on its in-point.

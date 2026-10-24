@@ -10,6 +10,9 @@ let thumbCursorIdx = 0;
 let renderLoopStarted = false;
 let lastFrame: ComposedFrame | null = null;
 
+/** Canvases that show a live copy of the preview, such as the segment menu's when it has to sit over the stage. */
+export const mirrors = new Set<HTMLCanvasElement>();
+
 /** The frame on screen, so the preview can tell which clip a drag or scroll should reframe. */
 export const getLastFrame = (): ComposedFrame | null => lastFrame;
 
@@ -130,6 +133,9 @@ export function startRenderLoop(viewCanvas: HTMLCanvasElement, ambientCanvas?: H
       engineObj.present();
       thumbCursorIdx += per;
     }
+
+    // copied in the frame it was drawn, while the preview canvas still holds it
+    for (const m of mirrors) if (m.isConnected && m.offsetParent) m.getContext('2d')?.drawImage(viewCanvas, 0, 0, m.width, m.height);
 
     if (ambientCtx && frameNo % 5 === 0) {
       ambientCtx.drawImage(viewCanvas, 0, 0, 48, 85);

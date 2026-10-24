@@ -133,6 +133,7 @@ export function openPop(anchor: HTMLElement, build: (p: HTMLElement) => void, cl
   const p = document.getElementById('pop');
   if (!p) return;
   p.className = `pop on ${cls}`;
+  p.style.width = ''; // a menu that was placed beside the preview set its own
   p.innerHTML = '';
   build(p);
   const r = anchor.getBoundingClientRect();

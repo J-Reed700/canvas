@@ -3,6 +3,7 @@ import { useStudioStore } from '../state/store.ts';
 import { fmt, openPop, closePop, h, POOLS, clipAspect, cropRect, room } from '../lib/utils.ts';
 import { clamp } from '../engine/looks.ts';
 import { setMenuSeg } from '../canvas/timelineCanvas.ts';
+import { mirrors } from '../canvas/renderLoop.ts';
 import { MOVES, RHYTHMS, VELOCITY, frameAt, moveAt } from '../engine/timeline.ts';
 import { SNAPS, snapBeat } from '../engine/blocks.ts';
 import { TRANSITIONS } from '../engine/shaders.ts';
@@ -57,8 +58,54 @@ const MINE = 'You set this. It goes back to automatic when you change the clips 
 // per-cut transition lengths, in beats
 const LENGTHS: [number, string][] = [[0.25, '¼'], [0.5, '½'], [1, '1'], [2, '2'], [4, '4']];
 
-// Unhooks the open segment menu's arrow keys and lane outline.
+// Unhooks the open segment menu's arrow keys, lane outline and preview copy.
 let detachMenu: (() => void) | null = null;
+// The open menu's live copy of the preview, shown when the menu has to cover the stage.
+let menuPeek: HTMLCanvasElement | null = null;
+
+const MENU_W = 660;
+const MENU_MIN = 340; // one column of controls
+
+/** Moves the open segment menu beside the preview when one side has room, so the frame you pick stays in
+ * sight, and keeps it on screen. Returns whether much of the preview is still out of sight: under the menu,
+ * or scrolled off the screen as it is on a phone. */
+function placeMenu(p: HTMLElement): boolean {
+  const v = document.getElementById('view')?.getBoundingClientRect();
+  if (!v?.width) return false;
+  const gap = 12;
+  const left = v.left - gap - 8;
+  const right = window.innerWidth - v.right - gap - 8;
+  const room = Math.max(left, right);
+  if (room >= MENU_MIN) {
+    const w = Math.min(MENU_W, room);
+    p.style.width = `${w}px`;
+    p.style.left = `${right >= left ? v.right + gap : v.left - gap - w}px`;
+  }
+  keepOnScreen(p);
+  type Box = { left: number; top: number; right: number; bottom: number };
+  const cut = (a: Box, b: Box): Box => ({ left: Math.max(a.left, b.left), top: Math.max(a.top, b.top), right: Math.min(a.right, b.right), bottom: Math.min(a.bottom, b.bottom) });
+  const area = (a: Box) => Math.max(0, a.right - a.left) * Math.max(0, a.bottom - a.top);
+  const onScreen = cut(v, { left: 0, top: 0, right: window.innerWidth, bottom: window.innerHeight });
+  const seen = area(onScreen) - area(cut(onScreen, p.getBoundingClientRect()));
+  return seen / (v.width * v.height) < 0.6;
+}
+
+const keepOnScreen = (p: HTMLElement) => {
+  const top = parseFloat(p.style.top) || 8;
+  p.style.top = `${Math.max(8, Math.min(top, window.innerHeight - p.offsetHeight - 8))}px`;
+};
+
+/** Shows the live copy of the preview in the menu, in the preview's shape, at most 300 by 200. */
+function showPeek(peek: HTMLCanvasElement) {
+  const v = document.getElementById('view') as HTMLCanvasElement | null;
+  const aspect = v && v.height ? v.width / v.height : 9 / 16;
+  const w = Math.min(300, 200 * aspect);
+  const dpr = Math.min(2, window.devicePixelRatio || 1);
+  peek.width = Math.round(w * dpr);
+  peek.height = Math.round((w / aspect) * dpr);
+  peek.style.cssText = `width:${Math.round(w)}px;height:${Math.round(w / aspect)}px`;
+  peek.parentElement!.hidden = false;
+}
 
 const ZOOM_MAX = 3;
 const NO_ROOM = 'The clip only just fills the frame this way. Zoom in to make room.';
@@ -289,6 +336,12 @@ function segmentMenu(box: HTMLElement, start: string) {
   detachMenu?.();
   let id = start;
   let choosing = false; // the clip tiles for Put a clip in are showing
+  // Kept across redraws: a copy of the preview for when the menu sits over it.
+  const peek = h('canvas', { class: 'seg-peek', 'aria-label': 'Preview' }) as HTMLCanvasElement;
+  const peekWrap = h('div', { class: 'seg-peek-wrap' }, peek);
+  peekWrap.hidden = true;
+  menuPeek = peek;
+  mirrors.add(peek);
   const edit: { key: 'a' | 'b' } = { key: 'a' }; // which end of a framing move the controls edit
 
   const outline = () => {
@@ -324,6 +377,8 @@ function segmentMenu(box: HTMLElement, start: string) {
   detachMenu = () => {
     window.removeEventListener('keydown', onKey, true);
     watch.disconnect();
+    mirrors.delete(peek);
+    if (menuPeek === peek) menuPeek = null;
     detachMenu = null;
     setMenuSeg(null);
     useStudioStore.getState().drawLane();
@@ -481,6 +536,7 @@ function segmentMenu(box: HTMLElement, start: string) {
         h(
           'div',
           { class: 'seg-col' },
+          peekWrap,
           field('Clip', 'clipId', null, clips, h('div', { class: 'seg-name' }, clipName(seg.clipId))),
           field(
             'In-point',
@@ -644,6 +700,11 @@ export const TimelinePanel: React.FC = () => {
     document.body.append(anchor);
     openPop(anchor, (box) => segmentMenu(box, seg.id), 'seg-menu');
     anchor.remove();
+    const p = document.getElementById('pop')!;
+    if (placeMenu(p) && menuPeek) {
+      showPeek(menuPeek);
+      keepOnScreen(p);
+    }
   };
 
   const editClip = useStudioStore((s) => s.editClip);

@@ -155,6 +155,40 @@ describe('segment menu actions', () => {
     expect(pop().querySelector('.seg-foot span')!.textContent).toBe('This edit is cut by hand. The rhythm buttons and the dice start the cuts over.');
   });
 
+  test('the menu opens beside the preview when there is room, and shows a live copy of it when there is not', () => {
+    laneEdit();
+    const view = document.createElement('canvas');
+    view.id = 'view';
+    view.width = 540;
+    view.height = 960;
+    document.body.append(view);
+    const box = (el: HTMLElement, left: number, top: number, width: number, height: number) =>
+      vi.spyOn(el, 'getBoundingClientRect').mockReturnValue({ left, top, width, height, right: left + width, bottom: top + height, x: left, y: top, toJSON() {} });
+    const width = window.innerWidth;
+    const peek = () => pop().querySelector('.seg-peek-wrap') as HTMLElement;
+    try {
+      Object.defineProperty(window, 'innerWidth', { value: 1600, configurable: true });
+      box(view, 600, 80, 260, 462);
+      fireEvent.doubleClick(lane(), { clientX: 125, clientY: 30 });
+      expect([pop().style.left, pop().style.width], 'to the right of the preview').toEqual(['872px', '660px']);
+      expect(peek().hidden, 'the preview is in sight, so no copy').toBe(true);
+
+      Object.defineProperty(window, 'innerWidth', { value: 900, configurable: true });
+      view.width = 1920; // a landscape preview, nearly as wide as the window
+      view.height = 1080;
+      box(view, 50, 80, 800, 450);
+      box(pop(), 8, 8, 884, 800);
+      fireEvent.doubleClick(lane(), { clientX: 125, clientY: 30 });
+      expect(pop().style.width, 'no side has room for it').toBe('');
+      expect(peek().hidden).toBe(false);
+      const copy = pop().querySelector('.seg-peek') as HTMLCanvasElement;
+      expect([copy.style.width, copy.style.height], 'in the shape of the preview, at most 300 by 200').toEqual(['300px', '169px']);
+    } finally {
+      Object.defineProperty(window, 'innerWidth', { value: width, configurable: true });
+      view.remove();
+    }
+  });
+
   test('a long press on a touch screen opens the menu, and moving cancels it', () => {
     vi.useFakeTimers();
     try {
