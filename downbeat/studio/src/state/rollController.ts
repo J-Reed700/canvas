@@ -110,8 +110,8 @@ export function rollAll() {
     clipLooks: nextClipLooks,
     evolveAmt: nextEvolveAmt,
     editClip: null,
-    customCuts: null,
-    segOverrides: {},
+    // a roll that leaves the cut, the clips and the loop alone leaves a hand-cut edit alone too
+    blocks: o.edit || nextSelected.join() !== s.selected.join() || nextLoopStart !== s.loopStart || nextBars !== s.bars ? null : s.blocks,
   });
 
   if (s.engine?.main) s.engine.main.reset();

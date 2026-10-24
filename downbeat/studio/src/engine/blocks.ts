@@ -2,8 +2,8 @@
 // the plan they resolve to, and returns new blocks, or null when the edit can't be made. A split is a
 // through edit: the footage, the camera and a framing move all carry on across the new cut, so nothing
 // changes on screen until one half is changed.
-import { footageUsed, frameAt, moveAt, rng } from './timeline.ts';
-import type { Block, BlockPatch, Segment, SegmentFrame, TimelinePlan } from './types.ts';
+import { footageUsed, frameAt, generateBlocks, moveAt, rng } from './timeline.ts';
+import type { Block, BlockPatch, Segment, SegmentFrame, SegmentOverride, TimelinePlan, TimelinePlanOptions } from './types.ts';
 
 /** The shortest block an edit leaves, in beats. */
 export const MIN_BEATS = 1 / 8;
@@ -148,4 +148,24 @@ export const OWN: (keyof BlockPatch)[] = ['trans', 'transBeats', 'vel', 'dir', '
 /** Hands a block's transition, length, ramp, direction and framing back to the look. */
 export function autoBlock(blocks: Block[], id: string): Block[] {
   return patchBlock(blocks, id, Object.fromEntries(OWN.map((k) => [k, undefined])));
+}
+
+/** Blocks for a session saved before there were blocks: its dragged cut lines (in seconds) and its
+ * settings per segment number, so it opens looking the way it did. */
+export function fromLegacy(opts: TimelinePlanOptions, customCuts: number[] | null, overrides: Record<string, SegmentOverride>): Block[] {
+  const blocks = generateBlocks(customCuts?.length ? { ...opts, rhythm: 'custom', custom: customCuts } : opts);
+  const inEdit = new Set(opts.clips.map((c) => c.id));
+  return blocks.map((b, i) => {
+    const o = overrides[i];
+    if (!o) return b;
+    return tidy<Block>({
+      ...b,
+      clipId: o.clipId && inEdit.has(o.clipId) ? o.clipId : b.clipId,
+      in: o.in ?? b.in,
+      trans: o.trans,
+      vel: o.vel,
+      dir: o.dir,
+      frame: o.frame,
+    });
+  });
 }

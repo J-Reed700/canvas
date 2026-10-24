@@ -280,6 +280,8 @@ export interface TimelinePlan {
   segs: Segment[];
   /** The blocks the plan was resolved from: the rolled ones while the edit follows the rhythm. */
   blocks: Block[];
+  /** The blocks the rhythm and the seed give, which hand edits are told apart from. */
+  rolled: Block[];
   /** The cuts are not where the rhythm puts them. */
   handCut: boolean;
 }

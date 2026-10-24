@@ -53,8 +53,8 @@ function writeSession() {
         seed: s.seed,
         direction: s.direction,
         lockEdit: s.lockEdit,
-        customCuts: s.customCuts,
-        segOverrides: s.segOverrides,
+        blocks: s.blocks,
+        snap: s.snap,
         hud: s.hud,
         safe: s.safe,
         muted: s.muted,
@@ -151,8 +151,7 @@ export function snapshot(): string {
     selected: s.selected,
     loopStart: s.loopStart,
     bars: s.bars,
-    customCuts: s.customCuts,
-    segOverrides: s.segOverrides,
+    blocks: s.blocks,
     clipFrame: s.clipFrame,
     trackId: s.trackId,
     bpmOverride: s.bpmOverride,
@@ -179,12 +178,12 @@ export function applySnapshot(snap: string) {
 }
 
 // Loading a song picks its own loop, so the snapshot's loop goes back on once the analysis is in.
-async function reloadSong(data: { trackId: string; loopStart: number; bars: number; customCuts: any; segOverrides: any }) {
+async function reloadSong(data: { trackId: string; loopStart: number; bars: number; blocks: any }) {
   await useStudioStore.getState().selectTrack(data.trackId, { keepLoop: true });
   const s = useStudioStore.getState();
   if (s.trackId !== data.trackId) return; // another song was picked meanwhile
   histMutedFlag = true;
-  useStudioStore.setState({ loopStart: data.loopStart, bars: data.bars, customCuts: data.customCuts, segOverrides: data.segOverrides });
+  useStudioStore.setState({ loopStart: data.loopStart, bars: data.bars, blocks: data.blocks });
   s.rebuild();
   histMutedFlag = false;
 }

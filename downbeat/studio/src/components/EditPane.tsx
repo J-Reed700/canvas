@@ -96,7 +96,7 @@ const LoopLength: React.FC = () => {
 export const EditPane: React.FC = () => {
   useVersion();
   const look = useStudioStore((s) => s.look);
-  const customCuts = useStudioStore((s) => s.customCuts);
+  const handCut = useStudioStore((s) => !!s.ctx?.tl.handCut);
   const direction = useStudioStore((s) => s.direction);
   const seed = useStudioStore((s) => s.seed);
   const bpmManual = useStudioStore((s) => s.bpmManual);
@@ -117,11 +117,11 @@ export const EditPane: React.FC = () => {
             {Object.entries(RHYTHMS).map(([k, r]) => (
               <button
                 key={k}
-                className={(customCuts ? 'custom' : look?.cut?.rhythm) === k ? 'on' : ''}
+                className={!handCut && look?.cut?.rhythm === k ? 'on' : ''}
                 onClick={() => {
                   if (!look) return;
                   look.cut.rhythm = k;
-                  useStudioStore.setState({ customCuts: null, segOverrides: {} });
+                  useStudioStore.setState({ blocks: null });
                   rebuild();
                 }}
               >
@@ -144,7 +144,6 @@ export const EditPane: React.FC = () => {
                   onClick={() => {
                     if (!look) return;
                     look.cut.transitions = [...ids];
-                    useStudioStore.setState({ segOverrides: {} });
                     rebuild();
                   }}
                 >
@@ -166,13 +165,11 @@ export const EditPane: React.FC = () => {
                     const idx = cutTrans.indexOf(k);
                     if (idx >= 0 && cutTrans.length > 1) cutTrans.splice(idx, 1);
                     else if (idx < 0) cutTrans.push(k);
-                    useStudioStore.setState({ segOverrides: {} });
                     rebuild();
                   }}
                   onDoubleClick={() => {
                     if (!look) return;
                     look.cut.transitions = [k];
-                    useStudioStore.setState({ segOverrides: {} });
                     rebuild();
                   }}
                 >
@@ -273,14 +270,14 @@ export const EditPane: React.FC = () => {
               type="number"
               value={seed}
               onChange={(e) => {
-                useStudioStore.setState({ seed: Math.round(+e.target.value) || 1 });
+                useStudioStore.setState({ seed: Math.round(+e.target.value) || 1, blocks: null });
                 rebuild();
               }}
             />
             <button
               className="btn sm"
               onClick={() => {
-                useStudioStore.setState({ seed: Math.floor(Math.random() * 1e6), segOverrides: {} });
+                useStudioStore.setState({ seed: Math.floor(Math.random() * 1e6), blocks: null });
                 rebuild();
               }}
             >

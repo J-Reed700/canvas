@@ -193,7 +193,7 @@ export function generateBlocks(opts: TimelinePlanOptions): Block[] {
 
 // Blocks into segments: times in seconds, and everything a block leaves unset taken from the look's cut
 // settings, the edit's direction and speed, and the transition pool.
-export function resolve(blocks: Block[], opts: TimelinePlanOptions): TimelinePlan {
+export function resolve(blocks: Block[], opts: TimelinePlanOptions, rolled: Block[] = generateBlocks(opts)): TimelinePlan {
   const { L, beatDur, clips, transitions, transBeats, seed, speed = 1, direction = 'forward', order = 'cycle', velocity = 'none' } = opts;
   const end = L / beatDur;
   // in beat order and inside the loop
@@ -267,14 +267,14 @@ export function resolve(blocks: Block[], opts: TimelinePlanOptions): TimelinePla
     if (k + 1 === n) seg.t1 = L;
     return seg;
   });
-  const want = cutTimes({ ...opts, nClips: clips.length });
-  const handCut = want.length !== n || want.some((t, k) => Math.abs(t - t0s[k]) > 1e-6);
-  return { L, beatDur, segs, blocks: list, handCut };
+  const handCut = rolled.length !== n || rolled.some((b, k) => Math.abs(b.at - list[k].at) > 1e-6);
+  return { L, beatDur, segs, blocks: list, rolled, handCut };
 }
 
 // Build the edit the rhythm and the seed give.
 export function planTimeline(opts: TimelinePlanOptions): TimelinePlan {
-  return resolve(generateBlocks(opts), opts);
+  const rolled = generateBlocks(opts);
+  return resolve(rolled, opts, rolled);
 }
 
 // Which segment(s) are visible at loop time t, with local times and transition progress. Part keys are
