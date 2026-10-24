@@ -141,6 +141,31 @@ describe('the projects dialog', () => {
     expect(screen.getByText('Save a copy')).toBeTruthy();
   });
 
+  test('a long list gets a search by name, look or song', () => {
+    const many = Array.from({ length: 6 }, (_, i) => ({ ...PROJECTS[i % 2], id: String(i).repeat(12), name: `${['Club', 'Radio', 'Teaser'][i % 3]} cut ${i + 1}` }));
+    projectServer({ '/api/projects': () => ({ ok: true, projects: many }) });
+    openDialog({ projects: many, tracks: TRACKS.map((t) => ({ ...t })) });
+    const names = () => rows().map((r) => r.querySelector('b')!.textContent);
+    const search = () => document.querySelector('.proj-list-h input') as HTMLInputElement;
+    fireEvent.change(search(), { target: { value: 'club' } });
+    expect(names()).toEqual(['Club cut 1', 'Club cut 4']);
+    fireEvent.change(search(), { target: { value: 'halftone' } });
+    expect(names()).toEqual(['Radio cut 2', 'Club cut 4', 'Teaser cut 6']);
+    fireEvent.change(search(), { target: { value: 'night drive teaser' } });
+    expect(names()).toEqual(['Teaser cut 3']);
+    fireEvent.change(search(), { target: { value: 'nothing like this' } });
+    expect(screen.getByText(/No projects match/)).toBeTruthy();
+    fireEvent.click(screen.getByText('Clear search'));
+    expect(names()).toHaveLength(6);
+  });
+
+  test('a short list has no search', () => {
+    projectServer();
+    openDialog();
+    expect(rows()).toHaveLength(2);
+    expect(document.querySelector('.proj-list-h input')).toBeNull();
+  });
+
   test('deleting a project takes a second click', async () => {
     const fetch = projectServer();
     openDialog({ project: { id: 'aaaaaaaaaaaa', name: 'Night Drive edit' } });
@@ -178,6 +203,21 @@ describe('project shortcuts', () => {
     const look = st().lookId;
     press('d');
     expect(st().lookId).toBe(look);
+  });
+
+  test('Escape in the projects search clears it before it closes the dialog', () => {
+    const many = Array.from({ length: 6 }, (_, i) => ({ ...PROJECTS[0], id: String(i).repeat(12), name: `Cut ${i + 1}` }));
+    projectServer({ '/api/projects': () => ({ ok: true, projects: many }) });
+    resetStudio({ projects: many, projectsOpen: true });
+    renderApp();
+    const search = document.querySelector('.proj-list-h input') as HTMLInputElement;
+    fireEvent.change(search, { target: { value: 'cut 5' } });
+    expect(rows()).toHaveLength(1);
+    fireEvent.keyDown(search, { key: 'Escape' });
+    expect(st().projectsOpen).toBe(true);
+    expect(rows()).toHaveLength(6);
+    press('Escape');
+    expect(st().projectsOpen).toBe(false);
   });
 
   test('⌘S saves the open project now', async () => {

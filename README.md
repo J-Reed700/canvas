@@ -415,6 +415,8 @@ Each clip you put in the edit gets a playback copy in `out/.proxies/` (30 fps H.
 
 From each folder, Clips lists the 50 newest videos and the Track menu lists every song of 250 KB or more (smaller files are usually alert sounds). Downbeat's own exports are left out, so a folder that holds them, such as Downloads, doesn't list them as clips.
 
+The search box above the clips finds them by name, folder or size, and the chips show only the ones in the edit, the videos or the stills. Browse opens the clip library, laid out like the exports library, where you can play a clip, see its size, length and folder, add it to the edit or take it out, and reveal or remove it. [The guide](docs/STUDIO_GUIDE.md#finding-a-clip) has the details.
+
 ### Tempo and the loop
 
 The tempo comes from the song. A tempo in the filename, such as `track_145bpm.wav`, overrides the detected one. Use ½×, 2×, Tap (or `T`), or click the number and type a tempo. Auto puts the detected tempo back.
@@ -754,8 +756,9 @@ downbeat/
 │           │                   #   cut planning, Web Audio transport, WebCodecs export
 │           ├── state/          # Zustand store, plus history, projects, roll, export, media and timeline block actions
 │           ├── canvas/         # per-frame drawing: the render loop, the timeline lane and overview
-│           ├── lib/            # helpers, export formats, preview screens, export search and paging
-│           └── components/     # the panels, plus shared Slider, Card and SearchField (ui.tsx)
+│           ├── lib/            # helpers, export formats, preview screens, clip and export search and paging
+│           └── components/     # the panels, plus shared Slider, Card and SearchField (ui.tsx), and the
+│                               #   search, chips, pages and viewer the clip and export browsers share (Library.tsx)
 └── tests/
     ├── test_*.py               # Python tests, one file per package area (media, analysis, delivery, render,
     │                           #   state, projects, library, server, cli) plus test_studio_js.py, which runs the Node suite

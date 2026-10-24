@@ -210,6 +210,23 @@ test('the studio works end to end in a real browser', { skip: missing.length ? `
     if (Math.abs(S.getState().bpm() - 120) > 1) throw new Error('tempo ' + S.getState().bpm());
   `);
 
+  await step('Clips: the search narrows the panel, and the browser shows a clip with its folder', `
+    setRange($('.clip-find input'), 'swirl');
+    await until(() => $$('#clips .clip').length === 1 && $('#clipCount').textContent === '1 of 2 shown', 2000, 'the clip search');
+    setRange($('.clip-find input'), '');
+    await until(() => $$('#clips .clip').length === 2, 2000, 'the search to clear');
+    await tap($('#btnBrowseClips'));
+    await until(() => $$('.clip-card').length === 2, 5000, 'the clips browser');
+    await tap($$('.clip-card .lib-open').find((b) => b.textContent.includes('2 swirl.mp4')));
+    await until(() => $('.lib-view video'), 5000, 'the clip player');
+    const rows = $$('.lib-view .summary b').map((b) => b.textContent);
+    if (!rows.includes('Canvas') || !rows.includes('640 × 360 · Landscape')) throw new Error('details: ' + rows.join(' | '));
+    key('Escape');
+    await until(() => !$('.lib-view') && $('.clip-card'), 2000, 'the grid');
+    key('Escape');
+    await until(() => !S.getState().clipsOpen, 2000, 'the browser to close');
+  `);
+
   await step('every effect, transition and render pass compiles on this GPU', `
     const errors = S.getState().engine.warmup();
     if (errors.length) throw new Error(errors.join('\\n'));

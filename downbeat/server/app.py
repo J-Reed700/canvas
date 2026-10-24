@@ -18,7 +18,7 @@ from typing import Callable
 from .. import delivery
 from ..analysis import framing
 from ..analysis.features import track_features
-from .library import AUDIO_EXTS, VIDEO_EXTS, pick_folder_dialog, playable_path
+from .library import AUDIO_EXTS, VIDEO_EXTS, pick_folder_dialog, playable_path, source_of
 from ..media import frames as clip_frames
 from ..media.encoder import CANVAS_FPS
 from ..media.proxy import MAX_SECONDS as PROXY_SECONDS
@@ -327,11 +327,15 @@ class StudioHandler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def _clip_dicts(self) -> list[dict]:
+        folders = STATE.library.folders()
+        where = {s.id: source_of(s.path, STATE.library.uploads, folders) for s in STATE.clips.values()}
         return [
             {
                 "id": s.id,
                 "name": s.name,
                 "path": s.path,
+                "source": where[s.id][0],
+                "dir": where[s.id][1],
                 "width": s.width,
                 "height": s.height,
                 "fps": round(s.fps, 1),
@@ -661,8 +665,10 @@ class StudioHandler(BaseHTTPRequestHandler):
         self._send_json({"ok": True, "deleted": deleted})
 
     def _post_reveal(self, body: bytes) -> None:
+        """Shows an export in out/ in the Finder, or with clip_id a clip's file wherever it is."""
         data = _json_body(body)
-        path = os.path.abspath(os.path.join(OUT_DIR, os.path.basename(str(data.get("filename", "")))))
+        src = STATE.clips.get(str(data.get("clip_id", "")))
+        path = src.path if src else os.path.abspath(os.path.join(OUT_DIR, os.path.basename(str(data.get("filename", "")))))
         if os.path.isfile(path) and sys.platform == "darwin":
             subprocess.Popen(["open", "-R", path])
             self._send_json({"ok": True})

@@ -18,7 +18,7 @@ describe('clips', () => {
     expect(caps()).toEqual(['Still · cover', '12.0s · 1 sunrise.mp4', '9.0s · city.mp4']);
     expect(nums()).toEqual(['1', '2', '-']);
     expect(clipEls().map((c) => c.className)).toEqual(['clip on', 'clip on', 'clip off']);
-    expect(document.getElementById('clipCount')!.textContent).toBe('2 of 3');
+    expect(document.getElementById('clipCount')!.textContent).toBe('2 of 3 in the edit');
   });
 
   test('clicking a clip takes it out of the edit or adds it at the end', () => {
@@ -35,7 +35,7 @@ describe('clips', () => {
   test('All, Solo, Reverse and Shuffle reorder the sequence', () => {
     resetStudio({ selected: ['b'] });
     renderStudio(<MediaPanel />);
-    fireEvent.click(screen.getByText('All'));
+    fireEvent.click(document.getElementById('btnAllClips')!);
     expect(st().selected).toEqual(['b', 'a', 'c']);
     fireEvent.click(screen.getByText('Reverse'));
     expect(st().selected).toEqual(['c', 'a', 'b']);

@@ -97,6 +97,10 @@ export interface ClipMeta {
   id: string;
   name?: string;
   path?: string;
+  /** Where it's listed from, as for a song: "added", or the picked folder that holds it. */
+  source?: string;
+  /** The subfolder inside that folder, "" at the top. */
+  dir?: string;
   duration: number;
   width?: number;
   height?: number;

@@ -11,6 +11,7 @@ import { targetBlock } from './state/blockActions.ts';
 import { InspectorPanel } from './components/InspectorPanel.tsx';
 import { Modals } from './components/Modals.tsx';
 import { ExportsLibrary } from './components/Exports.tsx';
+import { ClipsLibrary } from './components/Clips.tsx';
 import { Welcome } from './components/Folders.tsx';
 import { ProjectsModal } from './components/Projects.tsx';
 import { saveNow } from './state/projectController.ts';
@@ -65,11 +66,11 @@ export const App: React.FC = () => {
         !target?.closest?.('input, select, textarea, [contenteditable]')
       ) {
         e.preventDefault(); // or the browser bookmarks the page
-        if (!s.exporting && !s.libraryOpen && !s.projectsOpen && !s.welcome) s.repeatSegment();
+        if (!s.exporting && !s.libraryOpen && !s.clipsOpen && !s.projectsOpen && !s.welcome) s.repeatSegment();
         return;
       }
 
-      if (target?.closest?.('input, select, textarea, [contenteditable]') || e.metaKey || e.ctrlKey || s.exporting || s.libraryOpen || s.projectsOpen || s.welcome) {
+      if (target?.closest?.('input, select, textarea, [contenteditable]') || e.metaKey || e.ctrlKey || s.exporting || s.libraryOpen || s.clipsOpen || s.projectsOpen || s.welcome) {
         return;
       }
 
@@ -188,6 +189,7 @@ export const App: React.FC = () => {
 
       <Modals />
       <ExportsLibrary />
+      <ClipsLibrary />
       <ProjectsModal />
       <Welcome />
     </>

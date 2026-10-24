@@ -3,6 +3,7 @@ import { useStudioStore } from '../state/store.ts';
 import { deleteProject, newProject, openProject, refreshProjects, renameProject, saveAs } from '../state/projectController.ts';
 import { timeAgo } from '../lib/exportsView.ts';
 import { Icon, ICONS, Modal, useArmed } from './ui.tsx';
+import { FilterSearch, NoMatch } from './Library.tsx';
 import type { ProjectSummary, TrackMeta } from '../engine/types.ts';
 
 const songName = (tracks: TrackMeta[], id?: string | null) => tracks.find((t) => t.id === id)?.name.replace(/\.[^.]+$/, '') || '';
@@ -13,6 +14,9 @@ const metaOf = (p: ProjectSummary, tracks: TrackMeta[]) =>
     .join(' · ');
 
 const openDialog = () => useStudioStore.setState({ projectsOpen: true });
+
+// The search shows once the list is longer than the dialog shows without scrolling.
+const SEARCH_FROM = 6;
 
 /** The top bar's name of the open project and whether its file is up to date. Opens Projects. */
 export const ProjectButton: React.FC = () => {
@@ -86,6 +90,7 @@ export const ProjectsModal: React.FC = () => {
   const trackId = useStudioStore((s) => s.trackId);
   const lookName = useStudioStore((s) => s.look?.name);
   const [name, setName] = useState('');
+  const [q, setQ] = useState('');
   const [busy, setBusy] = useState(false);
   // Opening a project or starting a new one replaces an edit that isn't in a project, so that asks first.
   const [confirm, setConfirm] = useState<{ what: string; run: () => Promise<unknown> } | null>(null);
@@ -93,6 +98,7 @@ export const ProjectsModal: React.FC = () => {
   useEffect(() => {
     if (!open) return;
     setName('');
+    setQ('');
     setConfirm(null);
     void refreshProjects();
   }, [open]);
@@ -110,6 +116,8 @@ export const ProjectsModal: React.FC = () => {
   const replace = (what: string, run: () => Promise<unknown>) => (project ? go(run) : setConfirm({ what, run }));
   const suggestion = project ? `${project.name} copy` : [songName(tracks, trackId), lookName].filter(Boolean).join(' · ') || 'Untitled';
   const save = () => go(() => saveAs(name.trim() || suggestion));
+  const words = q.toLowerCase().split(/\s+/).filter(Boolean);
+  const shown = projects.filter((p) => words.every((w) => `${p.name} ${metaOf(p, tracks)}`.toLowerCase().includes(w)));
 
   return (
     <Modal
@@ -174,10 +182,14 @@ export const ProjectsModal: React.FC = () => {
         </div>
       )}
 
-      <div className="lib-ph">Saved projects</div>
+      <div className="proj-list-h">
+        <div className="lib-ph">Saved projects</div>
+        {projects.length >= SEARCH_FROM && <FilterSearch value={q} onChange={setQ} placeholder="Search by name, look or song" />}
+      </div>
       <div className="proj-list">
         {!projects.length && <div className="exp-empty">No saved projects yet. Name this edit above to save it.</div>}
-        {projects.map((p) => {
+        {projects.length > 0 && !shown.length && <NoMatch what="projects" onClear={() => setQ('')} />}
+        {shown.map((p) => {
           const current = p.id === project?.id;
           return (
             <div className={`proj-row ${current ? 'on' : ''}`} key={p.id}>

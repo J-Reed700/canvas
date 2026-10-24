@@ -594,10 +594,21 @@ class TestServerMedia(_ServerCase):
         self.assertEqual((clip["width"], clip["height"], clip["fps"], clip["duration"]), (96, 160, 30.0, 2.0))
         self.assertTrue(clip["is_stock"])
         self.assertFalse(clip["still"])
+        self.assertEqual((clip["source"], clip["dir"]), (self.videos, ""), "listed from the picked folder, at its top")
         self.assertIn(clip["proxy"], ("none", "ready"), "no playback copy is started until the studio asks")
         self.assertEqual(self.track()["source"], self.videos)
         self.assertEqual(self.get_json("/api/state")[1]["folders"], [self.videos])
         self.assertEqual(set(self.get_json("/api/state?only=clips")[1]), {"clips"})
+
+    def test_reveal_shows_a_clip_where_it_is(self) -> None:
+        clip = self.clip()
+        with mock.patch.object(server_mod.sys, "platform", "darwin"), mock.patch.object(server_mod.subprocess, "Popen") as popen:
+            self.assertEqual(self.post_json("/api/reveal", {"clip_id": clip["id"]}), (200, {"ok": True}))
+        popen.assert_called_once_with(["open", "-R", clip["path"]])
+        with mock.patch.object(server_mod.sys, "platform", "linux"), mock.patch.object(server_mod.subprocess, "Popen") as popen:
+            self.assertEqual(self.post_json("/api/reveal", {"clip_id": clip["id"]}), (200, {"ok": False, "path": clip["path"]}))
+        popen.assert_not_called()
+        self.assertFalse(self.post_json("/api/reveal", {"clip_id": "nope"})[1]["ok"])
 
     def test_the_studio_asks_for_playback_copies_of_the_clips_in_its_edit(self) -> None:
         cid = self.clip()["id"]
@@ -716,7 +727,8 @@ class TestServerMedia(_ServerCase):
         video = json.loads(raw)
         self.assertEqual((status, video["ok"], video["kind"], video["name"], video["still"]), (200, True, "video", "my clip.mp4", False))
         self.assertTrue(os.path.isfile(os.path.join(self.out, "uploads", "my clip.mp4")), "the name is reduced to its last part")
-        self.assertIn(video["id"], [c["id"] for c in self.get_json("/api/state")[1]["clips"]])
+        listed = next(c for c in self.get_json("/api/state")[1]["clips"] if c["id"] == video["id"])
+        self.assertEqual((listed["source"], listed["dir"]), ("added", ""))
 
         png = cv2.imencode(".png", np.full((90, 60, 3), 200, np.uint8))[1].tobytes()
         status, _, raw = self.request("POST", "/api/upload", png, {"X-Filename": "cover.png"})

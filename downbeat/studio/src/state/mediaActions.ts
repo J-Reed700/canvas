@@ -1,5 +1,5 @@
 import { useStudioStore } from './store.ts';
-import { fetchJSON, postJSON, shuffle, toast, detectSubject, sourceLabel, clipDisplayName } from '../lib/utils.ts';
+import { fetchJSON, postJSON, shuffle, toast, detectSubject, sourceLabel, clipDisplayName, homeShort } from '../lib/utils.ts';
 import { LOOKS } from '../engine/looks.ts';
 import { resetHistory } from './historyController.ts';
 import type { ClipMeta, TrackMeta, RenderRecord, ClipPalette } from '../engine/types.ts';
@@ -165,6 +165,13 @@ export async function removeClip(id: string) {
   useStudioStore.getState().rebuild();
   const name = c?.name ? clipDisplayName({ name: c.name, still: c.still }) : 'the clip';
   toast(r?.deleted ? `Removed ${name} and deleted its uploaded copy` : `Removed ${name}. The file is still in its folder.`, 3600);
+}
+
+/** Shows a clip's file in the Finder, or says where it is on a system without one. */
+export async function revealClip(id: string) {
+  const r = await postJSON<{ ok?: boolean; path?: string }>('/api/reveal', { clip_id: id });
+  const path = useStudioStore.getState().clips.find((c) => c.id === id)?.path || r.path;
+  if (!r.ok && path) toast(`The file is at ${homeShort(path)}`, 4000);
 }
 
 export async function autoFrame() {

@@ -151,6 +151,20 @@ still being made. The other videos from your folders are dimmed with a dashed bo
 + Add (or tap it) to put it in the edit, which starts its proxy. Still images become clips too, and
 adding one switches to the Living Cover Art look, which is designed for a single image.
 
+### Finding a clip
+
+The search box above the clips narrows them by file name, folder or size (`1920x1080`, or Vertical,
+Landscape and Square). The chips under it show only the clips in the edit, the videos or the stills, and the
+count next to Clips then says how many are shown. Esc in the search box clears it. The list here always keeps
+the edit's order, so the numbers and dragging still work while it's narrowed.
+
+Browse opens the clip library, built like the exports library: a card for each clip with its length, size and
+folder, the same search and chips, and a sort (Folder order, In the edit first, Name, Longest, Shortest).
+\+ on a card adds the clip to the edit and ✓ takes it out, without moving the card. Click a card to play the
+clip and see its details. A clip that isn't loaded shows its first frame until you add it. From there you can
+add it or take it out, open its effects when per-clip FX is on, reveal it in the Finder, or remove it from the
+library. ← and → step through clips, / jumps to the search box, and Esc goes back to the cards, then closes.
+
 The Exports section below lists your renders. Each one shows whether it passed the format's spec check
 (✓ spec, or ✕ and the number of failures), with Reveal in Finder and a Delete button that asks for a second
 click. An export made with a promo copy also has a ♫ button that downloads the promo with the song. The search box and the kind chips (Canvas, Apple, YouTube and so on) filter the list, and Browse opens
@@ -502,6 +516,7 @@ project shows as Untitled, Not saved. Click the button or press ⌘O to open Pro
 | New project | Starts over on the first look, the first five clips and the newest song. Tempo fixes you made to songs carry over |
 | A project in the list | Opens it. The project you're leaving gets your last change first. Each row shows the look, the clip count, the loop length in bars, the song and when it was last saved |
 | 🗑 | Deletes the project's file, on the second click. If it's the open project, its edit stays on screen, saved only in the browser |
+| Search | Shows once there are six projects or more. Finds one by its name, look or song. Esc clears it |
 
 Opening a project or starting a new one replaces the edit on screen. If that edit isn't in a project, Projects
 asks before replacing it. Undo starts over from the project you open.

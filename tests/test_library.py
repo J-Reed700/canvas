@@ -27,6 +27,16 @@ class TestLibraryHelpers(unittest.TestCase):
         t = library.Track("id", "/m/a.wav", "a.wav", "/m", "", 1700000000.9)
         self.assertEqual(t.to_dict()["mtime"], 1700000000)
 
+    def test_a_video_is_listed_from_the_added_files_or_the_picked_folder_that_holds_it(self) -> None:
+        uploads, folders = "/out/uploads", ["/m/Movies", "/m/Music"]
+        self.assertEqual(library.source_of("/out/uploads/a.mp4", uploads, folders), ("added", ""))
+        self.assertEqual(library.source_of("/m/Movies/a.mp4", uploads, folders), ("/m/Movies", ""))
+        self.assertEqual(library.source_of("/m/Movies/Summer/Coast/a.mp4", uploads, folders), ("/m/Movies", os.path.join("Summer", "Coast")))
+        self.assertEqual(library.source_of("/m/Music/a.mp4", uploads, folders), ("/m/Music", ""))
+        self.assertEqual(library.source_of("/m/Music/..odd/a.mp4", uploads, folders), ("/m/Music", "..odd"))
+        self.assertEqual(library.source_of("/m/Movies2/a.mp4", uploads, folders), ("", ""), "a folder that only starts with the same name")
+        self.assertEqual(library.source_of("/elsewhere/a.mp4", uploads, []), ("", ""))
+
     def test_picked_folders_list_their_newest_videos_after_the_added_ones(self) -> None:
         tmp = tempfile.mkdtemp(prefix="db-lib-")
         self.addCleanup(shutil.rmtree, tmp, True)

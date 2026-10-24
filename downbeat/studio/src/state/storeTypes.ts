@@ -86,6 +86,10 @@ export interface StudioState {
   /** Exports browser: open flag, the export shown in its viewer, and the search shared with the side panel. */
   libraryOpen: boolean;
   libraryItem: string | null;
+  /** Clips browser: the same three for the clip library. */
+  clipsOpen: boolean;
+  clipsItem: string | null;
+  clipFilter: { q: string; kind: string; sort: string };
   /** The folders the server lists videos and songs from, the ones it suggests adding, and whether it can open a folder chooser. */
   folders: string[];
   folderSuggestions: string[];
