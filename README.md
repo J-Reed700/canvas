@@ -769,7 +769,9 @@ downbeat/
     ├── studio*.test.mjs        # studio logic: timeline, block edits, modulation, store, projects, media, export sheet, render loop, utils
     ├── fakes.mjs               # stand-ins for the DOM, <video>, canvas, fetch and WebCodecs
     ├── components/             # React panels rendered with Testing Library and happy-dom (Vitest)
-    └── e2e/smoke.test.mjs      # real server, headless Chrome, real exports and a saved project
+    └── e2e/
+        ├── smoke.test.mjs      # real server, headless Chrome, real exports and a saved project
+        └── stress.mjs          # random edits against your running studio, checking the preview keeps moving
 ```
 
 ## Development
@@ -780,12 +782,15 @@ make test                                # Python suite, then the Node and Vites
 node --test tests/*.test.mjs             # only the studio logic tests (Node 22.18+ runs the .ts modules directly)
 npx vitest run                           # only the React component tests
 make e2e                                 # starts a real server, drives headless Chrome, runs one real export
+node tests/e2e/stress.mjs --minutes 10    # random edits on the running studio until the preview freezes (exit 1) or time runs out
 npm run typecheck                        # TypeScript check without building
 npm run dev                              # Vite dev server with hot reload; start ./run.sh first, it proxies /api and /out to :8765
 npm run build                            # production build into downbeat/studio/dist (./run.sh does this when sources change)
 ```
 
 On Windows, the Python is `.venv\Scripts\python.exe`, and `make test` and `make e2e` work from PowerShell if you have make. `make e2e` skips itself when Chrome or ffmpeg isn't installed. The Python tests generate their own media with ffmpeg, so they need no sample files.
+
+The stress test isn't part of `make test`. It runs against a studio you already started, with your own clips, in a Chrome window of its own with its own profile, so the session in your browser is left alone. It adds clips, changes transitions, start points and framing, rolls the dice, splits and undoes, and every few edits it stops for 6 s to check that the clip on screen keeps getting new pictures. When the preview freezes and stays frozen for 15 s with no edits, it prints the state of every video and exits with code 1. Options are at the top of the file. Run it with the screen awake: Chrome stops drawing a window it thinks is hidden.
 
 Notes for working on the studio, such as why `compose()` must stay the only place frames are built and how looks are edited in place, are in [the guide's developer notes](docs/STUDIO_GUIDE.md#20-notes-for-developers).
 
