@@ -4,6 +4,10 @@ import { MOD_SOURCES } from '../engine/modules.ts';
 
 export const thumbImgsMap = new Map<string, HTMLImageElement>();
 
+/** The segment whose menu is open, outlined on the lane so you can see which one you're editing. */
+let menuSeg: number | null = null;
+export const setMenuSeg = (i: number | null) => { menuSeg = i; };
+
 export function drawOverview(s: StudioState) {
   const c = document.getElementById('overview') as HTMLCanvasElement | null;
   if (!c) return;
@@ -155,6 +159,12 @@ export function drawLane(s: StudioState, onRedraw?: () => void) {
       x.strokeStyle = '#C8FF4D';
       x.lineWidth = 2 * dpr;
       roundRect(x, a, top, W, bot - top, r);
+      x.stroke();
+    }
+    if (i === menuSeg) {
+      x.strokeStyle = '#fff';
+      x.lineWidth = 2 * dpr;
+      roundRect(x, a + dpr, top + dpr, W - 2 * dpr, bot - top - 2 * dpr, r);
       x.stroke();
     }
   });

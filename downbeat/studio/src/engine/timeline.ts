@@ -1,6 +1,6 @@
 // Edit planning and sampling. Segments are aligned to the beat grid; each cut,
 // including the loop seam at t = 0, is a transition centered on its beat.
-import type { CameraTransform, RhythmDef, Segment, TimelinePlan, TimelinePlanOptions, TimelineSample, VelocityDef } from './types.ts';
+import type { CameraTransform, RhythmDef, Segment, SegmentFrame, TimelinePlan, TimelinePlanOptions, TimelineSample, VelocityDef } from './types.ts';
 
 export const RHYTHMS: Record<string, RhythmDef> = {
   hits: { name: 'On hits', short: 'Hits', beats: null },
@@ -32,6 +32,28 @@ export const VELOCITY: Record<string, VelocityDef> = {
   wave: { name: 'Wave', per: 2, desc: 'Speeds up and slows down every two beats', v: (x: number) => 1 + 0.75 * Math.sin(Math.PI * 2 * x), f: (x: number) => x + (0.75 * (1 - Math.cos(Math.PI * 2 * x))) / (Math.PI * 2) },
   ramp: { name: 'Bar ramp', per: 4, desc: 'Slow-mo that accelerates through the bar', v: (x: number) => 0.3 + 2.1 * x * x, f: (x: number) => 0.3 * x + 0.7 * x ** 3 },
 };
+
+// How a segment's own framing gets from where it starts to where it ends.
+export const MOVES: Record<NonNullable<SegmentFrame['ease']>, { name: string; desc: string }> = {
+  smooth: { name: 'Smooth', desc: 'Eases out of the start and into the end' },
+  linear: { name: 'Steady', desc: 'The same speed all the way' },
+  beats: { name: 'On the beat', desc: 'A quick step on every beat, holding in between' },
+};
+
+/** How much of a segment's framing move is done at its local time: 0 at the cut in, 1 at the cut out. */
+export function moveAt(seg: Segment, local: number): number {
+  const u = Math.max(0, Math.min(1, local / Math.max(seg.dur, 1e-3)));
+  const ease = seg.frame?.ease || 'smooth';
+  if (ease === 'linear') return u;
+  if (ease === 'beats') {
+    // each step lands in the first third of its beat
+    const n = Math.max(1, Math.round(seg.dur / seg.bd));
+    const k = Math.min(n - 1, Math.floor(u * n));
+    const g = Math.min(1, (u * n - k) / 0.35);
+    return (k + 1 - (1 - g) ** 3) / n;
+  }
+  return u * u * (3 - 2 * u);
+}
 
 // Footage time (in seconds at speed 1) consumed between the segment start and `local`.
 function warp(seg: Segment, local: number): number {
@@ -267,6 +289,15 @@ export function cameraFor(
   const c0 = [fx + (r() - 0.5) * drift, fy + (r() - 0.5) * drift * 0.6];
   const c1 = [fx + (r() - 0.5) * drift, fy + (r() - 0.5) * drift * 0.6];
   const u = Math.max(-0.5, Math.min(1.5, local / Math.max(seg.dur, 1e-3)));
+  let center: [number, number] = [c0[0] + (c1[0] - c0[0]) * u, c0[1] + (c1[1] - c0[1]) * u];
+  let zoom = Math.max(1, cam.zoom * (fz || 1) * (1 + drift * 0.07 * u));
+  if (seg.frame) {
+    // the segment's own framing replaces the drift: a still crop, or a move from a to b
+    const { a, b = a } = seg.frame;
+    const m = moveAt(seg, local);
+    center = [a[0] + (b[0] - a[0]) * m, a[1] + (b[1] - a[1]) * m];
+    zoom = Math.max(1, cam.zoom * a[2] * (b[2] / a[2]) ** m); // geometric, so the zoom looks even-paced
+  }
   const ph = (t / L) * Math.PI * 2;
   // Shake is a slow handheld wobble plus a 6-11 Hz rattle, as a fraction of the visible frame. The
   // rattle is what makes a short hit (kick, steps) read as a shake instead of a nudge. Each part
@@ -274,8 +305,8 @@ export function cameraFor(
   const shake = cam.shake * 0.025;
   const w = (hz: number, off: number) => Math.sin(Math.max(1, Math.round(hz * L)) * ph + off);
   return {
-    center: [c0[0] + (c1[0] - c0[0]) * u, c0[1] + (c1[1] - c0[1]) * u],
-    zoom: Math.max(1, cam.zoom * (fz || 1) * (1 + drift * 0.07 * u)),
+    center,
+    zoom,
     rot: cam.sway * 0.06 * Math.sin((Math.PI * 2 * beat) / 4),
     shake: [
       shake * (w(0.9, 1.3) * 0.35 + w(6.3, 0.4) * 0.4 + w(10.7, 2.2) * 0.25),

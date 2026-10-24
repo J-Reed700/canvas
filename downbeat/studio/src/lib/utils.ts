@@ -183,7 +183,7 @@ export function roundRect(x: CanvasRenderingContext2D, X: number, Y: number, W: 
   x.closePath();
 }
 
-function clipAspect(clip?: { width?: number; height?: number } | null): number {
+export function clipAspect(clip?: { width?: number; height?: number } | null): number {
   if (!clip || !clip.height) return 9 / 16;
   return (clip.width || 0) / Math.max(1, clip.height);
 }
@@ -193,6 +193,16 @@ export function room(c: { width?: number; height?: number }, zoom: number, ca = 
   const va = clipAspect(c);
   const frac: [number, number] = va > ca ? [ca / va, 1] : [1, va / ca];
   return { frac, room: [Math.max(0, (1 - frac[0] / zoom) / 2), Math.max(0, (1 - frac[1] / zoom) / 2)] };
+}
+
+/** The part of a clip a crop centred on x, y (y up) shows at `zoom`, as [left, top, width, height] from 0 to 1 with
+ * top measured down from the clip's top edge. Matches the SOURCE shader. */
+export function cropRect(c: { width?: number; height?: number }, zoom: number, x: number, y: number, ca = 9 / 16): [number, number, number, number] {
+  const { frac, room: rm } = room(c, zoom, ca);
+  const w = frac[0] / zoom, hh = frac[1] / zoom;
+  const cx = 0.5 + Math.max(-rm[0], Math.min(rm[0], x - 0.5));
+  const cy = 0.5 + Math.max(-rm[1], Math.min(rm[1], y - 0.5));
+  return [cx - w / 2, 1 - cy - hh / 2, w, hh];
 }
 
 export const detectSubject = (clipId: string): Promise<any> => fetchJSON(`/api/autoframe/${clipId}`).catch(() => null);

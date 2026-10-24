@@ -407,7 +407,7 @@ In the Edit tab, choose the cut rhythm, which transitions to use, the clip direc
 
 The preview shows the video on a screen of the export's shape. The Screen button in the transport bar (or `O`) switches between Phone 9:16 for a Spotify Canvas, Landscape 16:9 for a YouTube visualizer, Tablet 3:4 for Apple Music motion art, and Square 1:1 for social feeds, Apple's square art and cover art. The screen and the export format are one setting: picking a screen picks a format of that shape, and picking a format in the export sheet changes the screen. Look thumbnails take the same shape.
 
-Drag on the preview to reframe the clip that's showing, scroll to zoom in (up to 3×), and double-click to reset that clip's framing.
+Drag on the preview to reframe the clip that's showing, scroll to zoom in (up to 3×), and double-click to reset that clip's framing. A single segment can have its own framing instead, set in its segment menu (double-click it on the timeline), including a push in, pull out or pan from one cut to the next. The [studio guide](docs/STUDIO_GUIDE.md#framing-one-segment) covers it.
 
 Loop mode plays only the slice of the song under the Canvas, over and over. Listener mode lets the song keep playing while the Canvas loops, which is what someone listening on Spotify sees. `L` switches between them. In Listener mode, Off-sync starts the Canvas at a random point in the song, because Spotify doesn't line a Canvas up with the music.
 

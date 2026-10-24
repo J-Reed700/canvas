@@ -552,6 +552,24 @@ class TestServerMedia(_ServerCase):
             self.assertEqual(img.shape[1], width, asked)
         self.assertEqual(self.request("GET", f"/api/thumb/{cid}?w=wide")[0], 500)
 
+    def test_thumbnails_come_from_the_playback_copy_once_it_is_ready(self) -> None:
+        cid = self.clip()["id"]
+        src = self.state.clips[cid]
+        seen: list[str] = []
+        real = server_mod.extract_thumbnail_jpeg
+
+        def spy(path: str, **kw) -> bytes:
+            seen.append(path)
+            return real(path, **kw)
+
+        with mock.patch.object(server_mod, "extract_thumbnail_jpeg", side_effect=spy):
+            with mock.patch.object(self.state.proxies, "ready", return_value=False):
+                self.assertEqual(self.request("GET", f"/api/thumb/{cid}?w=64&t=0.5")[0], 200)
+            proxy = self.state.proxies.ensure(src)
+            self.assertEqual(self.request("GET", f"/api/thumb/{cid}?w=64&t=0.5")[0], 200)
+            self.assertEqual(self.request("GET", f"/api/thumb/{cid}?w=64&t=75")[0], 200)
+        self.assertEqual(seen, [src.path, proxy, src.path], "the original before the copy is ready and past its 60 s")
+
     def test_palette_and_autoframe_are_computed_once_per_clip(self) -> None:
         cid = self.clip()["id"]
         status, pal = self.get_json(f"/api/palette/{cid}")

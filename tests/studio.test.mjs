@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { planTimeline, sampleTimeline, clipTime, cameraFor, loopBeats, velocityAt, RHYTHMS, DIRECTIONS, VELOCITY } from '../downbeat/studio/src/engine/timeline.ts';
+import { planTimeline, sampleTimeline, clipTime, cameraFor, moveAt, loopBeats, velocityAt, RHYTHMS, DIRECTIONS, VELOCITY } from '../downbeat/studio/src/engine/timeline.ts';
 import { compose, resolveParams } from '../downbeat/studio/src/engine/composer.ts';
 import { flashesPerSecond } from '../downbeat/studio/src/engine/exporter.ts';
 import { LOOKS, chaosLook, evolveLook, mutate, randomLook } from '../downbeat/studio/src/engine/looks.ts';
@@ -110,6 +110,43 @@ test('clip framing moves the crop centre and zoom', () => {
   const c = cameraFor(seg, 0.1, cam, 0.1, base.L, 0.25, 1);
   assert.deepEqual(c.center, [0.2, 0.7]);
   assert.equal(c.zoom, 1.5);
+});
+
+test("a segment's own framing replaces the drift, holding still or moving from start to end", () => {
+  const seg0 = planTimeline({ ...base, rhythm: 'bar' }).segs[1];
+  const cam = { zoom: 1.1, drift: 1, shake: 0, sway: 0 };
+  const at = (frame, local) => cameraFor({ ...seg0, focus: [0.2, 0.2, 2], frame }, local, cam, 0, base.L, 0, 1);
+  const still = at({ a: [0.3, 0.6, 1.5] }, seg0.dur * 0.7);
+  assert.deepEqual(still.center, [0.3, 0.6]);
+  assert.ok(Math.abs(still.zoom - 1.1 * 1.5) < 1e-12, 'no drift zoom, no clip framing');
+
+  const move = { a: [0.3, 0.5, 1], b: [0.7, 0.5, 2], ease: 'smooth' };
+  assert.deepEqual(at(move, -0.2).center, [0.3, 0.5], 'holds the start through the transition in');
+  assert.deepEqual(at(move, seg0.dur + 0.2).center, [0.7, 0.5], 'and the end through the transition out');
+  const mid = at(move, seg0.dur / 2);
+  assert.ok(Math.abs(mid.center[0] - 0.5) < 1e-12);
+  assert.ok(Math.abs(mid.zoom - 1.1 * Math.SQRT2) < 1e-12, 'zoom moves at an even rate to the eye');
+  // smooth eases out of the start; steady doesn't
+  assert.ok(at(move, seg0.dur * 0.1).center[0] - 0.3 < 0.4 * 0.1);
+  assert.ok(Math.abs(at({ ...move, ease: 'linear' }, seg0.dur * 0.1).center[0] - (0.3 + 0.04)) < 1e-12);
+});
+
+test('an on-the-beat move steps once a beat and holds in between', () => {
+  const seg = { ...planTimeline({ ...base, rhythm: 'bar' }).segs[1], frame: { a: [0.5, 0.5, 1], b: [0.5, 0.5, 2], ease: 'beats' } };
+  const bd = base.beatDur;
+  assert.equal(seg.dur / bd, 4);
+  assert.equal(moveAt(seg, 0), 0);
+  for (let k = 0; k < 4; k++) {
+    assert.ok(Math.abs(moveAt(seg, k * bd + bd * 0.36) - (k + 1) / 4) < 1e-12, `beat ${k + 1} lands early`);
+    assert.ok(Math.abs(moveAt(seg, k * bd + bd * 0.9) - (k + 1) / 4) < 1e-12, `and holds`);
+  }
+  let prev = 0;
+  for (let t = 0; t <= seg.dur; t += bd / 40) {
+    const m = moveAt(seg, t);
+    assert.ok(m >= prev - 1e-12, `never steps back at ${t}`);
+    prev = m;
+  }
+  assert.equal(moveAt(seg, seg.dur), 1);
 });
 
 test('camera shake rattles within a step and repeats exactly at the loop seam', () => {
