@@ -18,8 +18,7 @@ import numpy as np
 from downbeat import __version__, cli
 from downbeat.render import effects
 from downbeat.render.recipe import PRESETS
-
-HAS_FFMPEG = shutil.which("ffmpeg") is not None and shutil.which("ffprobe") is not None
+from helpers import HAS_FFMPEG
 
 
 def _run(argv: list[str]) -> tuple[int, str]:

@@ -22,12 +22,7 @@ import numpy as np
 
 from downbeat.server import app as server_mod
 from downbeat.server import state as state_mod
-
-HAS_FFMPEG = shutil.which("ffmpeg") is not None and shutil.which("ffprobe") is not None
-
-
-def _ffprobe(path: str) -> dict:
-    return json.loads(subprocess.check_output(["ffprobe", "-v", "error", "-show_streams", "-show_format", "-of", "json", path]))
+from helpers import HAS_FFMPEG, _ffprobe
 
 
 def _write_wav(path: str, seconds: float, bpm: float = 120.0, rate: int = 44100) -> str:

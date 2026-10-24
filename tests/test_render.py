@@ -1,12 +1,15 @@
+"""The CPU renderer behind the command line: effects, presets, transitions and the cut plan."""
 from __future__ import annotations
 
 import unittest
+
 import numpy as np
 
-from downbeat.render.effects import EFFECTS
-from downbeat.render.recipe import PRESETS, make_recipe
-from downbeat.render.compositor import _blend_transition
 from downbeat.media.source import fit_portrait
+from downbeat.render.compositor import _blend_transition
+from downbeat.render.effects import EFFECTS
+from downbeat.render.effects.geometry import grid_clone
+from downbeat.render.recipe import PRESETS, make_recipe
 
 
 class TestDownbeatPipeline(unittest.TestCase):
@@ -63,8 +66,8 @@ class TestDownbeatPipeline(unittest.TestCase):
             self.assertEqual(blended.dtype, np.uint8, f"transition {mode} dtype mismatch")
 
     def test_clip_directions_and_order_preservation(self) -> None:
-        from downbeat.render.compositor import build_plan
         from downbeat.media.source import GLOBAL_CACHE, Source
+        from downbeat.render.compositor import build_plan
 
         src_a = Source(path="mock_a.mp4", width=180, height=320, fps=30.0, frame_count=60, duration=2.0)
         src_b = Source(path="mock_b.mp4", width=180, height=320, fps=30.0, frame_count=60, duration=2.0)
@@ -93,8 +96,9 @@ class TestDownbeatPipeline(unittest.TestCase):
             self.assertLessEqual(float(mid.mean()), 10.0)
 
     def test_photosensitive_slew_limiter_and_determinism(self) -> None:
-        from downbeat.render.compositor import RenderPlan, SegmentSlice
         import cv2
+
+        from downbeat.render.compositor import RenderPlan, SegmentSlice
 
         class DummySource:
             path = "dummy"
@@ -159,8 +163,8 @@ class TestDownbeatPipeline(unittest.TestCase):
         self.assertNotEqual(kw_map1, kw_map2)
 
     def test_granular_cuts_fit_all_clips_and_multi_transitions(self) -> None:
-        from downbeat.render.compositor import build_plan
         from downbeat.media.source import GLOBAL_CACHE, Source
+        from downbeat.render.compositor import build_plan
 
         sources = [
             Source(path=f"mock_{k}.mp4", width=180, height=320, fps=30.0, frame_count=90, duration=3.0)
@@ -209,8 +213,8 @@ class TestDownbeatPipeline(unittest.TestCase):
             GLOBAL_CACHE.load_segment = orig_load
 
     def test_per_video_filters_modes_and_transition_blending(self) -> None:
-        from downbeat.render.compositor import build_plan
         from downbeat.media.source import GLOBAL_CACHE, Source
+        from downbeat.render.compositor import build_plan
 
         sources = [
             Source(path=f"mock_{k}.mp4", width=180, height=320, fps=30.0, frame_count=90, duration=3.0)
@@ -289,6 +293,19 @@ class TestDownbeatPipeline(unittest.TestCase):
                 self.assertEqual(trans_out.dtype, np.uint8)
         finally:
             GLOBAL_CACHE.load_segment = orig_load
+
+
+class TestEffects(unittest.TestCase):
+    @unittest.expectedFailure  # grid_clone returns h // grid * grid rows: 128 tall with a 3x3 grid gives 126
+    def test_grid_clone_keeps_the_frame_size_when_the_grid_does_not_divide_it(self) -> None:
+        frame = np.zeros((128, 72, 3), np.uint8)
+        self.assertEqual(grid_clone(frame, t=0.0, beat_dur=0.5, grid=3).shape, frame.shape)
+
+    def test_grid_clone_keeps_the_frame_size_at_canvas_sizes(self) -> None:
+        for h, w in ((1920, 1080), (192, 108)):
+            for grid in (2, 3):
+                frame = np.zeros((h, w, 3), np.uint8)
+                self.assertEqual(grid_clone(frame, t=0.25, beat_dur=0.5, grid=grid).shape, frame.shape, (h, w, grid))
 
 
 if __name__ == "__main__":

@@ -491,11 +491,16 @@ canvas/
 │           ├── lib/            # helpers, export formats, export search and paging
 │           └── components/     # the panels, plus shared Slider, Card and SearchField (ui.tsx)
 └── tests/
-    ├── test_pipeline.py        # classic engine
-    ├── test_studio.py          # beat grid, loop lengths, remux, verifier, proxies
+    ├── test_media.py           # probing, thumbnails, stills, encoding, playback proxies
+    ├── test_analysis.py        # tempo, beat grid, loop lengths, envelopes, subject framing, palettes
+    ├── test_delivery.py        # remux, spec checks, export sessions, Apple repeats, promos, companions
+    ├── test_render.py          # the CPU renderer: effects, presets, transitions, the cut plan
+    ├── test_state.py           # export names, rediscovered renders, removing clips and exports
+    ├── test_library.py         # which songs are listed, music folders, format conversion
     ├── test_server.py          # every HTTP route, uploads, streamed exports, launch and relaunch
     ├── test_cli.py             # command-line options and a small real render
-    ├── test_backend_units.py   # probing, encoding, audio analysis, delivery, state, proxies
+    ├── test_studio_js.py       # runs the Node suite below from unittest
+    ├── helpers.py              # shared fixtures: ffprobe, a temp folder with generated media
     ├── studio.test.mjs         # timeline, modulation, looks, flash counter (node --test)
     ├── studio_store.test.mjs   # loop lengths, per-clip looks, undo, rolls, uploads, clip actions
     ├── studio_media.test.mjs   # audio transport, video bank, export streaming, timeline lane
