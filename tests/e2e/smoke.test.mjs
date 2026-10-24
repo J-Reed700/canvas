@@ -17,12 +17,17 @@ if (process.env.DOWNBEAT_REQUIRE_E2E === '1' && missing.length) {
   throw new Error(`The quality gate requires ${missing.join(', ')}`);
 }
 
+// Non-macOS browser tests use SwiftShader. Keep identical media QA with a bounded software-rendering budget.
+const E2E_TIMEOUT = process.platform === 'darwin' ? 240_000 : 900_000;
+const EXPORT_TIMEOUT = process.platform === 'darwin' ? 120_000 : 240_000;
+
 // Helpers defined in the page before each step.
 const PAGE = `
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   const $ = (s) => document.querySelector(s);
   const $$ = (s) => [...document.querySelectorAll(s)];
   const S = { getState: () => window.__studio.store.getState() };
+  const exportTimeout = ${EXPORT_TIMEOUT};
   const until = async (fn, ms = 20000, what = 'a condition') => {
     const t0 = performance.now();
     for (;;) { const v = fn(); if (v) return v; if (performance.now() - t0 > ms) throw new Error('timed out waiting for ' + what); await sleep(100); }
@@ -38,7 +43,7 @@ const PAGE = `
   const tap = async (el) => { el.click(); await sleep(0); };
 `;
 
-test('the studio works end to end in a real browser', { skip: missing.length ? `needs ${missing.join(', ')}` : false, timeout: 240_000 }, async (t) => {
+test('the studio works end to end in a real browser', { skip: missing.length ? `needs ${missing.join(', ')}` : false, timeout: E2E_TIMEOUT }, async (t) => {
   const tmp = mkdtempSync(join(tmpdir(), 'downbeat-e2e-'));
   const home = join(tmp, 'home');
   const out = join(tmp, 'out');
@@ -382,7 +387,7 @@ test('the studio works end to end in a real browser', { skip: missing.length ? `
     await tap(song);
     await tap(byText('#exportForm button', 'Render & verify'));
     try {
-      await until(() => /^(Ready for Spotify|Exported, but some checks failed|Export failed.*|Export cancelled)$/.test($('#exportStatus h2')?.textContent || ''), 120000, 'the export');
+      await until(() => /^(Ready for Spotify|Exported, but some checks failed|Export failed.*|Export cancelled)$/.test($('#exportStatus h2')?.textContent || ''), exportTimeout, 'the export');
     } catch (e) {
       throw new Error(e.message + ': ' + ($('#exportStatus')?.textContent || 'no status'));
     }
@@ -428,7 +433,7 @@ test('the studio works end to end in a real browser', { skip: missing.length ? `
     await until(() => S.getState().exportOpen, 2000, 'the export sheet');
     if (byText('.fmt-seg button', 'Social 1:1')?.className !== 'on') throw new Error('the sheet should have Social 1:1 picked');
     await tap(byText('#exportForm button', 'Render & verify'));
-    await until(() => /^(Square video exported|Exported, but some checks failed|Export failed|Export cancelled)$/.test($('#exportStatus h2')?.textContent || ''), 120000, 'the square export');
+    await until(() => /^(Square video exported|Exported, but some checks failed|Export failed|Export cancelled)$/.test($('#exportStatus h2')?.textContent || ''), exportTimeout, 'the square export');
     const r = S.getState().renders[0];
     const fails = (r?.checks || []).filter((c) => c.level === 'fail').map((c) => c.label + ': ' + c.detail);
     if ($('#exportStatus h2').textContent !== 'Square video exported') throw new Error($('#exportStatus h2').textContent + ' ' + fails.join('; '));
@@ -448,7 +453,7 @@ test('the studio works end to end in a real browser', { skip: missing.length ? `
     key('e');
     await until(() => S.getState().exportOpen, 2000, 'the export sheet');
     await tap(byText('#exportForm button', 'Render & verify'));
-    await until(() => /^(Ready for Spotify|Exported, but some checks failed|Export failed.*|Export cancelled)$/.test($('#exportStatus h2')?.textContent || ''), 120000, 'the plain export');
+    await until(() => /^(Ready for Spotify|Exported, but some checks failed|Export failed.*|Export cancelled)$/.test($('#exportStatus h2')?.textContent || ''), exportTimeout, 'the plain export');
     const r = S.getState().renders[0];
     const foot = r.checks.find((c) => c.id === 'footage');
     if (foot?.level !== 'ok') throw new Error($('#exportStatus h2').textContent + ': ' + JSON.stringify(foot));
