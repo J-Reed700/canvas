@@ -73,6 +73,33 @@ describe('clips', () => {
     expect(clipEl('sunrise').className).not.toContain('drag-over');
   });
 
+  test('a clip dragged to the right lands where it is dropped, not one past it', () => {
+    resetStudio();
+    renderStudio(<MediaPanel />);
+    const dataTransfer = { effectAllowed: '' };
+    const drag = (from: string, to: string) => {
+      fireEvent.dragStart(clipEl(from), { dataTransfer });
+      fireEvent.dragOver(clipEl(to), { dataTransfer });
+      fireEvent.drop(clipEl(to), { dataTransfer });
+    };
+    drag('sunrise', 'city.mp4');
+    expect(st().selected).toEqual(['b', 'a', 'c']);
+    drag('city.mp4', 'cover');
+    expect(st().selected).toEqual(['a', 'c', 'b']);
+  });
+
+  test('a clip drag that ends off the grid is forgotten, so a later drop on a clip does nothing', () => {
+    resetStudio();
+    renderStudio(<MediaPanel />);
+    const dataTransfer = { effectAllowed: '' };
+    fireEvent.dragStart(clipEl('cover'), { dataTransfer });
+    fireEvent.dragEnd(clipEl('cover'), { dataTransfer });
+    fireEvent.dragOver(clipEl('sunrise'), { dataTransfer });
+    expect(clipEl('sunrise').className).not.toContain('drag-over');
+    fireEvent.drop(clipEl('sunrise'), { dataTransfer });
+    expect(st().selected).toEqual(['a', 'b', 'c']);
+  });
+
   test('removing a clip takes two clicks, and the first one is forgotten after 3 s', async () => {
     const fetch = serve({ 'POST /api/clip/remove': () => ({ ok: true, deleted: false }) });
     resetStudio();

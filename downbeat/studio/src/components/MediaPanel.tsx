@@ -256,6 +256,7 @@ export const MediaPanel: React.FC = () => {
                     setDragId(c.id);
                     e.dataTransfer.effectAllowed = 'move';
                   }}
+                  onDragEnd={() => setDragId(null)}
                   onDragOver={(e) => {
                     if (dragId && idx >= 0) {
                       e.preventDefault();
@@ -268,8 +269,8 @@ export const MediaPanel: React.FC = () => {
                     e.stopPropagation();
                     e.currentTarget.classList.remove('drag-over');
                     if (!dragId || dragId === c.id || idx < 0) return;
-                    const from = selected.indexOf(dragId);
-                    reorderClips({ from, to: selected.indexOf(c.id) + (from <= idx ? 1 : 0) });
+                    // the dragged clip takes the target's place, whichever way it moved
+                    reorderClips({ from: selected.indexOf(dragId), to: idx });
                     setDragId(null);
                   }}
                 >
