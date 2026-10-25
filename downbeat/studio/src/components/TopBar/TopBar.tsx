@@ -1,12 +1,29 @@
 import './TopBar.css';
 import { useStudioStore, useStudioApi, useWorkspaceApi, useStudioRuntime } from '../../state/StudioContext.tsx';
 import React, { useSyncExternalStore } from 'react';
+import { useShallow } from 'zustand/react/shallow';
 import { openPop, closePop, h, ROLL_OPTS, fmtLength } from '../../lib/utils.ts';
 import { Icon } from '../Icon/Icon.tsx';
 import { ICONS } from '../Icon/icons.ts';
 import { ProjectButton } from '../ProjectButton/ProjectButton.tsx';
 import { isMediaLoading } from '../../state/mediaLoading.ts';
 import { normalizeRollStyle, ROLL_STYLES } from '../../engine/lookStyles.ts';
+import { remixTarget, type RemixTarget } from '../../state/rollController.ts';
+
+/** The Remix button's name and tooltip for what it rolls. */
+function remixCopy(target: RemixTarget): { tag: string; name: string; title: string } {
+  if (target.kind === 'segment') return {
+    tag: `Seg ${target.segNo}`,
+    name: `Remix segment ${target.segNo}`,
+    title: `Remix only segment ${target.segNo}: its look, and with Edit on its transition, moment of the clip, direction and speed ramp (D) · Esc targets the whole edit · Shift+D undoes`,
+  };
+  if (target.kind === 'clip') return {
+    tag: `Clip ${target.clipNo}`,
+    name: `Remix clip ${target.clipNo}`,
+    title: `Remix only clip ${target.clipNo}'s look, on every appearance of it (D) · Esc targets the whole edit · Shift+D undoes`,
+  };
+  return { tag: '', name: 'Remix everything', title: 'Roll everything: look, layers, edit and per-clip FX (D) · Shift+D undoes' };
+}
 
 export const TopBar: React.FC = () => {
   const store = useStudioApi();
@@ -23,7 +40,12 @@ export const TopBar: React.FC = () => {
   const rollOpts = useStudioStore((s) => s.rollOpts);
   const rollStyle = useStudioStore((s) => s.rollStyle);
   const rollAll = useStudioStore((s) => s.rollAll);
+  const rollSegment = useStudioStore((s) => s.rollSegment);
+  const rollClip = useStudioStore((s) => s.rollClip);
+  const remix = useStudioStore((s) => s.remix);
   const undoRoll = useStudioStore((s) => s.undoRoll);
+  const target = useStudioStore(useShallow(remixTarget));
+  const copy = remixCopy(target);
   const openExport = useStudioStore((s) => s.openExport);
   const save = useStudioStore((s) => s.save);
   const undo = useStudioStore((s) => s.undo);
@@ -40,6 +62,18 @@ export const TopBar: React.FC = () => {
   const handleRollOpts = (e: React.MouseEvent<HTMLButtonElement>) => {
     const anchor = e.currentTarget;
     openPop(anchor, (box) => {
+      const action = (label: string, sub: string, run: () => void) => h('button', {
+        class: 'pi',
+        onclick: () => {
+          closePop();
+          run();
+        },
+      }, label, sub ? h('small', {}, sub) : null);
+      box.append(h('div', { class: 'ph' }, 'Remix'));
+      if (target.kind === 'segment') box.append(action(`Segment ${target.segNo} only`, 'D', () => rollSegment(target.id)));
+      if (target.kind !== 'all') box.append(action(`Clip ${target.clipNo}, every appearance`, target.kind === 'clip' ? 'D' : '', () => rollClip(target.clipId)));
+      box.append(action('Everything', target.kind === 'all' ? 'D' : '', rollAll));
+      if (target.kind === 'all') box.append(h('p', { class: 'roll-hint' }, 'Select a segment on the timeline, or choose All uses in the inspector, and D remixes just that.'));
       const styleSelect = h('select', {
         'aria-label': 'Remix style',
         onchange: (event: Event) => {
@@ -53,6 +87,9 @@ export const TopBar: React.FC = () => {
         styleSelect,
       ));
       box.append(h('div', { class: 'ph' }, 'A roll changes'));
+      if (target.kind !== 'all') {
+        box.append(h('p', { class: 'roll-hint' }, target.kind === 'segment' ? 'One segment takes Look & layers and Edit.' : 'One clip takes Look & layers.'));
+      }
       for (const [k, label, sub] of ROLL_OPTS) {
         box.append(
           h(
@@ -140,17 +177,19 @@ export const TopBar: React.FC = () => {
           <button
             className="btn roll"
             id="btnRoll"
-            title="Roll everything: look, layers, edit and per-clip FX (D) · Shift+D undoes"
-            onClick={rollAll}
+            title={copy.title}
+            aria-label={copy.name}
+            onClick={remix}
             disabled={exporting}
           >
-            <svg className="studio-stroke" viewBox="0 0 20 20" aria-hidden="true"><path d="m4 16 9-9M11 3v4m-2-2h4m3 7v4m-2-2h4M4 3v4M2 5h4" /></svg> Remix <span className="kbd">D</span>
+            <svg className="studio-stroke" viewBox="0 0 20 20" aria-hidden="true"><path d="m4 16 9-9M11 3v4m-2-2h4m3 7v4m-2-2h4M4 3v4M2 5h4" /></svg> Remix
+            {copy.tag && <span className="roll-target">{copy.tag}</span>} <span className="kbd">D</span>
           </button>
           <button
             className="btn roll caret"
             id="btnRollOpts"
             data-pop
-            title="Choose what a roll changes · undo"
+            title="Choose what to remix and what a roll changes · undo"
             onClick={handleRollOpts}
           >
             ▾

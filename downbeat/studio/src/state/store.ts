@@ -498,6 +498,9 @@ export function createStudioRuntime(options: StudioOptions = {}) {
 
     rollClips: () => roll.rollClips(),
     rollAll: () => roll.rollAll(),
+    rollSegment: (id) => roll.rollSegment(id),
+    rollClip: (clipId) => roll.rollClip(clipId),
+    remix: () => roll.remix(),
     undoRoll: () => roll.undoRoll(),
     selectBlock: (id) => blocks.selectBlock(id),
     splitAtPlayhead: () => blocks.splitAtPlayhead(),

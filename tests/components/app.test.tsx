@@ -130,6 +130,24 @@ describe('keyboard shortcuts', () => {
     expect(toastText()).toMatch(/^Surprise: /);
   });
 
+  test('D remixes only the selected segment, and Esc puts it back on the whole edit', () => {
+    resetStudio({ tab: 'looks' });
+    renderApp();
+    const seg = st().ctx!.tl.segs[1];
+    update(() => st().selectBlock(seg.id));
+    press('d');
+    expect(st().lookId, 'the main look stays').toBe(LOOKS[0].id);
+    expect(st().blocks!.find((b) => b.id === seg.id)!.look).toBeTruthy();
+    expect(toastText()).toMatch(/^Remixed segment 2 · /);
+    press('D');
+    expect(st().blocks).toBeNull();
+    press('Escape');
+    press('d');
+    expect(st().lookId).not.toBe(LOOKS[0].id);
+    press('D');
+    expect(st().lookId).toBe(LOOKS[0].id);
+  });
+
   test('H, S and L toggle the overlay, safe zones and listener mode; T taps the tempo', () => {
     resetStudio({ tab: 'looks' });
     renderApp();

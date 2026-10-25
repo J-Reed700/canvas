@@ -11,7 +11,7 @@ const SHORTCUTS: [string, string][] = [
   ['⇧ F', 'Focus viewer / restore workspace'],
   ['← →', 'Previous / next look, or previous / next segment while editing one in Edit'],
   ['M', 'Variations of the current look. Press it again for six more'],
-  ['D', '🎲 Roll everything: look, layers, edit, per-clip FX'],
+  ['D', '🎲 Remix: everything (look, layers, edit, per-clip FX), or only the selected segment, or only the clip chosen with All uses'],
   ['⇧ D', 'Undo the last roll'],
   ['R', 'Surprise me: random look'],
   ['E', 'Export the canvas'],

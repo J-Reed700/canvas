@@ -132,3 +132,20 @@ test('command search does not open over an active export or project dialog', () 
   key('k', { ctrlKey: true });
   expect(W.getState().commands).toBe(false);
 });
+
+test('the command menu offers a remix of the selected segment, its clip, or everything', () => {
+  render(<App />);
+  const seg = st().ctx!.tl.segs[1];
+  const clipNo = st().selected.indexOf(seg.clipId) + 1;
+  key('k', { metaKey: true });
+  const input = screen.getByRole('combobox', { name: 'Search commands' });
+  fireEvent.change(input, { target: { value: 'remix' } });
+  const names = () => within(screen.getByRole('listbox', { name: 'Commands' })).getAllByRole('option').map((o) => o.querySelector('span')!.textContent);
+  expect(names()).toEqual(['Remix everything']);
+  update(() => st().selectBlock(seg.id));
+  expect(names()).toEqual(['Remix segment 2 only', `Remix clip ${clipNo} on every appearance`, 'Remix everything']);
+  const lookId = st().lookId;
+  fireEvent.keyDown(input, { key: 'Enter' });
+  expect(st().blocks!.find((b) => b.id === seg.id)!.look).toBeTruthy();
+  expect(st().lookId, 'only the segment was remixed').toBe(lookId);
+});

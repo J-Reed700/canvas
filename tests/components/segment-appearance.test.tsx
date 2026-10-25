@@ -95,3 +95,21 @@ test('the Edit tab shows the segment panel, stepping moves the target, and All u
   expect(document.querySelector('.scope-foot')!.textContent).toContain('Editing all 4 appearances of clip 1.');
   expect(segPanel(), 'the Edit tab is back on the whole edit').toBeNull();
 });
+
+test('the scope card remixes the selected appearance or every use of its clip, and offers nothing extra for the whole edit', () => {
+  const { occurrences, selected, original } = selectAppearance();
+  fireEvent.click(scope().getByRole('button', { name: 'Remix this appearance' }));
+  expect(st().blocks!.find((block) => block.id === selected.id)!.look).toBeTruthy();
+  expect(JSON.stringify(st().look)).toBe(original);
+  expect(frameFor(occurrences[0]).pre, 'the other appearances keep the source look').toBeNull();
+  expect(scope().getByText('Own look')).toBeTruthy();
+
+  fireEvent.click(scope().getByRole('button', { name: 'All uses' }));
+  fireEvent.click(scope().getByRole('button', { name: 'Remix all uses' }));
+  expect(st().clipLooks.a.id).toMatch(/^chaos-/);
+  expect(st().ctx!.tl.segs.find((segment) => segment.id === selected.id)!.look, 'the appearance follows its clip again').toBeUndefined();
+  expect(JSON.stringify(st().look)).toBe(original);
+
+  fireEvent.click(scope().getByRole('button', { name: 'Whole edit' }));
+  expect(scope().queryByRole('button', { name: /^Remix/ })).toBeNull();
+});
