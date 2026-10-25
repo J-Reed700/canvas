@@ -5,6 +5,7 @@ import { openPop, closePop, h, ROLL_OPTS, fmtLength } from '../lib/utils.ts';
 import { Icon, ICONS } from './ui.tsx';
 import { ProjectButton } from './Projects.tsx';
 import { useWorkspaceStore } from '../state/workspaceStore.ts';
+import { isMediaLoading } from '../state/mediaLoading.ts';
 
 export const TopBar: React.FC = () => {
   const trackId = useStudioStore((s) => s.trackId);
@@ -22,6 +23,7 @@ export const TopBar: React.FC = () => {
   const undo = useStudioStore((s) => s.undo);
   const redo = useStudioStore((s) => s.redo);
   const exporting = useStudioStore((s) => s.exporting);
+  const mediaLoading = useStudioStore(isMediaLoading);
   const history = useSyncExternalStore(subscribeHistory, historyDepth);
 
   const tr = tracks.find((t) => t.id === trackId);
@@ -136,7 +138,7 @@ export const TopBar: React.FC = () => {
             ▾
           </button>
         </div>
-        <button className="btn primary" id="btnExport" onClick={openExport} disabled={exporting}>
+        <button className="btn primary" id="btnExport" onClick={openExport} disabled={exporting || mediaLoading}>
           <Icon d={ICONS.download} />Export <span className="kbd">E</span>
         </button>
       </div>

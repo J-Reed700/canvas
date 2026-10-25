@@ -19,11 +19,22 @@ import { PanelDivider, WorkspaceStatus } from './components/Workspace.tsx';
 import { CommandMenu } from './components/CommandMenu.tsx';
 import { stepFrame } from './lib/playback.ts';
 import { saveNow } from './state/projectController.ts';
+import { isMediaLoading } from './state/mediaLoading.ts';
+import { MediaLoading } from './components/MediaLoading.tsx';
 
 export const App: React.FC = () => {
   const layout = useWorkspaceStore((s) => s.layout);
   const focus = useWorkspaceStore((s) => s.focus);
   const initStudio = useStudioStore((s) => s.initStudio);
+  const mediaLoading = useStudioStore(isMediaLoading);
+
+  useEffect(() => {
+    if (mediaLoading) {
+      const s = useStudioStore.getState();
+      s.transport.pause();
+      s.bank?.sync([], false);
+    }
+  }, [mediaLoading]);
 
   useEffect(() => {
     const viewCanvas = document.getElementById('view') as HTMLCanvasElement;
@@ -37,6 +48,11 @@ export const App: React.FC = () => {
     const onKeyDown = (e: KeyboardEvent) => {
       const s = useStudioStore.getState();
       const target = e.target as HTMLElement | null;
+      if (isMediaLoading(s)) {
+        const command = e.metaKey || e.ctrlKey;
+        if ([' ', 'Backspace'].includes(e.key) || (command && ['k', 's', 'o', 'd', 'z', 'y'].includes(e.key.toLowerCase()))) e.preventDefault();
+        return;
+      }
       const workspace = useWorkspaceStore.getState();
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
         e.preventDefault();
@@ -196,24 +212,27 @@ export const App: React.FC = () => {
 
   return (
     <>
-      <div className={`app studio-workspace ${focus ? 'workspace-focus' : ''}`} style={{ '--library-width': `${layout.library}px`, '--inspector-width': `${layout.inspector}px`, '--timeline-height': `${layout.timeline}px` } as React.CSSProperties}>
-        <TopBar />
-        <MediaPanel />
-        <StagePanel />
-        <TimelinePanel />
-        <InspectorPanel />
-        <PanelDivider panel="library" />
-        <PanelDivider panel="inspector" />
-        <PanelDivider panel="timeline" />
-        <WorkspaceStatus />
-      </div>
+      <div className="studio-content" inert={mediaLoading} aria-busy={mediaLoading}>
+        <div className={`app studio-workspace ${focus ? 'workspace-focus' : ''}`} style={{ '--library-width': `${layout.library}px`, '--inspector-width': `${layout.inspector}px`, '--timeline-height': `${layout.timeline}px` } as React.CSSProperties}>
+          <TopBar />
+          <MediaPanel />
+          <StagePanel />
+          <TimelinePanel />
+          <InspectorPanel />
+          <PanelDivider panel="library" />
+          <PanelDivider panel="inspector" />
+          <PanelDivider panel="timeline" />
+          <WorkspaceStatus />
+        </div>
 
-      <CommandMenu />
-      <Modals />
-      <ExportsLibrary />
-      <ClipsLibrary />
-      <ProjectsModal />
-      <Welcome />
+        <CommandMenu />
+        <Modals />
+        <ExportsLibrary />
+        <ClipsLibrary />
+        <ProjectsModal />
+        <Welcome />
+      </div>
+      <MediaLoading />
     </>
   );
 };

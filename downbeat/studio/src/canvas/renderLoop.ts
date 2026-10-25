@@ -1,5 +1,6 @@
 import { timecode } from '../lib/playback.ts';
 import { useStudioStore } from '../state/store.ts';
+import { isMediaLoading } from '../state/mediaLoading.ts';
 import { compose } from '../engine/composer.ts';
 import { clamp } from '../engine/looks.ts';
 import { fetchJSON, METERS } from '../lib/utils.ts';
@@ -81,6 +82,11 @@ export function startRenderLoop(viewCanvas: HTMLCanvasElement, ambientCanvas?: H
     const bankObj = s.bank;
     const transportInstance = s.transport;
     if (!engineObj || !bankObj || s.exporting) return;
+    if (isMediaLoading(s)) {
+      transportInstance.pause();
+      bankObj.sync([], false);
+      return;
+    }
     if (engineObj.gl?.isContextLost?.()) {
       if (!s.glError) useStudioStore.setState({ glError: 'The graphics context was lost. Reload the studio to restart the preview' });
       return;

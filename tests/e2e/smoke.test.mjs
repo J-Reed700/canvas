@@ -537,26 +537,49 @@ test('the studio works end to end in a real browser', { skip: missing.length ? `
     if (S.getState().exportOpts.format !== 'spotify') throw new Error('format ' + S.getState().exportOpts.format);
   `);
 
-  await step('bulk imports preserve metadata and selection without full-library refreshes', `
+  await step('bulk drops show loading progress and keep controls paused until clips are ready', `
     const original = window.fetch;
     const source = S.getState().clips[0];
     const bytes = await (await original('/api/proxy/' + encodeURIComponent(source.id))).arrayBuffer();
     let refreshes = 0;
     const before = S.getState().clips.length;
     const selected = [...S.getState().selected];
+    let release;
+    const gate = new Promise((resolve) => { release = resolve; });
     window.fetch = (input, options) => {
       if (input === '/api/state') refreshes++;
+      if (input === '/api/upload') return gate.then(() => original.call(window, input, options));
       return original.call(window, input, options);
     };
     try {
-      await S.getState().uploadFiles(['Import check one.mp4', 'Import check two.mp4'].map((name) => new File([bytes], name, { type: 'video/mp4' })));
+      S.getState().transport.play();
+      const transfer = new DataTransfer();
+      for (const name of ['Import check one.mp4', 'Import check two.mp4']) transfer.items.add(new File([bytes], name, { type: 'video/mp4' }));
+      window.dispatchEvent(new DragEvent('drop', { bubbles: true, cancelable: true, dataTransfer: transfer }));
+      await until(() => $('.media-loading') && $('.studio-content').inert, 2000, 'import progress');
+      if (!$('.media-loading').textContent.includes('File 1 of 2')) throw new Error('missing file progress');
+      if (S.getState().transport.playing || !$('#btnPlay').disabled || !$('#btnExport').disabled) throw new Error('import controls stayed active');
+      $('#btnPlay').click();
+      $('#btnExport').click();
+      key(' ');
+      if (S.getState().transport.playing || S.getState().exportOpen) throw new Error('playback or export started during import');
+      $('#btnRoll').focus();
+      if (document.activeElement === $('#btnRoll')) throw new Error('the loading editor accepted keyboard focus');
+      const box = $('#btnPlay').getBoundingClientRect();
+      if (!document.elementFromPoint(box.x + box.width / 2, box.y + box.height / 2)?.closest('.media-loading')) throw new Error('loading screen does not intercept clicks');
+      release();
+      await until(() => !S.getState().mediaImport, 30000, 'file imports');
       if (refreshes !== 0) throw new Error('bulk import refreshed the whole library ' + refreshes + ' times');
       const added = S.getState().clips.filter((clip) => clip.name.startsWith('Import check'));
       if (S.getState().clips.length !== before + 2 || added.length !== 2) throw new Error('imported clips missing');
       if (added.some((clip) => !(clip.width > 0 && clip.height > 0 && clip.duration > 0) || clip.source !== 'added')) throw new Error('upload metadata was lost');
       if (selected.some((id) => !S.getState().selected.includes(id)) || added.some((clip) => !S.getState().selected.includes(clip.id))) throw new Error('import changed existing selection');
       await until(() => added.every((clip) => S.getState().clips.find((current) => current.id === clip.id)?.proxy === 'ready'), 30000, 'imported playback copies');
-    } finally { window.fetch = original; }
+      await until(() => !$('.media-loading') && !$('.studio-content').inert, 2000, 'available editor');
+      await tap($('#btnPlay'));
+      if (!S.getState().transport.playing) throw new Error('playback did not unlock');
+      S.getState().transport.pause();
+    } finally { release(); window.fetch = original; }
   `);
 
   await t.test('no errors in the page', () => {

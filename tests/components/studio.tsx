@@ -80,6 +80,7 @@ export function resetStudio(over: Partial<StudioState> = {}) {
       safe: false,
       muted: false,
       exporting: false,
+      mediaImport: null,
       exportOpen: false,
       varOpen: false,
       helpOpen: false,
