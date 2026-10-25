@@ -79,10 +79,10 @@ export const StagePanel: React.FC = () => {
       const n = fr?.needs[0];
       const c = n && s.clips?.find((x) => x.id === n.clipId);
       if (!c) return null;
-      // a segment framed in its own menu ignores the clip's framing, so dragging here would do nothing
+      // a segment with its own framing ignores the clip's framing, so dragging here would do nothing
       const seg = fr.seg?.a.seg;
       if (seg?.frame) {
-        toast(`Segment ${seg.i + 1} has its own framing. Double-click it in the timeline to change it.`);
+        toast(`Segment ${seg.i + 1} has its own framing. Select it in the timeline and change it under Edit › Framing.`);
         return null;
       }
       return { c, n };

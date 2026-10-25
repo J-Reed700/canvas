@@ -292,7 +292,7 @@ export interface BlockOverrides {
   layers?: Record<string, { m: string; p: Record<string, number> }>;
 }
 
-/** What the segment menu and the lane change on one block. */
+/** What the segment panel and the lane change on one block. */
 export type BlockPatch = Partial<Pick<Block, 'clipId' | 'in' | 'trans' | 'transBeats' | 'vel' | 'dir' | 'frame' | 'overrides' | 'look'>>;
 
 /** Per-segment settings as sessions saved them before blocks, keyed by segment number. Read once, when

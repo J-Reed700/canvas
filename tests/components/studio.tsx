@@ -141,6 +141,11 @@ export const popButtons = () => Array.from(pop().querySelectorAll('button')).map
 export const popButton = (text: string | RegExp) =>
   Array.from(pop().querySelectorAll('button')).find((b) => (typeof text === 'string' ? b.textContent === text : text.test(b.textContent || ''))) as HTMLButtonElement;
 
+/** The selected segment's settings in the inspector's Edit tab (render EditPane or InspectorPanel to get it). */
+export const segPanel = () => document.querySelector('.seg-panel') as HTMLElement;
+export const segButton = (text: string | RegExp) =>
+  Array.from(segPanel().querySelectorAll('button')).find((b) => (typeof text === 'string' ? b.textContent === text : text.test(b.textContent || ''))) as HTMLButtonElement;
+
 /** Store changes made outside an event handler must be wrapped so React applies them. */
 export const update = (fn: () => void) => act(fn);
 

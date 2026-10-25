@@ -79,10 +79,11 @@ export function useStudioShortcuts() {
       if (target?.closest?.('button, a, summary, [role=button]')) return;
       e.preventDefault();
       s.transport.toggle();
-    } else if (k === 'ArrowRight') {
-      s.stepLook(1);
-    } else if (k === 'ArrowLeft') {
-      s.stepLook(-1);
+    } else if (k === 'ArrowRight' || k === 'ArrowLeft') {
+      // with a segment's settings showing in the Edit tab, ← → step through the segments, else through the looks
+      if (e.defaultPrevented || target?.closest?.('.seg-zoom, [role=tablist]')) return;
+      if (menus.stepSegment(k === 'ArrowRight' ? 1 : -1)) e.preventDefault();
+      else s.stepLook(k === 'ArrowRight' ? 1 : -1);
     } else if (k === 'm' || k === 'M') {
       // opens Variations, and deals six more while it's open (Esc closes it)
       store.setState((prev) => (prev.varOpen ? { varSeed: prev.varSeed + 1 } : { varOpen: true }));
@@ -114,12 +115,12 @@ export function useStudioShortcuts() {
       e.preventDefault();
       s.deleteBlock();
     } else if (k === 'Enter') {
-      // a focused button takes Enter itself, and an open menu stays as it is
+      // a focused button takes Enter itself, and an open menu stays as it is; Enter shows the segment in the inspector
       if (target?.closest?.('button, a, [role=button]') || document.getElementById('pop')?.classList.contains('on')) return;
       const id = blocks.targetBlock();
       if (id) {
         e.preventDefault();
-        menus.openSegmentMenu(id);
+        menus.revealSegment(id);
       }
     } else if (k === 'n' || k === 'N') {
       const order: SnapDiv[] = [1, 2, 4, 0];

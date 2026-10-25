@@ -214,7 +214,7 @@ one. "Show every clip at least once" in the Edit tab turns that off.
 
 The diamonds are transitions. Violet ones are animated, and the violet shading shows how long they last; white
 ones are hard cuts. The diamond at the far left is the loop seam, where the end of the loop joins the start.
-Each cut has its own length. Drag the edge of the violet shading to change it, or set it in the segment menu.
+Each cut has its own length. Drag the edge of the violet shading to change it, or set it under Timing & transition in the inspector's Edit tab.
 A transition can use up to 90% of the shorter block on either side, so two transitions never overlap.
 
 With Loop set to Rebound in the Edit tab, the cuts fill the first half of the lane and a dashed violet line marks
@@ -238,21 +238,42 @@ clip's blocks, dims the rest, and the header says which clip is highlighted.
 |---|---|---|
 | Click a loop chip | above the waveform | Moves the loop to that section. [ and ] step through them |
 | Click or drag | song waveform | Moves the loop start, snapped to a downbeat |
-| Click | cut lane | Moves the playhead and selects the block, which gets a violet outline |
+| Click | a block | Selects the block and targets it in the Inspector (scope **This appearance**) |
 | Drag a cut line | cut lane, cursor shows ↔ | Moves that cut, snapped to the Snap setting (the beat at first). Hold Shift to put it anywhere. The rhythm shows Custom |
 | Drag the edge of the violet shading | cut lane, cursor shows ⇹ | Sets how long that one transition lasts, in quarter beats. Hold Shift for any length |
 | Option-drag | a block | Slips the clip: same timing, different moment of the footage |
-| Double-click, right-click, or long-press on a touch screen | a block | Opens the appearance editor for that one timeline block. **Look & effects** contains its independent preset and filters. **Timing** groups cuts, transitions and segment actions; **Playback** groups the source, in-point, direction and speed; **Framing** contains crop and moves. The header identifies which appearance of the source is selected. Changes save automatically; Done closes the editor. ‹ › moves to the next appearance |
+| Double-click, right-click, Enter, or long-press on a touch screen | a block | Selects the block and switches the Inspector to its **Edit** tab, showing its timing, source, playback, framing and advanced overrides. The top bar has ‹ › to step through segments |
 | Click a rhythm button | top right | Re-cuts the loop and starts the cuts over, dropping any you moved, split or added |
 
 ### Editing one appearance
 
-Double-click the timeline block you want to change. The editor opens on **Look & effects**, scoped to
-only that appearance. Adjust a filter immediately, or use **Browse looks** to replace its treatment.
-Your first change creates a private copy; the other appearances of the same source keep their looks.
-**Use source look** removes that visual override while preserving the appearance's timing and speed.
-Effect and modulation pickers open above the editor and keep it in place. Timing, Playback and Framing
-are separate tabs, with navigation and Done always outside the scrolling controls.
+Click any timeline block to select it. The right-hand Inspector targets that segment under the scope
+**This appearance**, naming the source clip and its occurrence (for example, Clip 4 · appearance 2 of 2).
+Double-clicking a block, right-clicking it, pressing Enter, long-pressing it on a touch screen, or clicking
+the timeline toolbar's **Edit segment** button also selects the block and switches the inspector straight to
+its **Edit** tab.
+
+- The **Looks** and **Layers** tabs edit that segment's own look and effects. Your first adjustment creates an
+  independent copy for that appearance (marked **FX** on the block); the other appearances of the same source
+  keep their looks. **Use source look** in the scope bar clears the visual override and restores the source clip's
+  look while preserving the segment's timing and speed.
+- The **Edit** tab shows that segment's own settings inline as three collapsible sections:
+  - **Timing & transition**: a zoomed timing strip with draggable cuts and transition edges, Starts/Ends
+    steppers, transition length chips, the **Transition in** picker, and block actions (Split, Repeat, Put a
+    clip in, Delete).
+  - **Source & playback**: the source clip, an in-point filmstrip and slider, direction (Forward, Reverse,
+    Ping-pong), clip speed with BPM match, and speed ramps.
+  - **Framing**: the crop box, X/Y/Zoom, motion choices (Auto, Still, Smooth, Steady, On the beat), and quick moves.
+  - **Advanced values**: per-block overrides for macros, camera, Finish, and effect layers (formerly under the
+    whole-edit Edit tab).
+
+A persistent bar at the top of the segment settings has `‹` `›` to step to the previous or next segment, the
+segment's position and duration, **▶ Play the cut** (plays from a beat before the cut into the segment), and
+**↺ Reset segment** (clears custom settings for that segment).
+
+When the inspector scope is **Whole edit** or **All uses** (clip), the Edit tab shows the whole-edit arrangement
+settings as before. Because segment editing is integrated directly into the inspector, there is no separate
+popover, no Done button, and no Escape-to-close; navigate segments with `‹` `›`.
 
 ### Cutting blocks by hand
 
@@ -272,7 +293,7 @@ Animate contains LFOs, macros, the envelope and sequencer. Save as look and Reve
 the bottom. Edit groups whole-edit controls into Loop & timing, Rhythm & transitions, Playback &
 speed, and Generate & preserve.
 
-For sparse overrides, open **Edit → Advanced segment values → Block look** to give that cut its own macros, camera, Finish or effect
+For sparse overrides, open **Advanced values** in the segment's Edit tab (or under Block look) to give that cut its own macros, camera, Finish or effect
 parameters. Check the setting you want to override, then adjust it. Unchecked settings keep following the
 look. **Use look for all** clears the block's look overrides. Splitting a block preserves its treatment on
 both halves. Layer overrides apply to the matching effect at that stack position; changing the effect does
@@ -283,13 +304,14 @@ under the playhead when nothing is selected, and each is one ⌘Z step.
 
 | Button | Key | Does |
 |---|---|---|
+| ✎ Edit segment | Enter | Selects the block and switches the inspector to its Edit tab to adjust its timing, source, playback and framing |
 | ✂ Split | B | Cuts the block under the playhead in two, on the nearest snap line. Nothing changes on screen: the second half carries on with the same footage, speed ramp, direction and camera move, across a hard cut. Change either half afterwards |
 | Repeat | ⌘D | Cuts the block in half and plays its first half twice, a stutter on the beat |
 | Put a clip in | | Pick a clip. It plays from the playhead to the next cut, from footage the edit hasn't shown yet when the clip has some, and takes a transition from the pool |
 | Delete | Delete | Removes the block. The block before it plays on to the next cut, so every other cut stays on its beat. Deleting the first block makes the next one start the loop. The last block can't be deleted |
 | Snap: Beat, ½, ¼, Off | N | Where Split, Put a clip in and dragged cut lines land |
 
-The segment menu has the same four actions for its own block. Its Split cuts at the playhead when the playhead
+The Timing & transition section in the inspector's Edit tab has the same four actions for that block. Its Split cuts at the playhead when the playhead
 is in that block, and in the middle otherwise; its Put a clip in fills the second half.
 
 A hand-cut edit keeps going through changes to the tempo, the beat grid, the transitions the edit uses and
@@ -300,7 +322,7 @@ changes the look. It starts over when the cuts would no longer make sense: see t
 
 ### Moving a cut off the bar lines
 
-The Timing section at the top of the segment menu shows the segment zoomed in, with a bar either side. Bar numbers run along the top, and the violet bands are the transitions.
+The **Timing & transition** section in the inspector's Edit tab shows the segment zoomed in, with a bar either side. Bar numbers run along the top, and the violet bands are the transitions.
 
 - Drag the white handle on either cut line to move that cut. It snaps to the grid you pick with Snap (Beat, ½, ¼ or Off). Hold Shift to place it anywhere.
 - Starts and Ends have ‹ › buttons that move a cut one step of the grid. The readout says where it sits, such as "Bar 2, beat 3½".
@@ -323,11 +345,7 @@ them for you:
 - Only the first 60 seconds of a clip are used, because its playback copy stops there. If the part you want
   is later in a long video, trim the file first.
 
-To pick one yourself, double-click the block and drag the In-point slider. The playhead jumps to the block so
-you can see the frame, and the slider stops where the block would run out of footage. The menu opens beside the
-preview when the window has room for it. When it doesn't, as on a phone, the menu shows a live copy of the
-preview at its top. You can also Option-drag
-the block: drag right for an earlier moment, left for a later one. The cuts stay where they are.
+To pick one yourself, select the block and open the inspector's Edit tab (or double-click the block), then choose a frame on the filmstrip or drag the In-point slider under **Source & playback**. The playhead jumps to the block so you can see the frame, and the slider stops where the block would run out of footage. You can also Option-drag the block on the timeline: drag right for an earlier moment, left for a later one. The cuts stay where they are.
 
 A reversed block (Clip direction set to Reverse, Alternate or Random) plays backward and ends on its in-point.
 A Ping-pong block starts and ends on it.
@@ -456,7 +474,7 @@ On each layer card:
 Zoom (1 to 1.8×), Drift, Shake, Sway and Clip speed (0.25 to 2×). Clip speed is also in Edit, with a slider
 and presets. Changing it changes how much footage each cut uses while preserving the cuts and song tempo.
 Camera is shared by all clips and only shows when you're editing the main look; a segment can override its
-own speed in the segment menu.
+own speed under **Source & playback** in the inspector's Edit tab (or its camera settings under **Advanced values**).
 
 ### Finish
 
@@ -553,11 +571,11 @@ the layer tools says so. Reset clip N or Same look on all brings the main look b
 | Loop | Repeat plays the edit from the start again, with a transition at the seam. Rebound plans the cuts over the first half of the loop and plays them backward in the second half, so the footage turns round in the middle and runs back into its first frame at the seam. The music and the effects keep going forward. Switching starts hand cuts over |
 | Cut rhythm | Where cuts fall. Same as the buttons on the timeline. "Show every clip at least once", on by default, splits the longest cuts in two (on the beat, then on half and quarter beats) until every clip in the edit has a cut. With it off, the note underneath says how many clips are left out |
 | Transitions | Browse a searchable, paginated table of 64 transitions grouped by type. Check transitions to build a pool, use **Only** to isolate one, or choose a selection preset. **Selected only** reviews the pool. The edit always keeps at least one transition |
-| Transition length | Cut (instant), ¼, ½, 1 or 2 beats, for every cut that hasn't been given its own. A single cut's length is set in the segment menu or by dragging the edge of its pink shading on the timeline |
+| Transition length | Cut (instant), ¼, ½, 1 or 2 beats, for every cut that hasn't been given its own. A single cut's length is set under Timing & transition in the inspector's Edit tab or by dragging the edge of its violet shading on the timeline |
 | Transition order | Cycle through the list in order, or Shuffle (never the same one twice in a row) |
 | Clip direction | Forward, Reverse, Alternate (every other cut reversed), Ping-pong, Random |
-| Clip speed | Playback from 0.25 to 2×, with a slider and quick presets. 1× is normal speed. Cuts stay on the beat and the song keeps its tempo. Double-click a segment to set only its speed, or enter its original BPM and click Match to calculate the speed for the song |
-| Speed ramp | Speed curves locked to the beat. Each one averages out to normal speed, so cut timing doesn't change. Double-click a block on the timeline to ramp only that cut |
+| Clip speed | Playback from 0.25 to 2×, with a slider and quick presets. 1× is normal speed. Cuts stay on the beat and the song keeps its tempo. Select a segment (or double-click it) to set its own speed under Source & playback in the inspector's Edit tab, or enter its original BPM and click Match to calculate the speed for the song |
+| Speed ramp | Speed curves locked to the beat. Each one averages out to normal speed, so cut timing doesn't change. Select a block on the timeline (or double-click it) to ramp only that cut under Source & playback in the inspector's Edit tab |
 | Edit seed | The random seed behind in-points, cut variety and transition picks. ⚄ Re-roll in-points & order picks a new one. Changing it starts hand cuts over. See [Where each clip starts](#where-each-clip-starts) |
 | Tempo (no track) | The BPM of the synthetic beat when no song is loaded |
 | Keep my edit | When ticked, switching looks leaves your cuts and transitions alone |
@@ -637,7 +655,7 @@ The viewer shows the canvas in the export's shape: 9:16 for Spotify, 16:9 for Yo
 and 1:1 for square formats. Player UI is optional and starts off in a fresh browser session.
 Drag on it to reframe the clip on screen, scroll to zoom in (up to 3×), and double-click to reset that clip's
 framing. This framing belongs to the clip, so it applies everywhere the clip plays. A segment with its own
-framing ignores it, and dragging the preview there tells you to use the segment menu instead. "Preparing clip…"
+framing ignores it, and dragging the preview there tells you to use the inspector's Edit tab instead. "Preparing clip…"
 means a clip is still loading.
 
 | Control | Does |
@@ -658,13 +676,13 @@ means a clip is still loading.
 
 ### Framing one segment
 
-The Framing part of the segment menu (double-click a block on the timeline) sets where the crop sits and how far
+The Framing section in the inspector's Edit tab (select a block on the timeline, or double-click it) sets where the crop sits and how far
 it zooms for that one segment. It can hold still or move across the segment, which is how you get a push in, a
 pull out or a pan that starts on one cut and lands on the next.
 
 | Control | Does |
 |---|---|
-| Crop box | The clip at the segment's in-point, with the part the screen shows outlined. Drag the outline to move it, press outside it to jump there, and pinch on it to zoom (or use the Zoom slider). Scrolling over it scrolls the menu. A moving segment shows a solid Start box and a dashed End box. While the playhead is in the segment, a thin white box follows the crop, since the menu covers the preview |
+| Crop box | The clip at the segment's in-point, with the part the screen shows outlined. Drag the outline to move it, press outside it to jump there, and pinch on it to zoom (or use the Zoom slider). Scrolling over it scrolls the inspector pane. A moving segment shows a solid Start box and a dashed End box. While the playhead is in the segment, a thin white box follows the crop as it moves |
 | Motion | Auto lets the look's drift wander around the clip's framing. Still holds one framing for the whole segment. Smooth, Steady and On the beat move from the start framing to the end framing: Smooth eases out and in, Steady keeps one speed, and On the beat takes a quick step on each beat and holds in between |
 | Start, End | Which end of the move the box and sliders change. The preview jumps to that end of the segment. ⇄ Swap turns a push in into a pull out, or reverses a pan |
 | X, Y | Left to right and down to up, as a share of the room the crop has to move. "No room" means the clip only just fills the screen that way: a 16:9 clip on the 9:16 phone screen fills it top to bottom, so it has to zoom in before it can move up or down |
@@ -756,7 +774,7 @@ it stopped if it did, and a download link for each file.
 | , / . | Pause and step one frame backward / forward |
 | ⌘K | Search workspace commands (Ctrl+K on Windows and Linux) |
 | Shift+F | Focus viewer / restore the workspace |
-| ← → | Previous / next look, or previous / next block while the segment menu is open |
+| ← → | Previous / next look, or previous / next segment while editing one in the Edit tab |
 | D, Shift+D | Remix, undo roll |
 | R | Surprise me |
 | M | Variations, and six more when they're open |
@@ -783,11 +801,11 @@ it stopped if it did, and a download link for each file.
 | Drag, scroll, double-click | preview | Reframe, zoom, reset framing |
 | Double-click | any slider | Reset to default |
 | Drag | envelope | Draw |
-| Click | timeline block | Select it and move the playhead there |
+| Click | timeline block | Select it, move the playhead there, and target that appearance in the inspector (scope This appearance) |
 | Drag | cut line | Move the cut; hold Shift to leave the snap grid |
 | Drag | edge of a transition's violet shading | That transition's length |
 | Option-drag | timeline block | Slip the footage |
-| Double-click, right-click, Enter, or long-press on a touch screen | timeline block | Segment menu: split, repeat, put a clip in, delete, timing, clip, in-point, direction, clip speed and BPM match, speed ramp, transition and its length, framing |
+| Double-click, right-click, Enter, or long-press on a touch screen | timeline block | Select the block and switch the inspector to its Edit tab: timing & transition, clip, in-point, direction, clip speed and BPM match, speed ramp, framing, and advanced overrides |
 | Drag | clip | Reorder |
 
 ## 17. Effects
@@ -927,14 +945,14 @@ Selections apply immediately and stay selected across pages and searches. Use **
 **Selected only** to review the pool, or a selection preset (All, Smooth, Kinetic, Glitch, Wipes, Shapes or
 Hard cuts) to replace it. At least one transition stays selected. **Done** returns to the inspector.
 
-For an individual cut, open its appearance editor and choose **Timing → Transition in → Browse**.
-The same library applies one transition to that appearance and returns to the editor. Escape or clicking
-the library backdrop returns without changing the cut. The appearance editor stays open underneath.
+For an individual cut, select the block, open the inspector's **Edit** tab and choose **Timing & transition → Transition in → Browse** (or click the transition thumbnail).
+The same library applies one transition to that appearance and returns to the inspector. Escape or clicking
+the library backdrop returns without changing the cut. The inspector stays open underneath.
 The loop seam favors the softer ones so the restart is harder to spot.
 
 ### Matching a clip's movement to the BPM
 
-Double-click a video segment and use **Clip speed** to slow it down or speed it up. **Auto** follows the
+Select a video segment (or double-click it to open its Edit tab) and use **Clip speed** under **Source & playback** to slow it down or speed it up. **Auto** follows the
 edit's default speed again and keeps the segment's other camera and effect settings.
 
 If you know the tempo of the original movement, enter **Original clip BPM** and click **Match**. An 80 BPM
@@ -1030,7 +1048,7 @@ System settings, and relaunch it. `chrome://gpu` should list WebGL2 as hardware 
   settings. `planTimeline()` is the two together. The store keeps `blocks: null` while the edit follows the
   rhythm, and the edit's own blocks once one is cut or set by hand. The edits themselves (split, repeat,
   insert, delete, trim) are pure functions in `engine/blocks.ts`; `state/blockActions.ts` applies them to the
-  store. Player keys and the segment menu use block ids, so they follow a block through edits around it.
+  store. Player keys and segment editing use block ids, so they follow a block through edits around it.
   Sessions saved with the older `customCuts` and `segOverrides` are turned into blocks by `fromLegacy()`.
 - In a Rebound loop the plan covers half the loop: `tl.L` is half of `ctx.L` and `tl.rebound` is set.
   `editTime()` folds loop time into edit time, and `sampleTimeline()` returns `back` in the second half, where
@@ -1044,7 +1062,7 @@ System settings, and relaunch it. `chrome://gpu` should list WebGL2 as hardware 
   been used for a second, so an edit with more cuts than that seeks instead of loading the file again.
 - Thumbnails go through `lib/thumbs.ts`, two at a time, newest first. They come from the same server as the
   clips' video, and Chrome opens only six connections to one server: a thumbnail for every cut at once (after
-  a roll, or opening the segment menu) used to hold all six, and a cut's video waited seconds to load. Use
+  a roll, or selecting a segment) used to hold all six, and a cut's video waited seconds to load. Use
   `loadThumb()`, `thumbBackground()` or `thumbRef()` for any new thumbnail rather than a plain `url(...)`.
 - Session state is saved to `localStorage` under `downbeat.studio.v1`. Undo history is kept in memory: 100
   steps, with a snapshot taken 350 ms after each change.

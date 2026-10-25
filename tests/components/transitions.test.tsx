@@ -2,10 +2,9 @@ import React, { useState } from 'react';
 import { describe, expect, test, vi } from 'vitest';
 import { fireEvent, render, screen, within } from '@testing-library/react';
 import { TransitionPicker } from '../../downbeat/studio/src/components/TransitionPicker/TransitionPicker.tsx';
-import { SegmentTransitionPicker } from '../../downbeat/studio/src/components/SegmentTransitionPicker/SegmentTransitionPicker.tsx';
-import { SegmentAppearanceEditor } from '../../downbeat/studio/src/components/SegmentAppearanceEditor/SegmentAppearanceEditor.tsx';
+import { EditPane } from '../../downbeat/studio/src/components/EditPane/EditPane.tsx';
 import { TimelinePanel } from '../../downbeat/studio/src/components/TimelinePanel/TimelinePanel.tsx';
-import { pop, renderStudio, resetStudio, st, update } from './studio.tsx';
+import { renderStudio, resetStudio, segPanel, st, update } from './studio.tsx';
 
 function Pool({ initial = ['dissolve', 'zoom'] }: { initial?: string[] }) {
   const [value, onChange] = useState(initial);
@@ -92,33 +91,33 @@ describe('shared transition browser', () => {
   });
 });
 
-test('the appearance editor keeps its place under the shared picker and changes only that cut', () => {
+test("the inspector's segment panel keeps its place under the shared picker and changes only that cut", () => {
   resetStudio();
-  renderStudio(<><TimelinePanel /><SegmentAppearanceEditor /><SegmentTransitionPicker /></>);
+  renderStudio(<><TimelinePanel /><EditPane /></>);
   const lane = document.getElementById('lane')!;
   vi.spyOn(lane, 'getBoundingClientRect').mockReturnValue({ left: 0, top: 0, right: 400, bottom: 60, width: 400, height: 60, x: 0, y: 0, toJSON() {} });
   fireEvent.doubleClick(lane, { clientX: 125, clientY: 30 });
   const selected = st().selectedBlock!;
   const before = st().ctx!.tl.segs.map((segment) => segment.trans);
-  fireEvent.click(within(pop()).getByRole('tab', { name: 'Timing' }));
-  fireEvent.click(within(pop()).getByRole('button', { name: 'Choose transition' }));
+  const timing = () => segPanel().querySelector('details[data-family="timing"]') as HTMLDetailsElement;
+  fireEvent.click(within(segPanel()).getByRole('button', { name: 'Choose transition' }));
   const input = browser().getByRole('searchbox', { name: 'Search transitions' });
   fireEvent.pointerDown(input);
   fireEvent.keyDown(input, { key: 'ArrowRight' });
-  expect(pop().classList.contains('on')).toBe(true);
+  expect(segPanel()).toBeTruthy();
   expect(st().selectedBlock).toBe(selected);
   fireEvent.keyDown(input, { key: 'Escape' });
   expect(screen.queryByRole('dialog', { name: 'Transition library' })).toBeNull();
-  expect(pop().classList.contains('on')).toBe(true);
-  expect(within(pop()).getByRole('tab', { name: 'Timing' }).getAttribute('aria-selected')).toBe('true');
-  fireEvent.click(within(pop()).getByRole('button', { name: 'Choose transition' }));
+  expect(st().editBlock, 'Escape in the library leaves the segment selected').toBe(selected);
+  expect(timing().open).toBe(true);
+  fireEvent.click(within(segPanel()).getByRole('button', { name: 'Choose transition' }));
   search('Diamond');
   fireEvent.pointerDown(browser().getByRole('button', { name: 'Use Diamond Reveal' }));
   fireEvent.click(browser().getByRole('button', { name: 'Use Diamond Reveal' }));
-  expect(pop().classList.contains('on')).toBe(true);
+  expect(st().editBlock).toBe(selected);
   expect(st().blocks!.find((block) => block.id === selected)!.trans).toBe('diamond');
   expect(st().ctx!.tl.segs.map((segment, index) => segment.id === selected ? 'unchanged' : segment.trans)).toEqual(before.map((transition, index) => st().ctx!.tl.segs[index].id === selected ? 'unchanged' : transition));
-  expect(within(pop()).getByText('Diamond Reveal')).toBeTruthy();
+  expect(within(segPanel()).getByText('Diamond Reveal')).toBeTruthy();
   update(() => st().undo());
   expect(st().ctx!.tl.segs.find((segment) => segment.id === selected)!.trans).toBe(before[st().ctx!.tl.segs.findIndex((segment) => segment.id === selected)]);
 });

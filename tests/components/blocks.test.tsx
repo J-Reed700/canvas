@@ -1,18 +1,24 @@
-// Block editing on the timeline: the toolbar, the keys, the drag handles and the segment menu's actions.
+// Block editing on the timeline: the toolbar, the keys, the drag handles and the inspector's segment panel.
 import React from 'react';
 import { describe, expect, test, vi } from 'vitest';
 import { act, fireEvent, within } from '@testing-library/react';
 import { App } from '../../downbeat/studio/src/components/App/App.tsx';
 import { TimelinePanel } from '../../downbeat/studio/src/components/TimelinePanel/TimelinePanel.tsx';
-import { SegmentTransitionPicker } from '../../downbeat/studio/src/components/SegmentTransitionPicker/SegmentTransitionPicker.tsx';
+import { EditPane } from '../../downbeat/studio/src/components/EditPane/EditPane.tsx';
 import { beatName, stepBeat } from '../../downbeat/studio/src/components/SegmentMenu/segTiming.ts';
-import { render, S, pop, popButton, renderStudio, resetStudio, screen, st, toastText, update } from './studio.tsx';
+import { render, S, pop, renderStudio, resetStudio, screen, segButton, segPanel, st, toastText, update } from './studio.tsx';
 
 const lane = () => document.getElementById('lane') as HTMLCanvasElement;
 const tools = () => document.getElementById('blockTools') as HTMLElement;
 const tool = (text: string) => within(tools()).getByText(text) as HTMLButtonElement;
 const t0s = () => st().ctx!.tl.segs.map((s) => +s.t0.toFixed(6));
 const clips = () => st().ctx!.tl.segs.map((s) => s.clipId);
+/** Which segment the inspector is editing, as "Segment n of m". */
+const editing = () => {
+  const segs = st().ctx!.tl.segs;
+  return `Segment ${segs.findIndex((x) => x.id === st().editBlock) + 1} of ${segs.length}`;
+};
+const where = () => segPanel().querySelector('.seg-where')!.textContent;
 const rect = (el: HTMLElement, width: number, height = 60) =>
   vi.spyOn(el, 'getBoundingClientRect').mockReturnValue({ left: 0, top: 0, width, height, right: width, bottom: height, x: 0, y: 0, toJSON() {} });
 
@@ -26,7 +32,7 @@ function barEdit(over = {}) {
 }
 function laneEdit(over = {}) {
   barEdit(over);
-  renderStudio(<><TimelinePanel /><SegmentTransitionPicker /></>);
+  renderStudio(<><TimelinePanel /><EditPane /></>);
   rect(lane(), 400);
   lane().setPointerCapture = () => {};
 }
@@ -110,7 +116,7 @@ describe('transition handles', () => {
     fireEvent.pointerUp(lane(), { pointerId: 1 });
 
     fireEvent.doubleClick(lane(), { clientX: 125, clientY: 30 });
-    const length = Array.from(pop().querySelectorAll('.seg-f')).find((f) => f.querySelector('.seg-l span')?.textContent === 'Transition length') as HTMLElement;
+    const length = Array.from(segPanel().querySelectorAll('.seg-f')).find((f) => f.querySelector('.seg-l span')?.textContent === 'Transition length') as HTMLElement;
     expect(length.querySelector('.seg-val')!.textContent).toBe('3.6 beats');
     expect(length.querySelector('.seg-note')!.textContent).toBe('Shortened from 6 beats to fit the segments either side.');
     expect(length.querySelector('.seg-mine')).toBeTruthy();
@@ -124,88 +130,72 @@ describe('transition handles', () => {
   test('a hard cut has no length to set', () => {
     laneEdit();
     fireEvent.doubleClick(lane(), { clientX: 125, clientY: 30 });
-    fireEvent.click(popButton('Timing'));
-    fireEvent.click(within(pop()).getByRole('button', { name: 'Choose transition' }));
+    fireEvent.click(within(segPanel()).getByRole('button', { name: 'Choose transition' }));
     fireEvent.click(screen.getByRole('button', { name: 'Use Hard Cut' }));
-    const length = Array.from(pop().querySelectorAll('.seg-f')).find((f) => f.querySelector('.seg-l span')?.textContent === 'Transition length') as HTMLElement;
+    const length = Array.from(segPanel().querySelectorAll('.seg-f')).find((f) => f.querySelector('.seg-l span')?.textContent === 'Transition length') as HTMLElement;
     expect(length.querySelector('.seg-note')!.textContent).toBe('A hard cut has no length.');
     expect(st().ctx!.tl.segs[1].transDur).toBe(0);
   });
 });
 
-describe('segment menu actions', () => {
-  test('the menu stays on its segment through a split, puts a clip in its second half, and moves on after a delete', () => {
+describe('segment panel actions', () => {
+  test('the panel stays on its segment through a split and a clip put in, and moves on after a delete', () => {
     laneEdit();
     fireEvent.doubleClick(lane(), { clientX: 125, clientY: 30 });
-    const head = () => pop().querySelector('h4')!.textContent;
-    expect(head()).toBe('Segment 2 of 4');
+    expect(editing()).toBe('Segment 2 of 4');
+    expect(where()).toBe('Bar 2, beat 1 · 2.00 s long');
     seek(5); // in another segment, so the split goes in the middle
-    fireEvent.click(popButton('✂ Split'));
+    fireEvent.click(segButton('✂ Split'));
     expect(t0s()).toEqual([0, 2, 3, 4, 6]);
-    expect(head()).toBe('Segment 2 of 5');
+    expect(editing(), 'the panel keeps the segment it was editing: its first half').toBe('Segment 2 of 5');
+    expect(where()).toBe('Bar 2, beat 1 · 1.00 s long');
 
-    fireEvent.click(popButton('Put a clip in'));
-    expect(pop().querySelector('.seg-put small')!.textContent).toBe('Pick the clip for the second half');
-    fireEvent.click(pop().querySelector('.seg-put .seg-clip[title="#1 1 sunrise.mp4"]')!);
+    fireEvent.click(segButton('Put a clip in'));
+    expect(segPanel().querySelector('.seg-put small')!.textContent).toBe('Pick the clip for the second half');
+    fireEvent.click(segPanel().querySelector('.seg-put .seg-clip[title="#1 1 sunrise.mp4"]')!);
     expect(t0s()).toEqual([0, 2, 2.5, 3, 4, 6]);
     expect(clips()[2]).toBe('a');
-    expect(pop().querySelector('.seg-put'), 'the tiles close after a pick').toBeNull();
+    expect(segPanel().querySelector('.seg-put'), 'the tiles close after a pick').toBeNull();
+    expect(editing(), 'still on the segment the clip went into').toBe('Segment 2 of 6');
 
-    fireEvent.click(pop().querySelector('[aria-label="Next segment"]')!);
-    expect(head()).toBe('Segment 3 of 6');
-    fireEvent.click(popButton('Delete'));
-    expect(t0s()).toEqual([0, 2, 3, 4, 6]);
-    expect(head(), 'onto the segment that took the time').toBe('Segment 2 of 5');
-    expect(pop().querySelector('.seg-foot span')!.textContent).toBe('Changes save automatically');
+    fireEvent.click(segButton('Delete'));
+    expect(t0s()).toEqual([0, 2.5, 3, 4, 6]);
+    expect(editing(), 'onto the segment that took the time').toBe('Segment 1 of 5');
+    expect(where()).toBe('Bar 1, beat 1 · 2.50 s long');
   });
 
-  test('the menu opens beside the preview when there is room, and shows a live copy of it when there is not', () => {
+  test('the panel sits in the inspector, not a popover, and keeps its open sections from one segment to the next', () => {
     laneEdit();
-    const view = document.createElement('canvas');
-    view.id = 'view';
-    view.width = 540;
-    view.height = 960;
-    document.body.append(view);
-    const box = (el: HTMLElement, left: number, top: number, width: number, height: number) =>
-      vi.spyOn(el, 'getBoundingClientRect').mockReturnValue({ left, top, width, height, right: left + width, bottom: top + height, x: left, y: top, toJSON() {} });
-    const width = window.innerWidth;
-    const peek = () => pop().querySelector('.seg-peek-wrap') as HTMLElement;
-    try {
-      Object.defineProperty(window, 'innerWidth', { value: 1600, configurable: true });
-      box(view, 600, 80, 260, 462);
-      fireEvent.doubleClick(lane(), { clientX: 125, clientY: 30 });
-      expect([pop().style.left, pop().style.width], 'to the right of the preview').toEqual(['872px', '660px']);
-      expect(peek().hidden, 'the preview is in sight, so no copy').toBe(true);
-
-      Object.defineProperty(window, 'innerWidth', { value: 900, configurable: true });
-      view.width = 1920; // a landscape preview, nearly as wide as the window
-      view.height = 1080;
-      box(view, 50, 80, 800, 450);
-      box(pop(), 8, 8, 884, 800);
-      fireEvent.doubleClick(lane(), { clientX: 125, clientY: 30 });
-      expect(pop().style.width, 'no side has room for it').toBe('');
-      expect(peek().hidden).toBe(false);
-      const copy = pop().querySelector('.seg-peek') as HTMLCanvasElement;
-      expect([copy.style.width, copy.style.height], 'a compact header preview in the shape of the output').toEqual(['96px', '54px']);
-    } finally {
-      Object.defineProperty(window, 'innerWidth', { value: width, configurable: true });
-      view.remove();
-    }
+    fireEvent.doubleClick(lane(), { clientX: 125, clientY: 30 });
+    expect(pop().classList.contains('on'), 'no floating menu').toBe(false);
+    expect(segPanel().closest('#pane-edit')).toBeTruthy();
+    expect((segPanel().querySelector('.seg-peek-wrap') as HTMLElement).hidden, 'the preview is in sight, so its copy stays hidden').toBe(true);
+    const family = (key: string) => segPanel().querySelector(`details[data-family="${key}"]`) as HTMLDetailsElement;
+    expect(['timing', 'playback', 'framing'].map((k) => family(k).open)).toEqual([true, true, true]);
+    family('playback').open = false;
+    fireEvent(family('playback'), new Event('toggle'));
+    fireEvent.click(segPanel().querySelector('[aria-label="Next segment"]')!);
+    expect(editing()).toBe('Segment 3 of 4');
+    expect(['timing', 'playback', 'framing'].map((k) => family(k).open)).toEqual([true, false, true]);
+    family('playback').open = true;
+    fireEvent(family('playback'), new Event('toggle'));
   });
 
-  test('a long press on a touch screen opens the menu, and moving cancels it', () => {
+  test('a long press on a touch screen shows the segment in the inspector, and moving cancels it', () => {
     vi.useFakeTimers();
     try {
       laneEdit();
       fireEvent.pointerDown(lane(), { clientX: 125, clientY: 30, pointerId: 1, pointerType: 'touch' });
       fireEvent.pointerMove(lane(), { clientX: 140, clientY: 30, pointerId: 1, pointerType: 'touch' });
       act(() => vi.advanceTimersByTime(600));
-      expect(pop().classList.contains('on'), 'moved, so no menu').toBe(false);
+      expect(st().tab, 'moved, so the inspector stays where it was').toBe('layers');
       fireEvent.pointerUp(lane(), { pointerId: 1, pointerType: 'touch' });
+      update(() => st().selectBlock(null));
       fireEvent.pointerDown(lane(), { clientX: 125, clientY: 30, pointerId: 2, pointerType: 'touch' });
       act(() => vi.advanceTimersByTime(500));
-      expect(pop().className).toContain('seg-menu');
-      expect(pop().querySelector('h4')!.textContent).toBe('Segment 2 of 4');
+      expect(st().tab).toBe('edit');
+      expect(editing()).toBe('Segment 2 of 4');
+      expect(segPanel()).toBeTruthy();
     } finally {
       vi.useRealTimers();
     }
@@ -213,7 +203,7 @@ describe('segment menu actions', () => {
 });
 
 describe('segment timing', () => {
-  const timing = () => pop().querySelector('.seg-time') as HTMLElement;
+  const timing = () => segPanel().querySelector('.seg-time') as HTMLElement;
   const cut = (label: string) => Array.from(timing().querySelectorAll('.seg-cut')).find((c) => c.querySelector('.lbl')!.textContent === label) as HTMLElement;
   const val = (label: string) => cut(label).querySelector('.seg-val')!.textContent;
   const later = (label: string) => within(cut(label)).getByLabelText(/later$/) as HTMLButtonElement;
@@ -239,7 +229,7 @@ describe('segment timing', () => {
     expect(timing().querySelector('.seg-len')!.textContent).toBe('1.38 s, 2.75 beats');
     expect(st().ctx!.tl.handCut).toBe(true);
 
-    fireEvent.click(pop().querySelector('[aria-label="Previous segment"]')!);
+    fireEvent.click(segPanel().querySelector('[aria-label="Previous segment"]')!);
     expect(val('Starts')).toBe('Start of the loop');
     expect(earlier('Starts').disabled && later('Starts').disabled, 'the loop seam').toBe(true);
   });
@@ -252,7 +242,7 @@ describe('segment timing', () => {
     seek(6); // plays the moment at 2 s of the edit, on the way back
     fireEvent.doubleClick(lane(), { clientX: 150, clientY: 30 });
     const last = tl().segs.at(-1)!;
-    expect(pop().querySelector('h4')!.textContent).toBe(`Segment ${tl().segs.length} of ${tl().segs.length}`);
+    expect(editing()).toBe(`Segment ${tl().segs.length} of ${tl().segs.length}`);
     expect(val('Ends')).toBe('End of the loop');
     const head = timing().querySelector('.zhead') as HTMLElement;
     expect(head.hidden).toBe(false);
@@ -293,25 +283,27 @@ describe('segment timing', () => {
   });
 });
 
-describe('opening the segment menu', () => {
-  test('right-click a block, the Edit chip on the selected block and the toolbar button all open it', () => {
+describe('showing a segment in the inspector', () => {
+  test('right-click a block and the toolbar button both select it and switch the inspector to Edit', () => {
     laneEdit();
     const e = new MouseEvent('contextmenu', { clientX: 225, clientY: 30, bubbles: true, cancelable: true });
     act(() => void lane().dispatchEvent(e));
     expect(e.defaultPrevented, 'no browser menu').toBe(true);
-    expect(pop().querySelector('h4')!.textContent).toBe('Segment 3 of 4');
+    expect(editing()).toBe('Segment 3 of 4');
     expect(st().selectedBlock).toBe(st().ctx!.tl.segs[2].id);
+    expect(st().tab).toBe('edit');
+    expect(where()).toBe('Bar 3, beat 1 · 2.00 s long');
+    expect(document.querySelector('.lane-edit'), 'no floating chip on the block').toBeNull();
 
-    act(() => document.body.dispatchEvent(new Event('pointerdown', { bubbles: true })));
-    expect(pop().classList.contains('on')).toBe(false);
-    fireEvent.click(document.querySelector('.lane-edit')!);
-    expect(pop().querySelector('h4')!.textContent).toBe('Segment 3 of 4');
-
-    update(() => st().selectBlock(null));
+    update(() => {
+      st().selectBlock(null);
+      st().setTab('layers');
+    });
     seek(0.5);
-    expect(document.querySelector('.lane-edit'), 'no chip without a selection').toBeNull();
+    expect(segPanel(), 'nothing selected, so the whole edit').toBeNull();
     fireEvent.click(tool('✎ Edit segment'));
-    expect(pop().querySelector('h4')!.textContent, 'the one under the playhead').toBe('Segment 1 of 4');
+    expect(editing(), 'the one under the playhead').toBe('Segment 1 of 4');
+    expect(st().tab).toBe('edit');
     expect(tool('✎ Edit segment 1')).toBeTruthy();
   });
 });
@@ -348,15 +340,38 @@ describe('block keys', () => {
     expect(st().selectedBlock).toBe(null);
   });
 
-  test('Enter opens the menu for the segment under the playhead, but not over a focused button', () => {
+  test('← → step through the segments while one is showing in the Edit tab, and through the looks otherwise', () => {
+    renderApp();
+    const look = st().look!.id;
+    press('ArrowRight');
+    expect(st().look!.id, 'no segment showing: the next look').not.toBe(look);
+    update(() => st().undo());
+    seek(4.5);
+    press('Enter');
+    expect(editing()).toBe('Segment 3 of 4');
+    press('ArrowRight');
+    expect(editing()).toBe('Segment 4 of 4');
+    press('ArrowRight');
+    expect(editing(), 'wraps round the loop').toBe('Segment 1 of 4');
+    press('ArrowLeft');
+    expect(editing()).toBe('Segment 4 of 4');
+    press('Escape');
+    expect(st().editBlock, 'Esc goes back to the whole edit').toBeNull();
+    expect(segPanel()).toBeNull();
+  });
+
+  test('Enter shows the segment under the playhead in the inspector, but not over a focused button', () => {
     renderApp();
     seek(4.5);
     const btn = document.createElement('button');
     document.body.append(btn);
     fireEvent.keyDown(btn, { key: 'Enter' });
-    expect(pop().classList.contains('on')).toBe(false);
+    expect(st().tab).toBe('layers');
+    expect(st().editBlock).toBe(null);
     btn.remove();
     press('Enter');
-    expect(pop().querySelector('h4')!.textContent).toBe('Segment 3 of 4');
+    expect(editing()).toBe('Segment 3 of 4');
+    expect(st().tab).toBe('edit');
+    expect(segPanel()).toBeTruthy();
   });
 });

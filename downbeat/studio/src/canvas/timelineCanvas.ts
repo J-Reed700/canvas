@@ -10,7 +10,7 @@ const timelineThumbnails = new ThumbnailCache(512, undefined, (image, url, onRea
 });
 export const thumbImgsMap = timelineThumbnails.images;
 
-/** The block whose menu is open, outlined on the lane so you can see which one you're editing. */
+/** The block whose settings the inspector shows, outlined on the lane so you can see which one you're editing. */
 let menuSeg: string | null = null;
 export const setMenuSeg = (id: string | null) => { menuSeg = id; };
 

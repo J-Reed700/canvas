@@ -276,7 +276,7 @@ export function createSegmentTiming(store: StudioStore) {
       if (x != null) head.style.left = `${at(x)}%`;
     }
     const follow = () => {
-      if (!zoom.closest('.pop.on')) return; // closed, or redrawn with a new strip
+      if (!zoom.isConnected) return; // unmounted, or redrawn with a new strip
       if (st().ctx) playhead();
       requestAnimationFrame(follow);
     };
