@@ -165,3 +165,55 @@ test('feedback ends when a clip leaves the graph at both preview and native reso
     pipe.dispose();
   }
 });
+
+test('retired export cuts release their frame textures before the next cut allocates', () => {
+  const freed = [];
+  const engine = Object.assign(Object.create(Engine.prototype), {
+    frameTex: new Map(),
+    _freeFrame: (frame) => freed.push(frame),
+  });
+  for (let cut = 0; cut < 4096; cut++) {
+    const keys = [`cut-${cut}`, `cut-${cut + 1}`];
+    engine.pruneFrames(keys);
+    for (const key of keys) if (!engine.frameTex.has(key)) engine.frameTex.set(key, { key });
+    assert.equal(engine.frameTex.size, 2, 'only the current transition owns GPU frame textures');
+  }
+  engine.dropFrames();
+  assert.equal(engine.frameTex.size, 0);
+  assert.equal(freed.length, 4097, 'each texture is released exactly once');
+});
+
+test('failed YUV plane allocations release every partial texture and can be retried', () => {
+  const live = new Set();
+  let created = 0;
+  let failAt = 3;
+  const gl = {
+    NO_ERROR: 0, UNPACK_ALIGNMENT: 'alignment',
+    getError: () => 0, getParameter: () => 4,
+    createTexture() {
+      if (++created === failAt) return null;
+      const texture = { id: created };
+      live.add(texture);
+      return texture;
+    },
+    deleteTexture: (texture) => live.delete(texture),
+    bindTexture() {}, texStorage2D() {}, texParameteri() {}, texSubImage2D() {}, pixelStorei() {},
+  };
+  const engine = Object.assign(Object.create(Engine.prototype), {
+    gpu: {
+      gl, draw() {}, assertSize() {},
+      target(w, h) { return { tex: gl.createTexture(), w, h }; },
+      free(target) { gl.deleteTexture(target.tex); },
+    },
+    frameTex: new Map(),
+  });
+  const frame = { clipId: 'a', idx: 0, w: 2, h: 2, data: new Uint8Array(6) };
+  assert.throws(() => engine.frame('a#0', frame), /create a frame texture/);
+  assert.equal(live.size, 0, 'the RGB target and earlier planes are released');
+  assert.equal(engine.frameTex.size, 0);
+  failAt = Infinity;
+  engine.frame('a#0', frame);
+  assert.equal(live.size, 4);
+  engine.dropFrames();
+  assert.equal(live.size, 0);
+});

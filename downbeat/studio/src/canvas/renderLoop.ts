@@ -3,7 +3,7 @@ import { useStudioStore } from '../state/store.ts';
 import { compose } from '../engine/composer.ts';
 import { clamp } from '../engine/looks.ts';
 import { fetchJSON, METERS } from '../lib/utils.ts';
-import type { ClipMeta, ComposedFrame } from '../engine/types.ts';
+import type { ClipMeta, ComposedFrame, ComposedSource } from '../engine/types.ts';
 import type { Engine } from '../engine/engine.ts';
 
 const THUMBS_PER_FRAME = 3;
@@ -26,7 +26,7 @@ function setText(id: string, text: string) {
 
 export function fitView(viewCanvas: HTMLCanvasElement, engineObj: Engine, force = false) {
   const r = viewCanvas.getBoundingClientRect();
-  if (!r.width) return;
+  if (!r.width || !r.height) return;
   const dpr = Math.min(2, window.devicePixelRatio || 1);
   let w = Math.round(r.width * dpr);
   let hh = Math.round(r.height * dpr);
@@ -110,7 +110,7 @@ export function startRenderLoop(viewCanvas: HTMLCanvasElement, ambientCanvas?: H
     }
 
     // Uploading video frames is the expensive part, so it only happens on frames that draw something.
-    let sources: any[] | null = null;
+    let sources: ComposedSource[] | null = null;
     const getSources = () =>
       (sources ??= fr.needs.map((n) => ({
         ...engineObj.video(n.vkey, bankObj.get(n.vkey, n.clipId)),

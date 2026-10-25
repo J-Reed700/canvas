@@ -15,13 +15,22 @@ const FILE = { id: 'bbbbbbbbbbbb', name: 'Square promo', updated: NOW - 7200, da
 
 /** A server with the two projects above that answers every project call. */
 function projectServer(extra: Record<string, (u: string, i: RequestInit) => unknown> = {}) {
+  const projects = new Map(PROJECTS.map((project) => [project.id, { ...project }]));
+  const save = (project: typeof PROJECTS[number]) => { projects.set(project.id, project); return { ok: true, project }; };
   return serve({
-    '/api/projects': () => ({ ok: true, projects: PROJECTS }),
+    '/api/projects': () => ({ ok: true, projects: [...projects.values()] }),
     '/api/projects/bbbbbbbbbbbb': () => ({ ok: true, project: FILE }),
-    'POST /api/projects/create': (_u, i) => ({ ok: true, project: { ...PROJECTS[0], id: 'cccccccccccc', name: JSON.parse(String(i.body)).name, updated: NOW } }),
-    'POST /api/projects/save': (_u, i) => ({ ok: true, project: { ...PROJECTS[0], id: JSON.parse(String(i.body)).id, updated: NOW } }),
-    'POST /api/projects/rename': (_u, i) => ({ ok: true, project: { ...PROJECTS[0], name: JSON.parse(String(i.body)).name.trim() } }),
-    'POST /api/projects/delete': () => ({ ok: true }),
+    'POST /api/projects/create': (_u, i) => save({ ...PROJECTS[0], id: 'cccccccccccc', name: JSON.parse(String(i.body)).name, updated: NOW }),
+    'POST /api/projects/save': (_u, i) => {
+      const { id } = JSON.parse(String(i.body));
+      const project = projects.get(id);
+      return project ? save({ ...project, updated: NOW }) : new Response('{"ok":false}', { status: 404 });
+    },
+    'POST /api/projects/rename': (_u, i) => {
+      const { id, name } = JSON.parse(String(i.body));
+      return save({ ...projects.get(id)!, name: name.trim() });
+    },
+    'POST /api/projects/delete': (_u, i) => { projects.delete(JSON.parse(String(i.body)).id); return { ok: true }; },
     '/api/features/t1': () => SONG,
     ...extra,
   });

@@ -96,7 +96,7 @@ const ExportThumb: React.FC<{ r: RenderRecord }> = ({ r }) => {
   return (
     <span
       className="exp-thumb"
-      style={{ ['--ar' as any]: aspectOf(r) }}
+      style={{ '--ar': aspectOf(r) } as React.CSSProperties}
       onPointerEnter={() => ref.current?.play().catch(() => {})}
       onPointerLeave={() => ref.current?.pause()}
     >

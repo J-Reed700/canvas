@@ -94,6 +94,18 @@ test('frames of clips not in use are let go once the kept frames pass the budget
   assert.ok(f.cache.has('d'));
 });
 
+test('malformed frame metadata cannot poison the decoder cache or trigger repeated requests', async () => {
+  const valid = { Start: '0', Count: '1', Total: '9', Width: '2', Height: '2' };
+  for (const patch of [{ Start: '-1' }, { Start: '1' }, { Count: '1.5' }, { Total: '0' }, { Total: 'NaN' }, { Width: '-2' }, { Width: '3' }, { Height: '0' }]) {
+    const headers = Object.fromEntries(Object.entries({ ...valid, ...patch }).map(([key, value]) => [`X-Frame-${key}`, value]));
+    const requests = stubFetch({ 'GET /api/frames/*': () => new Response(new Uint8Array(6), { headers }) });
+    const frames = new ClipFrames();
+    await assert.rejects(frames.check('a', 0), /broken frame batch/);
+    assert.equal(requests.length, 1);
+    assert.equal(frames.totals.size, 0);
+  }
+});
+
 // -- the footage check ------------------------------------------------------------------------------
 
 const clip = (name, o = {}) => () => ({ name, ...o });

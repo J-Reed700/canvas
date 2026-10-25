@@ -1,6 +1,8 @@
 // Web Audio transport and audio analysis modulation sources.
 import type { LfoSpec, Look, Modulation, ModValues, SamplerOptions } from './types.ts';
 
+const audioContextConstructor = () => window.AudioContext || (window as Window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+
 export class Transport {
   ctx: AudioContext | null = null;
   buffer: AudioBuffer | null = null;
@@ -25,7 +27,8 @@ export class Transport {
 
   _ensureCtx(): AudioContext {
     if (!this.ctx) {
-      const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
+      const AudioCtx = audioContextConstructor();
+      if (!AudioCtx) throw new Error('Web Audio is not available in this browser');
       this.ctx = new AudioCtx({ latencyHint: 'interactive' });
       this.gain = this.ctx.createGain();
       this.gain.connect(this.ctx.destination);
@@ -83,7 +86,7 @@ export class Transport {
   }
 
   latency(): number {
-    return this.ctx ? ((this.ctx as any).outputLatency || 0) + (this.ctx.baseLatency || 0) : 0;
+    return this.ctx ? (this.ctx.outputLatency || 0) + (this.ctx.baseLatency || 0) : 0;
   }
 
   play(): void {
@@ -108,7 +111,7 @@ export class Transport {
     } else {
       // No song yet. Wake the audio from this press anyway: Safari only starts audio from a click or a key,
       // so a song that finishes loading while the clock runs would otherwise play silently.
-      if (typeof window !== 'undefined' && (window.AudioContext || (window as any).webkitAudioContext)) this._ensureCtx().resume();
+      if (typeof window !== 'undefined' && audioContextConstructor()) this._ensureCtx().resume();
       this.t0 = performance.now() / 1000 - this.offset;
     }
     this.playing = true;

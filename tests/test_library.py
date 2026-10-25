@@ -2,9 +2,11 @@
 from __future__ import annotations
 
 import os
+import json
 import shutil
 import subprocess
 import tempfile
+import threading
 import time
 import unittest
 import wave
@@ -15,6 +17,64 @@ from helpers import HAS_FFMPEG, ROOT
 
 
 class TestLibraryHelpers(unittest.TestCase):
+    def test_damaged_config_shapes_do_not_prevent_the_library_from_opening(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            lib = library.Library(tmp)
+            for payload in ([], None, 3, {"folders": None}, {"folders": "Music"}, {"folders": {"Music": True}}):
+                with self.subTest(payload=payload):
+                    with open(lib.config_path, "w") as f:
+                        json.dump(payload, f)
+                    self.assertEqual(lib.folders(), [])
+
+    def test_a_failed_config_write_preserves_the_previous_folders(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            lib = library.Library(tmp)
+            lib.add_folder(tmp)
+            with mock.patch("downbeat.server.storage.os.replace", side_effect=OSError("disk failed")):
+                with self.assertRaises(OSError):
+                    lib.remove_folder(tmp)
+            self.assertEqual(lib.folders(), [tmp])
+            self.assertEqual(os.listdir(tmp), [".library.json"], 'failed writes leave no temporary file')
+
+    def test_concurrent_folder_additions_keep_both_changes(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            folders = [os.path.join(tmp, name) for name in ("a", "b")]
+            for folder in folders:
+                os.mkdir(folder)
+            libs = [library.Library(tmp), library.Library(tmp)]
+            entered, release, second_started = threading.Event(), threading.Event(), threading.Event()
+            save = library.Library._save
+
+            def blocked_save(lib, chosen):
+                if folders[0] in chosen and folders[1] not in chosen:
+                    entered.set()
+                    release.wait(2)
+                save(lib, chosen)
+
+            def add_second():
+                second_started.set()
+                libs[1].add_folder(folders[1])
+
+            with mock.patch.object(library.Library, "_save", blocked_save):
+                first = threading.Thread(target=libs[0].add_folder, args=(folders[0],))
+                second = threading.Thread(target=add_second)
+                try:
+                    first.start()
+                    self.assertTrue(entered.wait(2))
+                    second.start()
+                    self.assertTrue(second_started.wait(2))
+                finally:
+                    release.set()
+                    first.join(2)
+                    if second.ident is not None:
+                        second.join(2)
+                self.assertFalse(first.is_alive() or second.is_alive())
+            self.assertEqual(set(libs[0].folders()), set(folders))
+
+    def test_source_folders_on_other_windows_drives_are_skipped(self) -> None:
+        with mock.patch.object(library.os.path, "relpath", side_effect=[ValueError("different drives"), "sub"]):
+            self.assertEqual(library.source_of("D:/Music/sub/a.mp4", "C:/out/uploads", ["D:/Music"]), ("D:/Music", "sub"))
+
     def test_audio_names_skip_hidden_and_segment_files(self) -> None:
         for name, ok in (("Song.MP3", True), ("a.flac", True), ("x.opus", True), (".hidden.wav", False),
                          ("segment-3.wav", False), ("notes.txt", False), ("clip.mp4", False)):

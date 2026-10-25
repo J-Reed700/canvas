@@ -46,10 +46,11 @@ def still_to_clip(path: str) -> str:
         return dest
     # Even dimensions, long edge capped at 2160 px: plenty for a 1080x1920 crop with zoom room.
     scale = "scale='2*trunc(min(1,2160/max(iw,ih))*iw/2)':'2*trunc(min(1,2160/max(iw,ih))*ih/2)':flags=lanczos"
+    executable = ffmpeg_path()
     fd, tmp = tempfile.mkstemp(prefix=".still-", suffix=".mp4", dir=os.path.dirname(os.path.abspath(dest)))
     os.close(fd)
     cmd = [
-        ffmpeg_path(), "-y", "-v", "error", "-xerror", "-loop", "1", "-i", path, "-t", str(STILL_SECONDS), "-r", "30",
+        executable, "-y", "-v", "error", "-xerror", "-loop", "1", "-i", path, "-t", str(STILL_SECONDS), "-r", "30",
         "-vf", f"{scale},format=yuv420p", "-c:v", "libx264", "-preset", "veryfast", "-crf", "14",
         "-tune", "stillimage", "-movflags", "+faststart", tmp,
     ]
@@ -71,25 +72,24 @@ def video_to_mp4(path: str, timeout: float = 900) -> str:
     from .encoder import ffmpeg_path
 
     base = os.path.splitext(path)[0]
+    executable = ffmpeg_path()
     fd, tmp = tempfile.mkstemp(prefix=f".{os.path.basename(base)}-", suffix=".part.mp4",
                                dir=os.path.dirname(os.path.abspath(path)))
     os.close(fd)
     cmd = [
-        ffmpeg_path(), "-y", "-v", "error", "-i", path, "-map", "0:v:0", "-an",
+        executable, "-y", "-v", "error", "-i", path, "-map", "0:v:0", "-an",
         "-vf", "yadif=deint=interlaced,scale=trunc(iw/2)*2:trunc(ih/2)*2,format=yuv420p",
         "-c:v", "libx264", "-preset", "veryfast", "-crf", "16", "-movflags", "+faststart", "-f", "mp4", tmp,
     ]
     try:
-        res = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
-    except subprocess.TimeoutExpired:
-        res = None
-    if res is None or res.returncode != 0 or not os.path.exists(tmp) or os.path.getsize(tmp) == 0:
-        if os.path.exists(tmp):
-            os.remove(tmp)
-        why = "converting it took too long" if res is None else res.stderr.strip().replace(path, os.path.basename(path))[-200:] or "ffmpeg failed"
-        raise RuntimeError(f"could not read it as a video ({why})")
-    dest, n = base + ".mp4", 2
-    try:
+        try:
+            res = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+        except subprocess.TimeoutExpired:
+            res = None
+        if res is None or res.returncode != 0 or not os.path.exists(tmp) or os.path.getsize(tmp) == 0:
+            why = "converting it took too long" if res is None else res.stderr.strip().replace(path, os.path.basename(path))[-200:] or "ffmpeg failed"
+            raise RuntimeError(f"could not read it as a video ({why})")
+        dest, n = base + ".mp4", 2
         while True:
             try:
                 # The hard-link claims the final name without overwriting a concurrent
@@ -108,9 +108,9 @@ def probe(path: str) -> Source:
     if not os.path.exists(path):
         raise FileNotFoundError(path)
     cap = cv2.VideoCapture(path)
-    if not cap.isOpened():
-        raise RuntimeError(f"cannot open video: {path}")
     try:
+        if not cap.isOpened():
+            raise RuntimeError(f"cannot open video: {path}")
         width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
         height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
         fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
@@ -191,9 +191,9 @@ class ClipSegmentCache:
     def _decode_segment(source: Source, start_frame: int, count: int, target_w: int,
                         target_h: int, pan_speed: float) -> list[np.ndarray]:
         cap = cv2.VideoCapture(source.path)
-        if not cap.isOpened():
-            raise RuntimeError(f"cannot open video: {source.path}")
         try:
+            if not cap.isOpened():
+                raise RuntimeError(f"cannot open video: {source.path}")
             start_frame = max(0, min(start_frame, max(0, source.frame_count - 1)))
             if start_frame > 0:
                 cap.set(cv2.CAP_PROP_POS_FRAMES, start_frame)
@@ -225,9 +225,9 @@ GLOBAL_CACHE = ClipSegmentCache()
 def extract_thumbnail_jpeg(path: str, width: int = 360, at_sec: float = 1.5) -> bytes:
     """Extract a frame `at_sec` into the clip (default ~1.5s) and encode as JPEG."""
     cap = cv2.VideoCapture(path)
-    if not cap.isOpened():
-        raise RuntimeError(f"cannot open {path}")
     try:
+        if not cap.isOpened():
+            raise RuntimeError(f"cannot open {path}")
         fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
         total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
         target = min(max(0, total - 1), int(fps * max(0.0, at_sec)))

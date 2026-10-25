@@ -50,7 +50,7 @@ export const TimelinePanel: React.FC = () => {
   const lenRef = useRef<{ id: string } | null>(null);
   const slipRef = useRef<{ id: string; t0: number; in0: number } | null>(null);
   const pressRef = useRef<{ x: number; timer: ReturnType<typeof setTimeout> } | null>(null);
-  const overviewDragRef = useRef<any>(null);
+  const overviewDragRef = useRef<{ x: number; start: number; w: number } | null>(null);
 
   const laneTime = (e: MouseEvent | PointerEvent): number => {
     const lane = laneRef.current;

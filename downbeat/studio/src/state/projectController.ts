@@ -146,7 +146,7 @@ async function loadEdit(data: any) {
   const s = useStudioStore.getState();
   useStudioStore.setState(editFields(data || {}, s.clips, s.tracks));
   s.engine?.main?.reset();
-  await s.selectTrack(useStudioStore.getState().trackId, { initial: true });
+  await s.selectTrack(useStudioStore.getState().trackId, { initial: typeof data?.loopStart === 'number' });
   resetHistory();
 }
 

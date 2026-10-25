@@ -4,6 +4,7 @@ import { BAR_CHOICES, POOLS, TRANS_BEATS, fmtLength, parseLength } from '../lib/
 import { RHYTHMS, DIRECTIONS, VELOCITY } from '../engine/timeline.ts';
 import { TRANSITIONS } from '../engine/shaders.ts';
 import { CAMERA, FINISH_DEF, MODULES } from '../engine/modules.ts';
+import { CLIP_SPEED_MIN, CLIP_SPEED_MAX, CLIP_SPEED_PRESETS } from '../engine/clipSpeed.ts';
 import type { BlockOverrides, ParamDef } from '../engine/types.ts';
 
 const ownValue = (values: Record<string, number> | undefined, id: string): number | undefined =>
@@ -243,6 +244,12 @@ export const EditPane: React.FC = () => {
 
   const rebuild = useStudioStore((s) => s.rebuild);
   const save = useStudioStore((s) => s.save);
+  const speed = look?.camera.p.speed ?? 1;
+  const setSpeed = (value: number) => {
+    if (!look) return;
+    look.camera.p.speed = value;
+    rebuild();
+  };
 
   return (
     <div className="pane on" id="pane-edit">
@@ -405,6 +412,35 @@ export const EditPane: React.FC = () => {
                 {label}
               </button>
             ))}
+          </div>
+        </div>
+
+        <div className="field clip-speed">
+          <label>Clip speed</label>
+          <div className="row">
+            <input
+              aria-label="Default clip speed"
+              type="range"
+              min={CLIP_SPEED_MIN}
+              max={CLIP_SPEED_MAX}
+              step={0.01}
+              value={speed}
+              disabled={!look}
+              onChange={(e) => setSpeed(+e.target.value)}
+              onDoubleClick={() => setSpeed(1)}
+            />
+            <output>{speed.toFixed(2)}×</output>
+          </div>
+          <div className="seg">
+            {CLIP_SPEED_PRESETS.map((value) => (
+              <button key={value} className={Math.abs(speed - value) < 1e-6 ? 'on' : ''} disabled={!look} onClick={() => setSpeed(value)}>
+                {value}×
+              </button>
+            ))}
+          </div>
+          <div className="note">
+            Speeds footage up or slows it down while cuts stay on the beat and the song keeps its tempo.
+            Double-click a segment to set only its speed or match its original BPM to the song.
           </div>
         </div>
 

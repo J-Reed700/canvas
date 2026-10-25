@@ -3,7 +3,7 @@ import { exportLoop, type Frame0Reference } from '../engine/exporter.ts';
 import { ClipFrames } from '../engine/clipFrames.ts';
 import { cloneLook } from '../engine/looks.ts';
 import { FORMATS, SIZES, toast, h, postJSON, saveToDownloads, siblingTracks, fmt as fmtTime } from '../lib/utils.ts';
-import type { RenderRecord, ComposeContext } from '../engine/types.ts';
+import type { RenderRecord, ComposeContext, ExportProgress } from '../engine/types.ts';
 import { CHECK_ICONS } from '../lib/exportsView.ts';
 import { editState } from './historyController.ts';
 
@@ -146,7 +146,7 @@ export function showResult(r: RenderRecord) {
   );
 }
 
-export async function renderOnce(onProgress?: (progress: any) => void): Promise<RenderRecord> {
+export async function renderOnce(onProgress?: (progress: ExportProgress) => void): Promise<RenderRecord> {
   const s = useStudioStore.getState();
   if (!s.ctx || !s.look || !s.engine) throw new Error('The preview is not ready to export');
   const o = s.exportOpts;
@@ -209,7 +209,7 @@ export async function renderOnce(onProgress?: (progress: any) => void): Promise<
         edit: editState(),
       },
       signal: exportAbortCtrl?.signal,
-      onProgress: (p: any) => {
+      onProgress: (p) => {
         showBadge(`Rendering ${W}×${H} · ${Math.round((p.frame / p.total) * 100)}%`);
         onProgress?.(p);
       },
@@ -283,14 +283,15 @@ export async function runExport(): Promise<void> {
     autoSave(res);
     showResult(res);
     toast(froze(res) ? 'Export failed: the clips froze. The reason is in the export sheet.' : `Exported ${res.filename}`, froze(res) ? 6000 : undefined);
-  } catch (e: any) {
+  } catch (e) {
     console.error(e);
+    const cancelled = e instanceof Error && e.name === 'AbortError';
     sheetStatus(
-      h('h2', {}, e.name === 'AbortError' ? 'Export cancelled' : 'Export failed'),
-      h('div', { class: 'note' }, String(e.message || e)),
+      h('h2', {}, cancelled ? 'Export cancelled' : 'Export failed'),
+      h('div', { class: 'note' }, e instanceof Error ? e.message : String(e)),
       h('div', { class: 'actions' }, h('button', { class: 'btn', onclick: closeSheet }, 'Close')),
     );
-    toast(e.name === 'AbortError' ? 'Export cancelled' : 'Export failed');
+    toast(cancelled ? 'Export cancelled' : 'Export failed');
   }
 }
 
@@ -323,10 +324,10 @@ export async function runBatch(kind: 'rolls' | 'tracks'): Promise<void> {
         addRender(res);
         autoSave(res);
         done.push(res);
-      } catch (e: any) {
-        if (e.name !== 'AbortError') {
+      } catch (e) {
+        if (!(e instanceof Error && e.name === 'AbortError')) {
           console.error(e);
-          stopped = `${what}: ${e.message || e}`;
+          stopped = `${what}: ${e instanceof Error ? e.message : String(e)}`;
         }
         break;
       }

@@ -22,6 +22,9 @@ the production build, real Chrome editing/project/export regressions, and CPU pe
 An absent browser, ffmpeg or production build **fails** the gate; it cannot report success after skipping
 the browser checks. The ordinary `npm test` and `npm run test:e2e` commands remain available separately.
 
+Component coverage uses at most four workers to bound memory use during full-layout tests. Per-file
+isolation, test timeouts and coverage thresholds remain enforced.
+
 The performance gate also runs two garbage-collection regressions. Retired render contexts must be
 collectible while the current preview remains active, for both main-look and per-clip editing modes.
 
@@ -69,7 +72,9 @@ minimums. The minimums are regression floors, not targets that justify superfici
   work, per-session locks and explicit subprocess ownership handle the expensive resource boundaries.
 
 Strict mode now checks production code, including concrete engine, video-bank, parameter-holder and
-composed-frame interfaces. Some dynamic boundaries still use explicit `any`; strict mode does not turn
+composed-frame interfaces. Unused locals and parameters also fail the production check. The
+[code smell audit](CODE_AUDIT.md) records additional resource, async-state and persistence regressions.
+Some dynamic boundaries still use explicit `any`; strict mode does not turn
 those into validated data automatically. Central orchestration modules still exist. New abstractions
 should separate actual responsibilities and be tested through observable behavior; applying a pattern
 name is not a substitute for that work.

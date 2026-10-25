@@ -92,3 +92,23 @@ test('thumbnail reset cancels active and pending work without retaining loading 
   await Promise.resolve();
   assert.equal(fresh.src, '/fresh');
 });
+
+test('late cached-image events cannot notify cancelled owners or cancel a newer request', async (t) => {
+  resetThumbs();
+  t.after(resetThumbs);
+  const image = fakeImage();
+  loadThumb('/cached', undefined, image);
+  await Promise.resolve();
+  image.naturalWidth = 200;
+  image.onload();
+  let retired = 0;
+  loadThumb('/cached', () => retired++, image);
+  const late = image.onload;
+  loadThumb('/new', () => assert.fail('cancelled request'), image);
+  late();
+  assert.equal(retired, 0);
+  cancelThumb(image);
+  await Promise.resolve();
+  assert.equal(image.src, '', 'the newer queued request was still cancellable');
+  assert.equal(image.onload, null);
+});

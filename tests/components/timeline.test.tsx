@@ -3,6 +3,7 @@ import { describe, expect, test, vi } from 'vitest';
 import { fireEvent, within } from '@testing-library/react';
 import { TimelinePanel } from '../../downbeat/studio/src/components/TimelinePanel.tsx';
 import { RHYTHMS, VELOCITY } from '../../downbeat/studio/src/engine/timeline.ts';
+import { compose } from '../../downbeat/studio/src/engine/composer.ts';
 import { TRANSITIONS } from '../../downbeat/studio/src/engine/shaders.ts';
 import { S, pop, popButton, renderStudio, resetStudio, screen, st, update, withSong } from './studio.tsx';
 import { cropRect, room } from '../../downbeat/studio/src/lib/utils.ts';
@@ -137,7 +138,7 @@ describe('lane', () => {
     expect(pop().querySelector('h4')!.textContent).toBe('Segment 2 of 4');
     expect(pop().querySelector('.seg-head .meta')!.textContent).toMatch(/^Bar 2, beat 1 · \d+\.\d\d s long$/);
     const labels = Array.from(pop().querySelectorAll('.seg-l > span:first-child')).map((l) => l.textContent);
-    expect(labels).toEqual(['Timing', 'Transition length', 'Clip', 'In-point', 'Direction', 'Speed ramp', 'Transition in', 'Framing', 'Motion', 'Quick moves']);
+    expect(labels).toEqual(['Timing', 'Transition length', 'Clip', 'In-point', 'Direction', 'Clip speed', 'Speed ramp', 'Transition in', 'Framing', 'Motion', 'Quick moves']);
     expect(Array.from(pop().querySelectorAll('.seg-group small')).map((g) => g.textContent)).toEqual(['Smooth', 'Kinetic', 'Glitch', 'Other']);
 
     expect(tile('#2 city.mp4').className).toContain('on');
@@ -166,7 +167,83 @@ describe('lane', () => {
     expect(open()).toBe(false);
 
     fireEvent.doubleClick(lane(), { clientX: 10, clientY: 30 });
-    expect(pop().querySelector('.seg-body .seg-note')!.textContent).toContain('loop seam');
+    expect(pop().querySelector('.seg-body')!.textContent).toContain('loop seam');
+  });
+
+  test('clip speed changes only one segment, preserves its other settings, and can follow the edit again', () => {
+    barEdit();
+    update(() => st().setBlock('g1', { overrides: { camera: { zoom: 1.3 }, finish: { grain: 0.1 } } }));
+    const cuts = st().ctx!.tl.segs.map((s) => [s.t0, s.t1]);
+    fireEvent.doubleClick(lane(), { clientX: 125, clientY: 30 });
+    const slider = within(pop()).getByLabelText('Clip speed');
+    fireEvent.input(slider, { target: { value: '1.5' } });
+    fireEvent.input(slider, { target: { value: '1.75' } });
+    expect(within(pop()).getByLabelText('Clip speed'), 'a drag keeps its input mounted').toBe(slider);
+    expect(st().ctx!.tl.segs.map((s) => s.speed)).toEqual([1, 1.75, 1, 1]);
+    expect(pop().querySelector('.seg-speed')!.parentElement!.querySelector('.seg-val')!.textContent).toBe('1.75×');
+    fireEvent.change(slider);
+    expect(block('g1')!.overrides).toEqual({ camera: { zoom: 1.3, speed: 1.75 }, finish: { grain: 0.1 } });
+    expect(st().ctx!.tl.segs.map((s) => [s.t0, s.t1])).toEqual(cuts);
+    const before = compose(st().ctx!, 2.75).needs[0];
+    const after = compose(st().ctx!, 2.85).needs[0];
+    expect(before.rate).toBe(1.75);
+    expect(after.time - before.time).toBeCloseTo(0.175, 9);
+    fireEvent.click(within(pop().querySelector('.seg-speed')!).getByText('Auto'));
+    expect(st().ctx!.tl.segs[1].speed).toBe(1);
+    expect(block('g1')!.overrides).toEqual({ camera: { zoom: 1.3 }, finish: { grain: 0.1 } });
+  });
+
+  test('matching an 80 BPM clip to the song sets 1.5× at constant speed and survives undo and saved edits', () => {
+    barEdit({ features: { bpm: 120 }, trackId: 't1' });
+    update(() => { st().look!.cut.velocity = 'surge'; st().rebuild(); });
+    const cuts = st().ctx!.tl.segs.map((s) => [s.t0, s.t1]);
+    fireEvent.doubleClick(lane(), { clientX: 125, clientY: 30 });
+    fireEvent.input(within(pop()).getByLabelText('Original clip BPM'), { target: { value: '80' } });
+    fireEvent.click(popButton('Match 120 BPM'));
+    expect(st().ctx!.tl.segs.map((s) => s.speed)).toEqual([1, 1.5, 1, 1]);
+    expect(st().ctx!.tl.segs[1].vel).toBe('none');
+    expect(st().ctx!.tl.segs[0].vel).toBe('surge');
+    expect(st().ctx!.tl.segs.map((s) => [s.t0, s.t1])).toEqual(cuts);
+    expect(st().bpm()).toBe(120);
+    expect(pop().querySelector('.seg-speed')!.textContent).toContain('80 → 120 BPM at 1.50×');
+    const saved = st().snapshot();
+    update(() => st().undo());
+    expect(st().ctx!.tl.segs[1].speed).toBe(1);
+    update(() => st().redo());
+    expect(st().ctx!.tl.segs[1].speed).toBe(1.5);
+    update(() => { st().clearBlock('g1'); st().applySnapshot(saved); });
+    expect(st().ctx!.tl.segs[1].speed).toBe(1.5);
+    expect(st().ctx!.tl.segs[1].vel).toBe('none');
+  });
+
+  test('BPM matching uses the BPM clock precisely and rejects missing, invalid and unsupported tempos', () => {
+    barEdit({ bpmManual: 150 });
+    fireEvent.doubleClick(lane(), { clientX: 100, clientY: 30 });
+    const input = () => within(pop()).getByLabelText('Original clip BPM');
+    for (const value of ['', '0', '-80', '1', '1000']) {
+      fireEvent.input(input(), { target: { value } });
+      expect(popButton('Match 150 BPM').disabled, value).toBe(true);
+      fireEvent.submit(input().closest('form')!);
+      expect(st().ctx!.tl.segs[1].speed, value).toBe(1);
+    }
+    for (const source of [75, 600, 97.3]) {
+      fireEvent.input(input(), { target: { value: String(source) } });
+      expect(popButton('Match 150 BPM').disabled).toBe(false);
+      fireEvent.submit(input().closest('form')!);
+      expect(st().ctx!.tl.segs[1].speed).toBeCloseTo(150 / source, 12);
+    }
+  });
+
+  test('still images explain why speed does not apply, and short footage is flagged at the selected speed', () => {
+    barEdit();
+    update(() => { S.setState({ clips: st().clips.map((c) => c.id === 'b' ? { ...c, duration: 3 } : c) }); st().rebuild(); });
+    fireEvent.doubleClick(lane(), { clientX: 125, clientY: 30 });
+    fireEvent.click(within(pop().querySelector('.seg-speed')!).getByText('2×'));
+    expect(pop().querySelector('.seg-speed')!.textContent).toContain('too short to fill the segment at this speed');
+    fireEvent.click(pop().querySelector('.seg-clip[title="#3 cover"]')!);
+    expect(within(pop()).queryByLabelText('Clip speed')).toBeNull();
+    expect(within(pop()).queryByLabelText('Original clip BPM')).toBeNull();
+    expect(pop().textContent).toContain('Still images have no playback speed.');
   });
 
   test('the segment menu steps between segments with its arrows or the arrow keys, and outlines nothing once closed', () => {

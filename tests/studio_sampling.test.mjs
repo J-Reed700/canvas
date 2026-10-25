@@ -2,6 +2,9 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { editTime, planTimeline, resolve, rng, RHYTHMS, sampleTimeline } from '../downbeat/studio/src/engine/timeline.ts';
 import { segAt } from '../downbeat/studio/src/engine/blocks.ts';
+import { compose } from '../downbeat/studio/src/engine/composer.ts';
+import { makeSampler } from '../downbeat/studio/src/engine/audio.ts';
+import { LOOKS, cloneLook } from '../downbeat/studio/src/engine/looks.ts';
 
 // Independent linear reference preserves the pre-optimization selection semantics. Test results
 // include source identity, transition progress, local footage time, direction and the loop seam.
@@ -61,4 +64,43 @@ test('large timelines and single-clip seams preserve exact sampling', () => {
     const tl = planTimeline({ L, beatDur: 0.5, clips: [{ id: 'one', duration: 60 }], seed: 4, rhythm: 'custom', custom: Array.from({ length: cuts - 1 }, (_, i) => (i + 1) * L / cuts), transitions: ['cut'], transBeats: 0 });
     check(tl, Array.from({ length: 600 }, (_, i) => i * 1.001 - 0.2));
   }
+});
+
+test('per-clip composition examines the visible cuts without scanning the entire timeline', () => {
+  const L = 600, beatDur = 0.5, cuts = 4096, seed = 4;
+  const clips = Array.from({ length: 8 }, (_, i) => ({ id: `c${i}`, duration: 60 }));
+  const tl = planTimeline({ L, beatDur, clips, seed, rhythm: 'custom', custom: Array.from({ length: cuts - 1 }, (_, i) => (i + 1) * L / cuts), transitions: ['dissolve'], transBeats: 1 });
+  const look = { ...cloneLook(LOOKS[0]), layers: [] };
+  const broll = { ...look, layers: [{ m: 'broll', p: {} }] };
+  let reads = 0;
+  const ctx = { tl, L, beatDur, seed, clips, look, clipDur: () => 60, sampler: makeSampler({ L, beatDur, seed, loopStart: 0 }),
+    clipLook: (_id, seg) => { reads++; return seg.i === 101 ? broll : look; } };
+  const before = compose(ctx, tl.segs[100].t0);
+  assert.ok(before.trans);
+  assert.ok(reads <= 8, `composition inspected ${reads} looks for one frame`);
+  assert.equal(before.needs.some((need) => need.aux === 'clipB'), false, 'a future B-roll layer does not load footage for this frame');
+  reads = 0;
+  const during = compose(ctx, tl.segs[101].t0);
+  assert.ok(reads <= 8);
+  assert.ok(during.needs.some((need) => need.aux === 'clipB'), 'both visible sides can request B-roll');
+});
+
+test('look parameter reuse is limited to one frame so in-place edits remain immediate', () => {
+  const L = 8, beatDur = 0.5, seed = 4;
+  const clips = [{ id: 'a', duration: 60 }, { id: 'b', duration: 60 }];
+  const tl = planTimeline({ L, beatDur, clips, seed, rhythm: 'bar', transitions: ['dissolve'], transBeats: 1 });
+  const look = cloneLook(LOOKS[0]);
+  look.camera.mods = {};
+  look.finish.mods = {};
+  look.camera.p.zoom = 1.15;
+  look.finish.p.exposure = 0.3;
+  const ctx = { tl, L, beatDur, seed, clips, look, clipDur: () => 60, sampler: makeSampler({ L, beatDur, seed, loopStart: 0 }) };
+  const first = compose(ctx, 2);
+  look.camera.p.zoom = 1.5;
+  look.finish.p.exposure = 0.6;
+  const edited = compose(ctx, 2);
+  assert.equal(first.camera.p_zoom, 1.15);
+  assert.equal(first.finish.p_exposure, 0.3);
+  assert.equal(edited.camera.p_zoom, 1.5);
+  assert.equal(edited.finish.p_exposure, 0.6);
 });

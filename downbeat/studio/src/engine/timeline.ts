@@ -1,6 +1,7 @@
 // Edit planning and sampling. Segments are aligned to the beat grid; each cut,
 // including the loop seam at t = 0, is a transition centered on its beat.
 import type { Block, CameraTransform, FramePoint, RhythmDef, Segment, SegmentFrame, TimelinePlan, TimelinePlanOptions, TimelineSample, VelocityDef } from './types.ts';
+import { CLIP_SPEED_MIN, CLIP_SPEED_MAX } from './clipSpeed.ts';
 
 export const RHYTHMS: Record<string, RhythmDef> = {
   hits: { name: 'On hits', short: 'Hits', beats: null },
@@ -264,7 +265,7 @@ export function resolve(blocks: Block[], opts: TimelinePlanOptions, rolled: Bloc
     const ownSpeed = b.overrides?.camera?.speed;
     // Project JSON can outlive the UI that constrained this value. Keep corrupt or hand-edited
     // block data from producing negative clip time or an unbounded source range.
-    const blockSpeed = Number.isFinite(ownSpeed) ? Math.min(2, Math.max(0.25, ownSpeed!)) : speed;
+    const blockSpeed = Number.isFinite(ownSpeed) ? Math.min(CLIP_SPEED_MAX, Math.max(CLIP_SPEED_MIN, ownSpeed!)) : speed;
     const vel = b.vel ?? velocity;
     const d =
       b.dir ??

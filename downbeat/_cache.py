@@ -57,15 +57,19 @@ class BoundedCache(MutableMapping[K, V], Generic[K, V]):
         if self.max_entries <= 0 or (self.max_bytes is not None and size > self.max_bytes):
             raise ValueError("value exceeds cache capacity")
         with self._lock:
-            old = self._values.pop(key, None)
-            if old is not None:
-                self._bytes -= old[1]
-            while self._values and (len(self._values) >= self.max_entries
-                                    or (self.max_bytes is not None and self._bytes + size > self.max_bytes)):
-                _, (_, old_size) = self._values.popitem(last=False)
-                self._bytes -= old_size
-            self._values[key] = value, size
-            self._bytes += size
+            self._store(key, value, size)
+
+    def _store(self, key: K, value: V, size: int) -> None:
+        """Replace a value under the caller's lock, accounting for an existing entry exactly once."""
+        old = self._values.pop(key, None)
+        if old is not None:
+            self._bytes -= old[1]
+        while self._values and (len(self._values) >= self.max_entries
+                                or (self.max_bytes is not None and self._bytes + size > self.max_bytes)):
+            _, (_, old_size) = self._values.popitem(last=False)
+            self._bytes -= old_size
+        self._values[key] = value, size
+        self._bytes += size
 
     def __delitem__(self, key: K) -> None:
         with self._lock:
@@ -97,12 +101,7 @@ class BoundedCache(MutableMapping[K, V], Generic[K, V]):
             with self._lock:
                 if (generation == self._generation and self.max_entries > 0
                         and (self.max_bytes is None or size <= self.max_bytes)):
-                    while self._values and (len(self._values) >= self.max_entries
-                                            or (self.max_bytes is not None and self._bytes + size > self.max_bytes)):
-                        _, (_, old_size) = self._values.popitem(last=False)
-                        self._bytes -= old_size
-                    self._values[key] = value, size
-                    self._bytes += size
+                    self._store(key, value, size)
                 self._pending.pop(key, None)
                 pending.set_result(value)
             return value

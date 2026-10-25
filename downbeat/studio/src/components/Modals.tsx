@@ -359,8 +359,8 @@ export const ExportSheet: React.FC = () => {
                 }
                 useStudioStore.setState((state) => ({ exportOpts: { ...state.exportOpts, coverRefId: reference.id } }));
                 save();
-              } catch (err: any) {
-                toast(err?.message || 'Could not read that reference still');
+              } catch (err) {
+                toast(err instanceof Error ? err.message : 'Could not read that reference still');
               } finally {
                 if (referenceInput.current) referenceInput.current.value = '';
               }

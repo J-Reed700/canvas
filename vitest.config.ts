@@ -7,6 +7,8 @@ export default defineConfig({
   test: {
     include: ['tests/components/**/*.test.tsx'],
     environment: 'happy-dom',
+    // Full-layout tests are memory-heavy; bound concurrency without weakening timeouts or isolation.
+    maxWorkers: 4,
     setupFiles: ['tests/components/setup.ts'],
     coverage: {
       provider: 'v8',

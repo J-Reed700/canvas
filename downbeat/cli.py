@@ -110,15 +110,14 @@ def render(
         clip_effects=clip_effects,
     )
     os.makedirs(os.path.dirname(os.path.abspath(out_path)), exist_ok=True)
-    enc = Encoder(out_path, fps=CANVAS_FPS, width=width, height=height)
-    for i in range(plan.n_frames):
-        frame = plan.render(i)
-        enc.write(frame)
-        if not quiet and (i + 1) % 30 == 0:
-            done = (i + 1) / plan.n_frames * 100
-            eta = (time.time() - t0) / (i + 1) * (plan.n_frames - i - 1)
-            print(f"\r  {done:5.1f}%  ({i+1}/{plan.n_frames} frames, eta {eta:.1f}s)", end="", flush=True)
-    enc.close()
+    with Encoder(out_path, fps=CANVAS_FPS, width=width, height=height) as enc:
+        for i in range(plan.n_frames):
+            frame = plan.render(i)
+            enc.write(frame)
+            if not quiet and (i + 1) % 30 == 0:
+                done = (i + 1) / plan.n_frames * 100
+                eta = (time.time() - t0) / (i + 1) * (plan.n_frames - i - 1)
+                print(f"\r  {done:5.1f}%  ({i+1}/{plan.n_frames} frames, eta {eta:.1f}s)", end="", flush=True)
 
     if not quiet:
         print(f"\r  100.0%  done in {time.time()-t0:.1f}s -> {out_path}")

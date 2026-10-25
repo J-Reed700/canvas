@@ -164,7 +164,7 @@ export interface StudioState {
   snapshot: () => string;
   applySnapshot: (snap: string) => void;
   fetchPalette: (clipId: string) => Promise<void>;
-  exportCompanion: (opts: { filename?: string; clip_id?: string; kind: string; at_sec?: number }) => Promise<any>;
+  exportCompanion: (opts: { filename?: string; clip_id?: string; kind: string; at_sec?: number }) => Promise<void>;
   openExport: () => void;
   runExport: () => Promise<void>;
   runBatch: (kind: 'rolls' | 'tracks') => Promise<void>;

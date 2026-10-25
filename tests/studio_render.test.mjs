@@ -101,6 +101,8 @@ test('the preview canvas matches the screen density, capped at 1080 wide and at 
   assert.equal(eng.resized.length, 4);
   R.fitView(fakeCanvas(0, 0), eng);
   assert.equal(eng.resized.length, 4);
+  R.fitView(fakeCanvas(360, 0), eng);
+  assert.equal(eng.resized.length, 4, 'a collapsed viewer cannot request infinite dimensions');
 });
 
 test('a frame draws once per frame position and again whenever a look changes', () => {

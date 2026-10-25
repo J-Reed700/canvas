@@ -166,6 +166,27 @@ class TestRender(unittest.TestCase):
             cli.render([self.clip], os.path.join(self.tmp, "quiet.mp4"), seed=4, duration=3.0, width=108, height=192, quiet=True)
         self.assertEqual(out.getvalue(), "")
 
+    def test_a_failed_or_interrupted_render_aborts_ffmpeg_and_removes_its_partial_output(self) -> None:
+        from downbeat.media.encoder import Encoder
+
+        for error in (RuntimeError("effect failed"), KeyboardInterrupt()):
+            with self.subTest(error=type(error).__name__):
+                encoders = []
+
+                def start(*args, **kwargs):
+                    encoder = Encoder(*args, **kwargs)
+                    encoders.append(encoder)
+                    return encoder
+
+                plan = mock.Mock(n_frames=1)
+                plan.render.side_effect = error
+                dest = os.path.join(self.tmp, "failed.mp4")
+                with mock.patch.object(cli, "build_plan", return_value=plan), \
+                     mock.patch.object(cli, "Encoder", side_effect=start), self.assertRaises(type(error)):
+                    cli.render(self.clip, dest, seed=4, width=108, height=192, quiet=True)
+                self.assertIsNotNone(encoders[0].proc.poll())
+                self.assertFalse(os.path.exists(dest))
+
 
 if __name__ == "__main__":
     unittest.main()

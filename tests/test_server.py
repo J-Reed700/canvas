@@ -404,6 +404,29 @@ class TestServerRouting(_ServerCase):
         self.assertEqual(self.post_json("/api/export/companion", {"filename": "source.mp4", "kind": "poster"}),
                          (400, {"ok": False, "error": "unsupported kind: poster"}))
 
+    def test_json_routes_reject_malformed_or_non_object_bodies(self) -> None:
+        for path in ("/api/library/folders", "/api/proxies", "/api/clip/remove", "/api/export/delete",
+                     "/api/reveal", "/api/export/raw/begin", "/api/export/raw/abort", "/api/projects/create"):
+            for body in (b"{bad", b"[]", b"null", b'"text"', b"3", b"\xff"):
+                with self.subTest(path=path, body=body):
+                    status, _, raw = self.request("POST", path, body, {"Content-Type": "application/json"})
+                    self.assertEqual(status, 400)
+                    self.assertFalse(json.loads(raw)["ok"])
+        self.assertEqual(self.get_json("/api/status"), (200, {"ok": True}))
+
+    def test_companion_export_rejects_invalid_timestamps_and_source_fields(self) -> None:
+        for payload in ({"at_sec": "oops"}, {"at_sec": -1}, {"at_sec": float("nan")},
+                        {"at_sec": float("inf")}, {"filename": []}, {"clip_id": ["clip"]}):
+            with self.subTest(payload=payload):
+                self.assertEqual(self.post_json("/api/export/companion", payload)[0], 400)
+
+    def test_proxy_requests_require_a_list_of_clip_ids(self) -> None:
+        for ids in (3, "clip", {}, [3], [["clip"]]):
+            with self.subTest(ids=ids):
+                status, data = self.post_json("/api/proxies", {"ids": ids})
+                self.assertEqual(status, 400)
+                self.assertFalse(data["ok"])
+
     def test_library_folders_can_be_added_listed_and_removed(self) -> None:
         missing = os.path.join(self.tmp, "no-such-folder")
         status, data = self.post_json("/api/library/folders", {"add": missing})

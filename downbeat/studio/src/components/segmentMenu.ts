@@ -1,10 +1,11 @@
 import { useStudioStore } from '../state/store.ts';
-import { openPop, closePop, h, POOLS, clipAspect, cropRect, room, clipDisplayName } from '../lib/utils.ts';
+import { openPop, closePop, h, POOLS, clipAspect, cropRect, room, clipDisplayName, type DomChild } from '../lib/utils.ts';
 import { clamp } from '../engine/looks.ts';
 import { setMenuSeg } from '../canvas/timelineCanvas.ts';
 import { mirrors } from '../canvas/renderLoop.ts';
 import { beatName, beatsText, timingSection, segOf, chip, chips } from './segTiming.ts';
-import { MOVES, VELOCITY, frameAt, moveAt } from '../engine/timeline.ts';
+import { MOVES, VELOCITY, footageUsed, frameAt, moveAt } from '../engine/timeline.ts';
+import { CLIP_SPEED_MIN, CLIP_SPEED_MAX, CLIP_SPEED_PRESETS, speedForBpm } from '../engine/clipSpeed.ts';
 import { TRANSITIONS } from '../engine/shaders.ts';
 import { screenOf } from '../lib/screens.ts';
 import { thumbBackground } from '../lib/thumbs.ts';
@@ -192,7 +193,8 @@ export function framingSection(id: string, seg: Segment, own: SegmentFrame | und
   crop.addEventListener('gesturechange', (e) => {
     e.preventDefault();
     const p = pt(now());
-    put([p[0], p[1], clamp(pinchFrom * ((e as any).scale || 1), 1, ZOOM_MAX)]);
+    const scale = 'scale' in e && typeof e.scale === 'number' ? e.scale : 1;
+    put([p[0], p[1], clamp(pinchFrom * (scale || 1), 1, ZOOM_MAX)]);
   });
 
   // The menu covers the stage, so while the playhead is in this segment a thin box follows the crop as it moves.
@@ -250,7 +252,7 @@ export function framingSection(id: string, seg: Segment, own: SegmentFrame | und
     zVal.textContent = `${p[2].toFixed(2)}×`;
   }
 
-  const sub = (label: string, ...kids: any[]) => h('div', { class: 'seg-f' }, h('div', { class: 'seg-l' }, h('span', {}, label)), ...kids);
+  const sub = (label: string, ...kids: DomChild[]) => h('div', { class: 'seg-f' }, h('div', { class: 'seg-l' }, h('span', {}, label)), ...kids);
 
   // the handlers read the framing afresh: dragging and scrolling on the box don't redraw the menu
   const ease = own?.ease || 'smooth';
@@ -342,6 +344,8 @@ export function segmentMenu(box: HTMLElement, start: string) {
   detachMenu?.();
   let id = start;
   let choosing = false; // the clip tiles for Put a clip in are showing
+  // The BPM helper applies a speed once; keep its draft while navigating this open menu.
+  const clipBpms = new Map<string, string>();
   // Kept across redraws: a copy of the preview for when the menu sits over it.
   const peek = h('canvas', { class: 'seg-peek', 'aria-label': 'Preview' }) as HTMLCanvasElement;
   const peekWrap = h('div', { class: 'seg-peek-wrap' }, peek);
@@ -400,7 +404,7 @@ export function segmentMenu(box: HTMLElement, start: string) {
     // What was set by hand: the block's own settings, and a clip or in-point changed from the rolled one.
     const block = s.blocks?.find((b) => b.id === id);
     const twin = tl.rolled.find((b) => b.id === id);
-    const mine: Record<keyof BlockPatch, boolean> = {
+    const mine: Record<keyof BlockPatch | 'speed', boolean> = {
       clipId: !!block && !!twin && block.clipId !== twin.clipId,
       in: !!block && !!twin && Math.abs(block.in - twin.in) > 1e-6,
       trans: block?.trans != null,
@@ -409,12 +413,13 @@ export function segmentMenu(box: HTMLElement, start: string) {
       dir: block?.dir != null,
       frame: block?.frame != null,
       overrides: block?.overrides != null,
+      speed: block?.overrides?.camera?.speed != null,
     };
     const pick = (patch: BlockPatch) => {
       s.setBlock(id, patch);
       render();
     };
-    const field = (label: string, key: keyof BlockPatch, aside: any, ...kids: any[]) =>
+    const field = (label: string, key: keyof BlockPatch | 'speed', aside: DomChild, ...kids: DomChild[]) =>
       h(
         'div',
         { class: 'seg-f' },
@@ -479,6 +484,70 @@ export function segmentMenu(box: HTMLElement, start: string) {
       onchange: () => render(), // shows the you-set-this mark once the slider is let go
     });
     place(seg.in);
+
+    const speedVal = h('b', { class: 'seg-val' }, `${seg.speed.toFixed(2)}×`);
+    const setSpeed = (value: number | undefined, redraw = true, constant = false) => {
+      const current = useStudioStore.getState();
+      const overrides = { ...current.blocks?.find((b) => b.id === id)?.overrides };
+      const camera = { ...overrides.camera };
+      if (value === undefined) delete camera.speed; else camera.speed = value;
+      if (Object.keys(camera).length) overrides.camera = camera; else delete overrides.camera;
+      current.setBlock(id, { overrides: Object.keys(overrides).length ? overrides : undefined, ...(constant ? { vel: 'none' } : {}) });
+      if (redraw) render();
+      else speedVal.textContent = `${segOf(id)!.speed.toFixed(2)}×`;
+    };
+    const bpm = s.bpm();
+    const bpmIn = h('input', {
+      class: 'numin', type: 'number', min: 1, step: 'any', placeholder: 'e.g. 80',
+      'aria-label': 'Original clip BPM', value: clipBpms.get(seg.clipId) || '',
+      oninput: (e: Event) => {
+        clipBpms.set(seg.clipId, (e.target as HTMLInputElement).value);
+        showMatch();
+      },
+    }) as HTMLInputElement;
+    const matchNote = h('div', { class: 'seg-note', 'aria-live': 'polite' });
+    const match = h('button', {
+      class: 'btn sm', type: 'submit',
+    }, `Match ${+bpm.toFixed(2)} BPM`) as HTMLButtonElement;
+    const showMatch = () => {
+      const source = +bpmIn.value;
+      const rate = speedForBpm(source, bpm);
+      match.disabled = rate === null;
+      matchNote.textContent = rate !== null
+        ? `${source} → ${+bpm.toFixed(2)} BPM at ${rate.toFixed(2)}×, with a constant speed. Adjust In-point to align the first move with a beat.`
+        : source > 0
+          ? `This tempo match needs ${(bpm / source).toFixed(2)}×, outside the supported ${CLIP_SPEED_MIN}–${CLIP_SPEED_MAX}× range.`
+          : 'Enter the clip’s original BPM to match its tempo to the song or BPM clock.';
+    };
+    showMatch();
+    const speedField = field(
+      'Clip speed', 'speed', !clip?.still && speedVal,
+      clip?.still
+        ? h('div', { class: 'seg-note' }, 'Still images have no playback speed.')
+        : h('div', { class: 'seg-speed' },
+            h('input', {
+              type: 'range', min: CLIP_SPEED_MIN, max: CLIP_SPEED_MAX, step: 0.01, value: seg.speed,
+              'aria-label': 'Clip speed', title: 'Playback speed for this segment; double-click for normal speed',
+              oninput: (e: Event) => setSpeed(+(e.target as HTMLInputElement).value, false),
+              onchange: () => render(), ondblclick: () => setSpeed(1),
+            }),
+            chips(
+              chip(!mine.speed, 'Auto', () => setSpeed(undefined), `Follow the edit’s clip speed, ${(s.look?.camera.p.speed ?? 1).toFixed(2)}×`),
+              ...CLIP_SPEED_PRESETS.map((rate) => chip(mine.speed && Math.abs(seg.speed - rate) < 1e-6, `${rate}×`, () => setSpeed(rate))),
+            ),
+            h('div', { class: 'seg-note' }, 'Only this segment. Cut timing and the song’s tempo stay the same.'),
+            footageUsed(seg, seg.dur) * seg.speed * (seg.pp ? 0.5 : 1) > dur &&
+              h('div', { class: 'seg-note' }, 'This clip is too short to fill the segment at this speed. Lower the speed or shorten the segment.'),
+            h('form', {
+              class: 'seg-bpm', onsubmit: (e: Event) => {
+                e.preventDefault();
+                const rate = speedForBpm(+bpmIn.value, useStudioStore.getState().bpm());
+                if (rate !== null) setSpeed(rate, true, true);
+              },
+            }, h('label', {}, 'Original clip BPM', bpmIn), match),
+            matchNote,
+          ),
+    );
 
     const dirNow = seg.pp ? 'pingpong' : seg.rev ? 'reverse' : 'forward';
     if (!block?.frame?.b) edit.key = 'a';
@@ -565,6 +634,7 @@ export function segmentMenu(box: HTMLElement, start: string) {
             maxIn <= 0 && h('div', { class: 'seg-note' }, 'This clip is only just long enough to fill the segment.'),
           ),
           field('Direction', 'dir', null, chips(...DIRS.map(([k, label]) => chip(dirNow === k, label, () => pick({ dir: k }))))),
+          speedField,
           field(
             'Speed ramp',
             'vel',

@@ -111,7 +111,11 @@ export class ClipFrames implements FrameSource {
       const [first, count, total, w, h] = ['Start', 'Count', 'Total', 'Width', 'Height'].map(head);
       const buf = await res.arrayBuffer();
       const size = (w * h * 3) / 2;
-      if (!(count > 0) || buf.byteLength !== count * size) throw new Error(`${this.name(clipId)}: the server sent a broken frame batch`);
+      if (![first, count, total, w, h].every(Number.isSafeInteger) || first < 0 || count < 1 || count > n ||
+          total < 1 || first + count > total || first !== Math.min(start, total - 1) ||
+          w < 2 || h < 2 || w % 2 !== 0 || h % 2 !== 0 || buf.byteLength !== count * size) {
+        throw new Error(`${this.name(clipId)}: the server sent a broken frame batch`);
+      }
       this.totals.set(clipId, total);
       if (count < n && first + count < total) this.batch.set(clipId, count);
       this.bytes.set(clipId, size);

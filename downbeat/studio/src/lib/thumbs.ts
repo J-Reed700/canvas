@@ -52,13 +52,17 @@ function next() {
 export function loadThumb(url: string, done?: () => void, img: HTMLImageElement = new Image(), wanted?: () => boolean): HTMLImageElement {
   cancelThumb(img);
   if (loaded.has(url)) {
+    let finished = false;
     const release = () => {
+      if (finished) return false;
+      finished = true;
       img.onload = img.onerror = null;
       cancellations.delete(img);
+      return true;
     };
-    img.onload = () => { release(); if (!wanted || wanted()) done?.(); };
+    img.onload = () => { if (release() && (!wanted || wanted())) done?.(); };
     img.onerror = release;
-    cancellations.set(img, () => { release(); img.removeAttribute('src'); });
+    cancellations.set(img, () => { if (release()) img.removeAttribute('src'); });
     img.src = url;
     return img;
   }
