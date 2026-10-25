@@ -1,0 +1,11 @@
+/* FolderPathForm styles. */
+
+.tp-path { display: flex; gap: 6px; }
+
+.tp-path .numin { flex: 1; width: auto; font-weight: 500; }
+
+.welcome .tp-path { width: 100%; }
+
+.welcome .tp-path .numin { height: 36px; font-size: 13px; }
+
+.welcome .tp-path .btn { height: 36px; }

@@ -1,8 +1,8 @@
 import React from 'react';
 import { describe, expect, test, vi } from 'vitest';
 import { fireEvent, waitFor, within } from '@testing-library/react';
-import { ModulatorsCard } from '../../downbeat/studio/src/components/ModulatorsCard.tsx';
-import { LayersPane } from '../../downbeat/studio/src/components/LayersPane.tsx';
+import { ModulatorsCard } from '../../downbeat/studio/src/components/ModulatorsCard/ModulatorsCard.tsx';
+import { LayersPane } from '../../downbeat/studio/src/components/LayersPane/LayersPane.tsx';
 import { SEQ_PRESETS, ENV_PRESETS } from '../../downbeat/studio/src/lib/utils.ts';
 import { defaultEnv, defaultSeq } from '../../downbeat/studio/src/engine/audio.ts';
 import { LOOKS, cloneLook, renderStudio, resetStudio, screen, serve, st, toastText, update, S } from './studio.tsx';

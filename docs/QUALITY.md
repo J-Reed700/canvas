@@ -17,7 +17,7 @@ npm run quality
 On Windows, use `.venv\Scripts\python.exe` for the installation command. `scripts/python.mjs` selects
 the project's interpreter for npm commands; `DOWNBEAT_PYTHON` can select another interpreter explicitly.
 
-The gate runs strict production TypeScript checks, engine/state coverage, UI coverage, Python coverage,
+The gate runs React hook and dependency linting, strict production TypeScript checks, engine/state coverage, UI coverage, Python coverage,
 the production build, real Chrome editing/project/export regressions, and CPU performance budgets.
 An absent browser, ffmpeg or production build **fails** the gate; it cannot report success after skipping
 the browser checks. The ordinary `npm test` and `npm run test:e2e` commands remain available separately.
@@ -40,7 +40,7 @@ Actions are pinned to commits resolved from their v7 tags. Inputs follow the off
 | Suite | Scope | Enforced minimums |
 | --- | --- | --- |
 | Node | Engine, state, canvas and library modules loaded by the engine tests | 89% lines, 89% branches, 86% functions |
-| Vitest | All component sources, `App.tsx` and workspace state | 92% lines, 90% statements, 83% branches, 90% functions |
+| Vitest | Components, hooks, provider, `App.tsx` and workspace state | 92% lines, 90% statements, 83% branches, 90% functions |
 | Python | All `downbeat` Python modules | 90% combined statement/branch coverage |
 
 These scopes use different instrumentation and must not be added or averaged into a product-wide score.
@@ -55,6 +55,9 @@ minimums. The minimums are regression floors, not targets that justify superfici
 
 ## Architecture boundaries
 
+- `StudioProvider` injects stable studio and workspace instances. React components use selector hooks
+  from `state/StudioContext.tsx`; controllers receive a vanilla store explicitly. Controller state,
+  history, import queues and preview scheduling belong to a runtime. See [React architecture](REACT_ARCHITECTURE.md).
 - `server/payloads.py` constructs HTTP media representations. The HTTP handler routes requests and
   streams their bodies; it no longer builds media listings by iterating live dictionaries.
 - `StudioState.snapshot()` copies collections under the state lock, then serializes outside it. A slow

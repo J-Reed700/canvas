@@ -1,14 +1,24 @@
 // Shared setup for the component tests: a known studio state, the page-level elements panels expect
 // (#pop and #toast), and a small fetch router.
 import React from 'react';
-import { act, render, screen } from '@testing-library/react';
+import { act, render as renderReact, screen, type RenderOptions } from '@testing-library/react';
 import { vi } from 'vitest';
-import { useStudioStore } from '../../downbeat/studio/src/state/store.ts';
+import { studioStore, studioRuntime } from '../../downbeat/studio/src/state/store.ts';
 import { LOOKS, cloneLook } from '../../downbeat/studio/src/engine/looks.ts';
-import { resetHistory } from '../../downbeat/studio/src/state/historyController.ts';
 import type { StudioState } from '../../downbeat/studio/src/state/store.ts';
 
-export const S = useStudioStore;
+import { StudioProvider } from '../../downbeat/studio/src/state/StudioContext.tsx';
+import { workspaceStore } from '../../downbeat/studio/src/state/workspaceStore.ts';
+
+function StudioTestProvider({ children }: { children: React.ReactNode }) {
+  return <StudioProvider runtime={studioRuntime} workspace={workspaceStore}>{children}</StudioProvider>;
+}
+
+export function render(ui: React.ReactElement, options?: RenderOptions) {
+  return renderReact(ui, { wrapper: StudioTestProvider, ...options });
+}
+
+export const S = studioStore;
 export const st = () => S.getState();
 export { LOOKS, cloneLook };
 
@@ -69,6 +79,7 @@ export function resetStudio(over: Partial<StudioState> = {}) {
       evolveCuts: false,
       clipLooks: {},
       editClip: null,
+      editBlock: null,
       blocks: null,
       legacyEdit: null,
       selectedBlock: null,
@@ -100,11 +111,12 @@ export function resetStudio(over: Partial<StudioState> = {}) {
       projectSync: 'saved',
       exportOpts: { size: 'master', withSong: false, format: 'spotify', promo: 0, autoSave: true },
       rollOpts: { look: true, edit: true, perClip: true, clips: false, loop: false },
+      rollStyle: 'balanced',
       ghosts: [],
       ...over,
     });
     st().rebuild();
-    resetHistory();
+    studioRuntime.history.resetHistory();
   });
 }
 
@@ -117,6 +129,7 @@ export function renderStudio(ui: React.ReactElement) {
     <>
       {ui}
       <div className="pop" id="pop" />
+      <div className="pop" id="subpop" />
       <div className="toast" id="toast" />
     </>,
   );

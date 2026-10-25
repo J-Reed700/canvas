@@ -1,6 +1,6 @@
 import { LOOKS, evolveLook } from '../engine/looks.ts';
 import { rng } from '../engine/timeline.ts';
-import type { Look, Segment } from '../engine/types.ts';
+import type { Look, RollStyle, Segment } from '../engine/types.ts';
 
 /** The look policy depends only on edit data, not React, the GPU or HTTP services. */
 export interface ClipLookState {
@@ -15,6 +15,7 @@ export interface ClipLookState {
   seed: number;
   clipLooks: Record<string, Look>;
   editClip: string | null;
+  rollStyle?: RollStyle;
 }
 
 export class ClipLookResolver {
@@ -52,7 +53,9 @@ export class ClipLookResolver {
       } else if (state.clipMode === 'cycle') {
         const random = rng(state.seed + 99);
         const base = state.lookId?.replace(/^edit:/, '');
-        const pool = [...state.saved, ...this.catalog].filter((look) => look.id !== base && look.id !== 'clean');
+        const style = state.rollStyle && state.rollStyle !== 'balanced' ? state.rollStyle : main.style;
+        const pool = [...state.saved, ...this.catalog].filter((look) => look.id !== base && look.id !== 'clean' &&
+          (!style || style === 'experimental' || look.style === style));
         for (let i = pool.length - 1; i > 0; i--) {
           const j = Math.floor(random() * (i + 1));
           [pool[i], pool[j]] = [pool[j], pool[i]];

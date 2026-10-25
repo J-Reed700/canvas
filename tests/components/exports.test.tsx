@@ -1,7 +1,8 @@
 import React from 'react';
 import { describe, expect, test, vi } from 'vitest';
 import { act, fireEvent, waitFor, within } from '@testing-library/react';
-import { ExportsSection, ExportsLibrary } from '../../downbeat/studio/src/components/Exports.tsx';
+import { ExportsSection } from '../../downbeat/studio/src/components/ExportsSection/ExportsSection.tsx';
+import { ExportsLibrary } from '../../downbeat/studio/src/components/ExportsLibrary/ExportsLibrary.tsx';
 import { posted, renderStudio, resetStudio, screen, serve, st, toastText } from './studio.tsx';
 
 const NOW = Math.floor(Date.now() / 1000);

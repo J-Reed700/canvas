@@ -1,0 +1,9 @@
+/* ShortcutsModal styles. */
+
+.keys { display: grid; grid-template-columns: auto 1fr; gap: 9px 18px; font-size: 13px; }
+
+.keys .kbd { font-size: 12px; padding: 3px 8px; color: var(--text); justify-self: start; align-self: start; min-width: 28px; text-align: center; }
+
+@media (max-width: 700px) {
+    .keys { gap: 8px 12px; font-size: 12.5px; }
+  }

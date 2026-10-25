@@ -2,10 +2,10 @@
 // they still update once they sit inside the real layout, which is where clicks used to go nowhere.
 import React from 'react';
 import { describe, expect, test, vi } from 'vitest';
-import { act, fireEvent, render, waitFor, within } from '@testing-library/react';
-import { App } from '../../downbeat/studio/src/App.tsx';
+import { act, fireEvent, waitFor, within } from '@testing-library/react';
+import { App } from '../../downbeat/studio/src/components/App/App.tsx';
 import { MODULES } from '../../downbeat/studio/src/engine/modules.ts';
-import { LOOKS, S, SONG, resetStudio, screen, serve, st, toastText, update, withSong } from './studio.tsx';
+import { render, LOOKS, S, SONG, resetStudio, screen, serve, st, toastText, update, withSong } from './studio.tsx';
 
 // The GPU engine can't start here, so initStudio is stubbed and the tests set the state themselves.
 function renderApp() {

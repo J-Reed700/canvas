@@ -12,7 +12,7 @@ export default defineConfig({
     setupFiles: ['tests/components/setup.ts'],
     coverage: {
       provider: 'v8',
-      include: ['downbeat/studio/src/components/**/*.{ts,tsx}', 'downbeat/studio/src/App.tsx', 'downbeat/studio/src/state/workspaceStore.ts'],
+      include: ['downbeat/studio/src/components/**/*.{ts,tsx}', 'downbeat/studio/src/hooks/**/*.ts', 'downbeat/studio/src/state/StudioContext.tsx', 'downbeat/studio/src/state/workspaceStore.ts'],
       reporter: ['text-summary', 'json-summary', 'html'],
       reportsDirectory: 'artifacts/coverage/components',
       thresholds: { statements: 90, branches: 83, functions: 90, lines: 92 },

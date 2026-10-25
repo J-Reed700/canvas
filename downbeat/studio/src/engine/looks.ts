@@ -2,25 +2,10 @@
 import { CAMERA, FINISH_DEF, MODULES, defaults } from './modules.ts';
 import { TRANSITIONS } from './shaders.ts';
 import { RHYTHMS, rng } from './timeline.ts';
-import type { CutSpec, LayerSpec, Look, Modulation, ParamDef } from './types.ts';
-
-const L = (m: string, p: Record<string, number> = {}, mods: Record<string, Modulation> = {}): LayerSpec => ({ m, on: true, p, mods });
-const mod = (src: string, amt: number): Modulation => ({ src, amt });
-
-interface LookOptions {
-  camera?: Record<string, number>;
-  cameraMods?: Record<string, Modulation>;
-  finish?: Record<string, number>;
-  finishMods?: Record<string, Modulation>;
-  cut?: Partial<CutSpec>;
-}
-
-const look = (id: string, name: string, vibe: string, layers: LayerSpec[], { camera = {}, cameraMods = {}, finish = {}, finishMods = {}, cut = {} }: LookOptions = {}): Look => ({
-  id, name, vibe, layers,
-  camera: { p: { ...defaults(CAMERA.params), ...camera }, mods: { zoom: mod('kick', 0.06), ...cameraMods } },
-  finish: { p: { ...defaults(FINISH_DEF.params), ...finish }, mods: finishMods },
-  cut: { rhythm: 'bar', transitions: ['dissolve'], beats: 0.5, order: 'cycle', ...cut },
-});
+import { createLook as look, layer as L, mod, type LookOptions } from './lookFactory.ts';
+import { FILTER_LOOKS } from './filterLooks.ts';
+import { LOOK_STYLES, normalizeRollStyle } from './lookStyles.ts';
+import type { LayerSpec, Look, LookStyle, Modulation, ParamDef, RollStyle } from './types.ts';
 
 export const LOOKS: Look[] = [
   look('liquid-chrome', 'Liquid Chrome', 'Rippling glass over a chrome finish', [
@@ -233,6 +218,10 @@ export const ART_LOOKS: Look[] = [
 
 LOOKS.push(...ART_LOOKS);
 LOOKS.push(...CLASSIC_LOOKS);
+LOOKS.push(...FILTER_LOOKS);
+
+// Old saved looks can omit style; newly selected and generated looks carry it with them.
+for (const preset of LOOKS) preset.style ??= 'experimental';
 
 // Variation engine
 const ADJ = ['Velvet', 'Neon', 'Molten', 'Hollow', 'Static', 'Prism', 'Silver', 'Midnight', 'Solar', 'Feral', 'Lunar', 'Acid', 'Glass',
@@ -265,7 +254,100 @@ function randomMod(r: () => number, params: ParamDef[]): [string, Modulation] | 
   return [p.id, mod(pick(r, AUDIO_SRC), +((r() < 0.8 ? 1 : -1) * (0.08 + r() * 0.3)).toFixed(2))];
 }
 
+/** Balance families rather than individual presets, so the larger experimental catalog cannot dominate. */
+export function chooseRollStyle(seed: number, preference: RollStyle = 'balanced', previous?: LookStyle): LookStyle {
+  const style = normalizeRollStyle(preference);
+  return style === 'balanced' ? pick(rng(seed), LOOK_STYLES.filter((item) => item.id !== previous)).id : style;
+}
+
+function mutateStyled(base: Look, amount: number, seed: number): Look {
+  const r = rng(seed);
+  const l = cloneLook(base);
+  l.id = `var-${seed}`;
+  l.name = `${base.name.replace(/ · variation$/, '')} · variation`;
+  l.vibe = `Variation of ${base.name}`;
+  // Keep the chosen medium/process, focus shape and clock cycles. No new audio routes or foreign effects.
+  for (const layer of l.layers) {
+    const def = MODULES[layer.m];
+    layer.p = { ...defaults(def.params), ...layer.p };
+    jitterParams(r, def.params.filter((p) => !p.opts && p.step < 1 &&
+      !(l.style === 'monochrome' && layer.m === 'monochrome' && p.id === 'mix')), layer.p, amount * 0.16);
+  }
+  jitterParams(r, FINISH_DEF.params.filter((p) => ['exposure', 'contrast', 'grain', 'vignette'].includes(p.id)), l.finish.p, amount * 0.16);
+  // Monochrome prints retain their neutral/toned base instead of acquiring a random split tone.
+  if (l.style !== 'monochrome') {
+    jitterParams(r, FINISH_DEF.params.filter((p) => ['temp', 'tint', 'saturation'].includes(p.id)), l.finish.p, amount * 0.12);
+  }
+  return l;
+}
+
+function styledLook(seed: number, style: LookStyle, previous?: Look): Look {
+  const family = LOOKS.filter((preset) => preset.style === style);
+  const different = family.filter((preset) => preset.name !== previous?.name.replace(/ · variation$/, ''));
+  const base = pick(rng(seed + 31), different.length ? different : family);
+  const l = mutateStyled(base, 0.65, seed + 1);
+  l.id = `rnd-${seed}`;
+  l.name = base.name;
+  l.vibe = `${base.name}, varied within ${LOOK_STYLES.find((item) => item.id === style)?.name}`;
+  return l;
+}
+
+/** Remix should offer an obvious treatment; hand-picked presets and Variations can stay delicate. */
+function remixStyledLook(look: Look, seed: number): Look {
+  const r = rng(seed + 6971);
+  const fin = look.finish.p;
+  const profile = (values: Record<string, number>) => Object.assign(fin, values);
+  const setFloor = (layer: LayerSpec, key: string, minimum: number) => {
+    const def = MODULES[layer.m].params.find((p) => p.id === key);
+    if (def) layer.p[key] = clamp(Math.max(layer.p[key] ?? def.def, minimum), def.min, def.max);
+  };
+  const baseId = FILTER_LOOKS.find((preset) => preset.name === look.name)?.id;
+  if (look.style === 'natural') {
+    const profiles: Record<string, Record<string, number>> = {
+      'natural-documentary': { contrast: 1.48, saturation: 0.9 },
+      'natural-portrait': { contrast: 1.24, saturation: 1.06, temp: 0.6, tint: 0.08 },
+      'natural-editorial': { contrast: 1.4, saturation: 0.58, temp: -0.6, tint: -0.16 },
+      'natural-pastel': { contrast: 0.8, saturation: 0.62, fade: 0.1, temp: 0.18 },
+      'natural-lifestyle': { contrast: 1.05, saturation: 1.18, fade: 0.04, temp: 0.4 },
+    };
+    profile(profiles[baseId || ''] || {});
+  } else if (look.style === 'film') {
+    const profiles: Record<string, Record<string, number>> = {
+      'film-16mm': { contrast: 1.32, saturation: 1.08, temp: 0.25, grain: 0.42 },
+      'film-35mm': { contrast: 1.48, saturation: 0.88, temp: -0.1, grain: 0.24 },
+      'film-faded': { contrast: 0.8, saturation: 0.62, fade: 0.1, temp: 0.2 },
+      'film-expired': { contrast: 1.26, saturation: 0.85, temp: 0.5, tint: 0.18, grain: 0.32 },
+      'film-disposable': { contrast: 1.55, saturation: 1.22, vignette: 0.4, exposure: 0.15 },
+    };
+    profile(profiles[baseId || ''] || {});
+  } else if (look.style === 'soft') {
+    profile({ contrast: 0.82, saturation: 0.88, fade: 0.04 });
+  } else if (look.style === 'illustrated') {
+    profile({ contrast: 1.2, saturation: 0.88 });
+  }
+  for (const layer of look.layers) {
+    if (layer.m === 'editorial' || layer.m === 'photoprint') setFloor(layer, 'strength', 0.95);
+    if (layer.m === 'diffusion') {
+      setFloor(layer, 'amount', look.style === 'soft' ? 0.9 : 0.4);
+      setFloor(layer, 'radius', look.style === 'soft' ? 30 : 20);
+      layer.p.threshold = look.style === 'soft' ? 0.28 + r() * 0.08 : 0.45;
+    }
+    if (layer.m === 'defocus') {
+      setFloor(layer, 'amount', 0.9);
+      setFloor(layer, 'radius', 38);
+    }
+    if (layer.m === 'gobo') setFloor(layer, 'amount', 0.6 + r() * 0.12);
+    if (layer.m === 'gel') { setFloor(layer, 'amount', 0.65); setFloor(layer, 'saturation', 0.55); }
+    if (layer.m === 'watercolor') {
+      setFloor(layer, 'radius', 9); setFloor(layer, 'bleed', 0.75); setFloor(layer, 'detail', 0.7);
+    }
+  }
+  look.vibe = `${look.name}, remixed`;
+  return look;
+}
+
 export function mutate(base: Look, amount: number, seed: number): Look {
+  if (base.style && base.style !== 'experimental') return mutateStyled(base, amount, seed);
   const r = rng(seed);
   const l = cloneLook(base);
   l.id = `var-${seed}`;
@@ -297,7 +379,9 @@ export function mutate(base: Look, amount: number, seed: number): Look {
   return l;
 }
 
-export function randomLook(seed: number): Look {
+export function randomLook(seed: number, preference: RollStyle = 'experimental'): Look {
+  const style = chooseRollStyle(seed, preference);
+  if (style !== 'experimental') return styledLook(seed, style);
   const r = rng(seed);
   const ids = Object.keys(MODULES);
   const heroCats = ['space', 'warp', 'stylize', 'color', 'time'];
@@ -307,6 +391,7 @@ export function randomLook(seed: number): Look {
     cut: { rhythm: pick(r, ['bar', 'half', 'hits', 'build']), transitions: [pick(r, Object.keys(TRANSITIONS)), pick(r, Object.keys(TRANSITIONS))] },
   });
   const l = mutate(base, 0.7, seed + 1);
+  l.style = 'experimental';
   l.vibe = `${MODULES[hero].name} + ${MODULES[support].name}`;
   return l;
 }
@@ -330,7 +415,9 @@ for (const lk of LOOKS) for (const x of lk.layers) (CURATED[x.m] ||= []).push(x.
 // how far a roll may wander from that starting point (image-replacing effects break first)
 const WANDER: Record<string, number> = { space: 0.45, warp: 0.45, time: 0.35, stylize: 0.2, color: 0.25, light: 0.35 };
 
-export function chaosLook(seed: number): Look {
+export function chaosLook(seed: number, preference: RollStyle = 'experimental', previous?: Look): Look {
+  const style = chooseRollStyle(seed, preference, previous?.style);
+  if (style !== 'experimental') return { ...remixStyledLook(styledLook(seed, style, previous), seed), id: `chaos-${seed}` };
   const r = rng(seed);
   const ids = Object.keys(MODULES);
   const of = (...cats: string[]) => ids.filter((id) => cats.includes(MODULES[id].cat || ''));
@@ -376,6 +463,7 @@ export function chaosLook(seed: number): Look {
   }
   if (!l.vibe) l.vibe = l.layers.map((x) => MODULES[x.m].name).join(' + ');
   l.id = `chaos-${seed}`;
+  l.style = 'experimental';
   l.name = `${pick(r, ADJ)} ${pick(r, NOUN)}`;
   for (const layer of l.layers) {
     const def = MODULES[layer.m];

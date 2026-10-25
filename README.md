@@ -750,14 +750,17 @@ downbeat/
 │   └── studio/                 # the WebGL2 studio (TypeScript, React, Zustand, Vite)
 │       ├── index.html, styles.css
 │       └── src/
-│           ├── main.tsx, App.tsx   # React root, layout and keyboard shortcuts
+│           ├── main.tsx         # React root and injected studio dependencies
+│           ├── hooks/           # lifecycle, keyboard, file imports, paging and shared interactions
 │           ├── engine/         # no React: WebGL2 render graph, GLSL, the GPU effects and looks, compose(),
 │           │                   #   cut planning, Web Audio transport, WebCodecs export
 │           ├── state/          # Zustand store, plus history, projects, roll, export, media and timeline block actions
 │           ├── canvas/         # per-frame drawing: the render loop, the timeline lane and overview
 │           ├── lib/            # helpers, export formats, preview screens, clip and export search and paging
-│           └── components/     # the panels, plus shared Slider, Card and SearchField (ui.tsx), and the
-│                               #   search, chips, pages and viewer the clip and export browsers share (Library.tsx)
+│           └── components/     # named component folders, each with its implementation and owned CSS
+│               ├── App/        #   studio composition
+│               ├── Card/       #   Card.tsx and Card.css; shared controls follow the same structure
+│               └── …           #   panels, dialogs and reusable library controls
 └── tests/
     ├── test_*.py               # Python tests, one file per package area (media, analysis, delivery, render,
     │                           #   state, projects, library, server, cli) plus test_studio_js.py, which runs the Node suite
@@ -772,7 +775,7 @@ downbeat/
 
 ## Development
 
-The engineering release gate is `npm run quality`: strict TypeScript, measured coverage minimums,
+The engineering release gate is `npm run quality`: React hook linting, strict TypeScript, measured coverage minimums,
 the production build, required browser regressions and CPU performance budgets. Install the Python
 development dependency with `.venv/bin/python -m pip install -e '.[dev]'` first.
 See [engineering quality and performance](docs/QUALITY.md) for coverage scopes, CI and reproducible
@@ -786,6 +789,7 @@ npx vitest run                           # only the React component tests
 make e2e                                 # starts a real server, drives headless Chrome, runs one real export
 node tests/e2e/stress.mjs --minutes 10    # random edits on the running studio until the preview freezes (exit 1) or time runs out
 npm run typecheck                        # TypeScript check without building
+npm run lint:react                       # React hook rules, dependencies, keys and context values
 npm run dev                              # Vite dev server with hot reload; start ./run.sh first, it proxies /api and /out to :8765
 npm run build                            # production build into downbeat/studio/dist (./run.sh does this when sources change)
 ```

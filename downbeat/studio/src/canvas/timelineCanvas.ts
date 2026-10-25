@@ -1,4 +1,4 @@
-import type { StudioState } from '../state/store.ts';
+import type { StudioState } from '../state/storeTypes.ts';
 import { sizeCanvas, roundRect } from '../lib/utils.ts';
 import { cancelThumb, loadThumb } from '../lib/thumbs.ts';
 import type { Segment } from '../engine/types.ts';
@@ -172,6 +172,12 @@ export function drawLane(s: StudioState, onRedraw?: () => void) {
       x.fillStyle = '#e8e9ed';
       x.font = `700 ${10 * dpr}px ui-monospace, SFMono-Regular, Menlo, monospace`;
       if (W > 22 * dpr) x.fillText(`#${ci}`, a + 6 * dpr, bot - 6 * dpr);
+      if (seg.look && W > 54 * dpr) {
+        x.fillStyle = '#b9a4ff';
+        x.textAlign = 'right';
+        x.fillText('FX', a + W - 6 * dpr, bot - 6 * dpr);
+        x.textAlign = 'left';
+      }
     }
     if (editing && seg.clipId !== s.editClip) {
       x.fillStyle = 'rgba(10,10,14,0.62)';

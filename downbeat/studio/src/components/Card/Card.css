@@ -1,0 +1,97 @@
+/* Card styles. */
+
+.inspector .card {
+  margin: 8px 10px;
+  border-color: #303136;
+  border-radius: 7px;
+  background: #1b1c20;
+}
+
+.inspector .card-h {
+  min-height: 40px;
+  gap: 7px;
+  padding: 8px 9px;
+  border-radius: 7px;
+}
+
+.inspector .card-h:hover {
+  background: #1e1f23;
+}
+
+.inspector .card-h .cdot {
+  width: 3px;
+  height: 18px;
+  border-radius: 2px;
+  box-shadow: none;
+}
+
+.inspector .card-h .ct {
+  color: #e8e9ed;
+  font-size: 11.5px;
+  font-weight: 650;
+}
+
+.inspector .card-h .ct small {
+  color: #777982;
+  font-size: 9.5px;
+}
+
+.inspector .card-h .ib {
+  width: 22px;
+  height: 22px;
+  border-radius: 5px;
+}
+
+.inspector .card { margin: 8px 12px; border-radius: 8px; border-color: #35353e; background: #1b1c21; }
+
+.inspector .card-h { padding: 11px 10px; min-height: 45px; }
+
+.inspector .card-h .ct { font-size: 12px; font-weight: 550; }
+
+.inspector .card-h .ct small { display: block; margin: 4px 0 0; color: #a29eae; font-size: 10px; font-weight: 400; }
+
+.inspector .card-h .ib { height: 22px; width: 21px; color: #9c97a8; }
+
+.inspector .card-h .ib:hover:not(:disabled) { color: #ede8f7; background: #33323c; }
+
+.inspector .card-h .ib[title=Remove]:hover { color: #ffa0ac; background: #422b33; }
+
+.inspector .card .note { font-size: 10.5px; line-height: 1.55; color: #a9a4b3; }
+
+.inspector .master-settings .card-h .ct small { display: block; margin: 4px 0 0; }
+
+.card { margin: 10px 12px; border-radius: 12px; background: var(--raised); border: 1px solid var(--line); }
+
+.card-h { display: flex; align-items: center; gap: 8px; padding: 9px 10px; user-select: none; }
+
+.card-h .cdot { width: 8px; height: 8px; border-radius: 3px; background: var(--c, var(--text-3)); box-shadow: 0 0 10px var(--c, transparent); flex: none; }
+
+.card-h .ct { font-weight: 650; font-size: 12.5px; flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+.card-h .ct small { font-weight: 500; color: var(--text-3); margin-left: 6px; font-size: 11px; }
+
+.card-h .ib { width: 24px; height: 24px; border-radius: 7px; color: var(--text-3); display: flex; align-items: center; justify-content: center; font-size: 13px; }
+
+.card-h .ib:hover:not(:disabled) { background: var(--raised-2); color: var(--text); }
+
+.card-h .ib:disabled { opacity: 0.3; cursor: default; }
+
+.card-h { cursor: pointer; }
+
+.card-h .fold { transition: transform 0.15s ease; }
+
+.card.collapsed .card-h .fold { transform: rotate(-90deg); }
+
+.card.collapsed > .prms { display: none; }
+
+.card.off .prms { opacity: 0.35; pointer-events: none; }
+
+.card { border-radius: 6px; background: #212227; border-color: #34353c; }
+
+.card-h { min-height: 36px; }
+
+.cdot { box-shadow: none; width: 5px; height: 5px; border-radius: 1px; }
+
+.card-h .ct { font-size: 11px; }
+
+.card-h .ct small { font-size: 9px; }

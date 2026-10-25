@@ -1,0 +1,39 @@
+/* ProjectButton styles. */
+
+.proj-btn { max-width: 260px; height: 30px; padding: 0 11px 0 10px; gap: 7px; border-radius: 99px; flex: 0 1 auto; min-width: 0; }
+
+.proj-btn .proj-name { overflow: hidden; text-overflow: ellipsis; font-weight: 650; }
+
+.proj-btn small { font-size: 11px; color: var(--text-3); font-weight: 500; }
+
+.proj-dot { flex: none; width: 7px; height: 7px; border-radius: 50%; background: var(--ok); box-shadow: 0 0 8px rgba(124,255,178,0.6); }
+
+.proj-btn.saving .proj-dot { background: var(--text-3); box-shadow: none; }
+
+.proj-btn.failed .proj-dot, .proj-btn.unsaved .proj-dot { background: var(--warn); box-shadow: 0 0 8px rgba(255,200,87,0.6); }
+
+.proj-btn.failed small, .proj-btn.unsaved small { color: var(--warn); }
+
+@media (max-width: 700px) {
+    .proj-btn { max-width: 150px; }
+    .proj-btn small { display: none; }
+  }
+
+.proj-btn { background: transparent; border-color: transparent; border-left: 1px solid var(--line-2); border-radius: 5px; padding-left: 11px; max-width: 270px; gap: 7px; flex-shrink: 1; }
+
+.proj-btn:hover { background: #ffffff05; border-color: transparent; border-left-color: var(--line-2); }
+
+.proj-btn .proj-name { font-size: 12px; font-weight: 550; }
+
+.proj-btn small { font-size: 10px; }
+
+.proj-dot, .proj-btn.unsaved .proj-dot, .proj-btn.failed .proj-dot { width: 5px; height: 5px; box-shadow: none; }
+
+@media (max-width: 1100px) and (min-width: 761px) {
+  .proj-btn { padding-left: 12px; }
+}
+
+@media (max-width: 760px) {
+  .proj-btn { border: 0; padding: 0 5px; margin-right: auto; max-width: 130px; }
+  .proj-btn small { display: none; }
+}

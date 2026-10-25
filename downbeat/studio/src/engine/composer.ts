@@ -110,7 +110,7 @@ export function compose(ctx: ComposeContext, t: number, look: Look = ctx.look): 
   const s = sampleTimeline(tl, t);
   const parts = s.b ? [s.a, s.b] : [s.a];
   const useBlockOverrides = look === ctx.look;
-  const effective = (l: Look, part: TimelineSamplePart): Look => lookWithOverrides(l, useBlockOverrides ? part.seg.overrides : undefined);
+  const effective = (l: Look, part: TimelineSamplePart): Look => lookWithOverrides(useBlockOverrides ? part.seg.look || l : l, useBlockOverrides ? part.seg.overrides : undefined);
   const k = intensityOf(ctx);
   // A frame often uses the same look for both clips, B-roll, camera and finish. Resolve its sources
   // and parameters once in this frame; a fresh cache on the next frame sees in-place inspector edits.
@@ -175,13 +175,14 @@ export function compose(ctx: ComposeContext, t: number, look: Look = ctx.look): 
 
   const perClip = look === ctx.look && ctx.clipLook;
   const hasBroll = (look.layers || []).some((l) => l.on !== false && l.m === 'broll') ||
+    (useBlockOverrides && parts.some(({ seg }) => seg.look?.layers.some((l) => l.on !== false && l.m === 'broll'))) ||
     (perClip && parts.some(({ seg }) => ctx.clipLook?.(seg.clipId, seg)?.layers?.some((l) => l.on !== false && l.m === 'broll')));
 
   if (hasBroll && broll) needs.push(broll);
 
   // Block layer and macro settings, like per-clip looks, run on each side before the transition. Feedback
   // histories are per clip; the same clip on both sides of a cut gets its own for side B.
-  const perBlock = useBlockOverrides && parts.some((part) => !!(part.seg.overrides?.layers || part.seg.overrides?.macro));
+  const perBlock = useBlockOverrides && parts.some((part) => !!(part.seg.look || part.seg.overrides?.layers || part.seg.overrides?.macro));
   const beforeTransition = !!perClip || perBlock;
   const pre: ComposedLayer[][] | null = beforeTransition
     ? needs.filter((n) => !n.aux).map((n, i) => {
@@ -189,7 +190,9 @@ export function compose(ctx: ComposeContext, t: number, look: Look = ctx.look): 
         const baseLook = (perClip && ctx.clipLook?.(n.clipId, part.seg)) || look;
         const blockLook = effective(baseLook, part);
         const { values, readMod } = forLook(blockLook);
-        return layerStack(blockLook, values, k, `c:${n.clipId}${i && n.clipId === needs[0].clipId ? 'b' : ''}:`, readMod);
+        const appearance = part.seg.look ? `:${part.seg.id}` : '';
+        const side = i && n.clipId === needs[0].clipId ? 'b' : '';
+        return layerStack(blockLook, values, k, `c:${n.clipId}${appearance}${side}:`, readMod);
       })
     : null;
   const finishFor = (part: TimelineSamplePart): Record<string, number> => {
@@ -218,7 +221,7 @@ export function compose(ctx: ComposeContext, t: number, look: Look = ctx.look): 
       uAudioPhase: base.audioPhase ?? (((t / L) % 1) + 1) % 1,
       uBassPhase: base.bassPhase ?? (((t / L) % 1) + 1) % 1,
     },
-    lut: look.finish.lut,
+    lut: activeLook.finish.lut,
   };
 }
 

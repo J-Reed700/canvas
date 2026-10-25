@@ -8,8 +8,8 @@ const status = new FakeElement('div');
 dom.byId.set('exportForm', form);
 dom.byId.set('exportStatus', status);
 
-const { useStudioStore: S } = await import('../downbeat/studio/src/state/store.ts');
-const X = await import('../downbeat/studio/src/state/exportController.ts');
+const { studioStore: S } = await import('../downbeat/studio/src/state/store.ts');
+const X = (await import('../downbeat/studio/src/state/store.ts')).studioRuntime.exports;
 const { compareFrame0 } = await import('../downbeat/studio/src/engine/exporter.ts');
 const { LOOKS, cloneLook } = await import('../downbeat/studio/src/engine/looks.ts');
 const { toast } = await import('../downbeat/studio/src/lib/utils.ts');

@@ -1,8 +1,8 @@
 import React from 'react';
 import { describe, expect, test } from 'vitest';
 import { fireEvent, waitFor, within } from '@testing-library/react';
-import { ClipsLibrary } from '../../downbeat/studio/src/components/Clips.tsx';
-import { MediaPanel } from '../../downbeat/studio/src/components/MediaPanel.tsx';
+import { ClipsLibrary } from '../../downbeat/studio/src/components/ClipsLibrary/ClipsLibrary.tsx';
+import { MediaPanel } from '../../downbeat/studio/src/components/MediaPanel/MediaPanel.tsx';
 import { CLIPS, posted, renderStudio, resetStudio, screen, serve, st, toastText } from './studio.tsx';
 
 const FOLDERED = [

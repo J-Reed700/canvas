@@ -1,16 +1,16 @@
 import React from 'react';
-import { describe, expect, test, vi } from 'vitest';
+import { beforeEach, describe, expect, test, vi } from 'vitest';
 import { act, fireEvent, within } from '@testing-library/react';
-import { StagePanel } from '../../downbeat/studio/src/components/StagePanel.tsx';
-import { TopBar } from '../../downbeat/studio/src/components/TopBar.tsx';
+import { studioRuntime } from '../../downbeat/studio/src/state/store.ts';
+import { StagePanel } from '../../downbeat/studio/src/components/StagePanel/StagePanel.tsx';
+import { TopBar } from '../../downbeat/studio/src/components/TopBar/TopBar.tsx';
 import { LOOKS, S, pop, popButton, popButtons, renderStudio, resetStudio, screen, st, toastText, update, withSong } from './studio.tsx';
 
 // The preview reframes whichever clip is on screen, which the render loop reports.
-const onScreen = vi.hoisted(() => ({ frame: null as any }));
-vi.mock('../../downbeat/studio/src/canvas/renderLoop.ts', async (importOriginal) => ({
-  ...(await importOriginal<object>()),
-  getLastFrame: () => onScreen.frame,
-}));
+const onScreen = { frame: null as any };
+beforeEach(() => {
+  vi.spyOn(studioRuntime.preview, 'getLastFrame').mockImplementation(() => onScreen.frame);
+});
 
 const barsSeg = () => document.getElementById('barsSeg') as HTMLElement;
 const view = () => document.getElementById('view') as HTMLCanvasElement;

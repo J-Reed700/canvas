@@ -1,0 +1,31 @@
+/* Welcome styles. */
+
+.welcome { position: fixed; inset: 0; z-index: 55; display: flex; align-items: center; justify-content: center; padding: 16px; background: rgba(5,5,7,0.8); backdrop-filter: blur(18px); }
+
+.welcome-in { width: min(440px, 100%); display: flex; flex-direction: column; align-items: center; gap: 14px; text-align: center; }
+
+.welcome h1 { font-size: 28px; font-weight: 700; letter-spacing: -0.02em; margin-top: 6px; }
+
+.welcome p { color: var(--text-2); font-size: 14px; line-height: 1.55; }
+
+.btn.welcome-pick { height: 64px; padding: 0 48px; margin: 8px 0 2px; border-radius: 16px; font-size: 18px; font-weight: 700; }
+
+.btn.welcome-pick:disabled { opacity: 0.6; cursor: default; }
+
+.welcome-type { font-size: 12.5px; }
+
+.welcome { background: #101113d9; backdrop-filter: blur(12px); }
+
+.welcome-in { width: min(460px, 100%); padding: 36px 32px; gap: 16px; border: 1px solid #3c3d45; border-radius: 12px; background: #202126; box-shadow: 0 20px 70px #0005; }
+
+.welcome .brand { margin-bottom: 10px; }
+
+.welcome .brand small { display: block; }
+
+.welcome h1 { font-size: 24px; font-weight: 600; letter-spacing: -.7px; margin: 0; }
+
+.welcome p { max-width: 350px; font-size: 12.5px; line-height: 1.7; }
+
+.btn.welcome-pick { height: 40px; padding: 0 28px; margin: 4px 0 0; border-radius: 5px; font-size: 12px; font-weight: 600; }
+
+.welcome-type { color: var(--text-3); font-size: 11px; }

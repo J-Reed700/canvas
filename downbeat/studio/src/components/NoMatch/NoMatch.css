@@ -1,0 +1,16 @@
+/* NoMatch styles. */
+
+.media .clips .exp-empty {
+  grid-column: 1 / -1;
+  padding: 15px 10px;
+  color: var(--media-muted);
+  background: #18191c;
+  border: 1px solid var(--media-line);
+  border-radius: 7px;
+  font-size: 10px;
+  text-align: center;
+}
+
+.exp-empty { padding: 14px 10px; border-radius: 10px; border: 1px dashed var(--line-2); text-align: center; color: var(--text-3); font-size: 12px; }
+
+.clips .exp-empty { grid-column: 1 / -1; }

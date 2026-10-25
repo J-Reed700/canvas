@@ -1,0 +1,49 @@
+.stroke-ico {
+  width: 14px;
+  height: 14px;
+  flex: none;
+  overflow: visible;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.45;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.tp-btn-chevron .stroke-ico {
+  width: 11px;
+  height: 11px;
+}
+
+.media .clip-tools .clip-frame .stroke-ico {
+  width: 13px;
+  height: 13px;
+}
+
+.media .clip .num .stroke-ico {
+  width: 9px;
+  height: 9px;
+  stroke-width: 1.8;
+}
+
+.clips-lib .clip-select .stroke-ico {
+  width: 13px;
+  height: 13px;
+  stroke-width: 1.75;
+}
+
+.tp-panel .tp-x .stroke-ico {
+  width: 11px;
+  height: 11px;
+}
+
+.tp-panel .tp-row-check .stroke-ico {
+  width: 12px;
+  height: 12px;
+  stroke-width: 1.8;
+}
+
+.tp-panel .tp-row-none .tp-row-icon .stroke-ico {
+  width: 13px;
+  height: 13px;
+}

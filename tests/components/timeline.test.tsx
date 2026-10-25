@@ -1,7 +1,8 @@
 import React from 'react';
 import { describe, expect, test, vi } from 'vitest';
 import { fireEvent, within } from '@testing-library/react';
-import { TimelinePanel } from '../../downbeat/studio/src/components/TimelinePanel.tsx';
+import { TimelinePanel } from '../../downbeat/studio/src/components/TimelinePanel/TimelinePanel.tsx';
+import { SegmentTransitionPicker } from '../../downbeat/studio/src/components/SegmentTransitionPicker/SegmentTransitionPicker.tsx';
 import { RHYTHMS, VELOCITY } from '../../downbeat/studio/src/engine/timeline.ts';
 import { compose } from '../../downbeat/studio/src/engine/composer.ts';
 import { TRANSITIONS } from '../../downbeat/studio/src/engine/shaders.ts';
@@ -20,7 +21,7 @@ const block = (id: string) => st().blocks?.find((b) => b.id === id);
 function barEdit(over = {}) {
   resetStudio(over);
   update(() => { st().look!.cut.rhythm = 'bar'; st().look!.cut.transitions = ['dissolve']; st().rebuild(); });
-  renderStudio(<TimelinePanel />);
+  renderStudio(<><TimelinePanel /><SegmentTransitionPicker /></>);
   rect(lane(), 400);
   lane().setPointerCapture = () => {};
 }
@@ -136,10 +137,11 @@ describe('lane', () => {
     expect(open()).toBe(true);
     expect(pop().className).toContain('seg-menu');
     expect(pop().querySelector('h4')!.textContent).toBe('Segment 2 of 4');
-    expect(pop().querySelector('.seg-head .meta')!.textContent).toMatch(/^Bar 2, beat 1 · \d+\.\d\d s long$/);
+    expect(pop().querySelector('.seg-head .meta')!.textContent).toBe('Clip 2 · appearance 1 of 1');
+    expect(pop().querySelector('.seg-scope-line')!.textContent).toMatch(/Bar 2, beat 1 · \d+\.\d\d s long$/);
     const labels = Array.from(pop().querySelectorAll('.seg-l > span:first-child')).map((l) => l.textContent);
-    expect(labels).toEqual(['Timing', 'Transition length', 'Clip', 'In-point', 'Direction', 'Clip speed', 'Speed ramp', 'Transition in', 'Framing', 'Motion', 'Quick moves']);
-    expect(Array.from(pop().querySelectorAll('.seg-group small')).map((g) => g.textContent)).toEqual(['Smooth', 'Kinetic', 'Glitch', 'Other']);
+    expect(labels).toEqual(['Timing', 'Transition length', 'Transition in', 'Clip', 'In-point', 'Direction', 'Clip speed', 'Speed ramp', 'Framing', 'Motion', 'Quick moves']);
+    expect(pop().querySelector('.seg-transition-picker')).toBeTruthy();
 
     expect(tile('#2 city.mp4').className).toContain('on');
     fireEvent.click(tile('#3 cover'));
@@ -153,21 +155,24 @@ describe('lane', () => {
     fireEvent.click(popButton(VELOCITY.hold.name));
     expect(st().ctx!.tl.segs[1].vel).toBe('hold');
     expect(popButton(VELOCITY.hold.name).className).toBe('on');
-    fireEvent.click(popButton(TRANSITIONS.zoom.name));
+    fireEvent.click(popButton('Timing'));
+    fireEvent.click(within(pop()).getByRole('button', { name: 'Choose transition' }));
+    fireEvent.change(screen.getByRole('searchbox', { name: 'Search transitions' }), { target: { value: TRANSITIONS.zoom.name } });
+    fireEvent.click(screen.getByRole('button', { name: `Use ${TRANSITIONS.zoom.name}` }));
     expect(st().ctx!.tl.segs[1].trans).toBe('zoom');
     expect(block('g1')).toMatchObject({ clipId: 'c', vel: 'hold', trans: 'zoom' });
 
     const slider = pop().querySelector('input[type=range]') as HTMLInputElement;
     fireEvent.input(slider, { target: { value: '1.5' } });
     expect(st().ctx!.tl.segs[1].in).toBe(1.5);
-    expect(pop().querySelector('.seg-body .seg-val')!.textContent).toBe('1.50 s');
+    expect(pop().querySelector('[aria-label="In-point"]')!.closest('.seg-f')!.querySelector('.seg-val')!.textContent).toBe('1.50 s');
     expect(st().transport.loopTime()).toBeCloseTo(2.25, 9);
 
     fireEvent.click(pop().querySelector('.seg-x')!);
     expect(open()).toBe(false);
 
     fireEvent.doubleClick(lane(), { clientX: 10, clientY: 30 });
-    expect(pop().querySelector('.seg-body')!.textContent).toContain('loop seam');
+    expect(pop().querySelector('#segment-panel-timing')!.textContent).toContain('joins the end of the loop');
   });
 
   test('clip speed changes only one segment, preserves its other settings, and can follow the edit again', () => {
@@ -274,7 +279,7 @@ describe('lane', () => {
     const auto = () => pop().querySelector('.seg-auto') as HTMLButtonElement;
     expect(marks()).toEqual([]);
     expect(auto().disabled).toBe(true);
-    expect(pop().querySelector('.seg-foot')!.textContent).toContain('Everything here is automatic');
+    expect(pop().querySelector('.seg-foot')!.textContent).toContain('Changes save automatically');
 
     const frames = Array.from(pop().querySelectorAll<HTMLButtonElement>('.seg-strip button'));
     expect(frames).toHaveLength(8);
@@ -283,7 +288,7 @@ describe('lane', () => {
     expect(frames[4].dataset.thumb).toBe(`/api/thumb/b?w=120&t=${t.toFixed(2)}`); // shown once it has loaded
     fireEvent.click(frames[4]);
     expect(st().ctx!.tl.segs[1].in).toBeCloseTo(t, 9);
-    expect(pop().querySelector('.seg-body .seg-val')!.textContent).toBe(`${t.toFixed(2)} s`);
+    expect(pop().querySelector('[aria-label="In-point"]')!.closest('.seg-f')!.querySelector('.seg-val')!.textContent).toBe(`${t.toFixed(2)} s`);
     expect(parseFloat((pop().querySelector('.seg-mark') as HTMLElement).style.left)).toBeCloseTo((t / max) * 100, 6);
 
     fireEvent.click(popButton('Reverse'));
@@ -292,7 +297,7 @@ describe('lane', () => {
     expect([st().ctx!.tl.segs[1].rev, st().ctx!.tl.segs[1].pp]).toEqual([false, true]);
     expect(popButton('Ping-pong').className).toBe('on');
     expect(marks()).toEqual(['In-point', 'Direction']);
-    expect(pop().querySelector('.seg-foot')!.textContent).toContain('Dots mark what you set');
+    expect(auto().disabled).toBe(false);
 
     fireEvent.click(auto());
     expect(st().blocks, 'nothing set by hand is left, so the edit follows the rhythm again').toBe(null);
@@ -360,7 +365,10 @@ describe('segment framing', () => {
     const win = pop().querySelector('.seg-win') as HTMLElement;
     expect([win.style.left, win.style.top, win.style.width, win.style.height].map(parseFloat).map((v) => +v.toFixed(6))).toEqual([l, t, w, hh].map((v) => +(v * 100).toFixed(6)));
 
-    fireEvent.click(popButton(TRANSITIONS.zoom.name));
+    fireEvent.click(popButton('Timing'));
+    fireEvent.click(within(pop()).getByRole('button', { name: 'Choose transition' }));
+    fireEvent.change(screen.getByRole('searchbox', { name: 'Search transitions' }), { target: { value: TRANSITIONS.zoom.name } });
+    fireEvent.click(screen.getByRole('button', { name: `Use ${TRANSITIONS.zoom.name}` }));
     fireEvent.click(auto());
     expect(block('g1')!.trans, 'Auto forgets the framing and nothing else').toBe('zoom');
     expect(frame()).toBeUndefined();
@@ -497,21 +505,19 @@ describe('segment framing', () => {
     expect(frame()!.a[2], 'a pick after zooming keeps the zoom').toBeCloseTo(Math.exp(0.3), 9);
   });
 
-  test('a menu taller than the window says there is more below until it is scrolled to the end', () => {
+  test('section arrow keys move through the editor without switching timeline appearances', () => {
     open();
-    const pop = document.getElementById('pop')!;
-    const more = pop.querySelector('.seg-more') as HTMLElement;
-    Object.defineProperty(pop, 'clientHeight', { configurable: true, value: 600 });
-    Object.defineProperty(pop, 'scrollHeight', { configurable: true, value: 1000 });
-    pop.scrollTop = 0;
-    fireEvent.scroll(pop);
-    expect(more.hidden).toBe(false);
-    pop.scrollTop = 400;
-    fireEvent.scroll(pop);
-    expect(more.hidden).toBe(true);
-    pop.scrollTop = 100;
-    fireEvent.click(popButton('Smooth'));
-    expect((pop.querySelector('.seg-more') as HTMLElement).hidden, 'still there after the menu redraws').toBe(false);
+    const selected = st().editBlock;
+    const editor = within(pop());
+    fireEvent.keyDown(editor.getByRole('tab', { name: 'Look & effects' }), { key: 'ArrowRight' });
+    expect(editor.getByRole('tab', { name: 'Timing' }).getAttribute('aria-selected')).toBe('true');
+    expect(document.activeElement).toBe(editor.getByRole('tab', { name: 'Timing' }));
+    expect(st().editBlock).toBe(selected);
+    fireEvent.keyDown(document.activeElement!, { key: 'End' });
+    expect(editor.getByRole('tab', { name: 'Framing' }).getAttribute('aria-selected')).toBe('true');
+    expect(pop().querySelector('.seg-foot')!.parentElement).toBe(pop());
+    expect(pop().querySelector('.seg-head')!.parentElement).toBe(pop());
+    expect(st().editBlock).toBe(selected);
   });
 });
 

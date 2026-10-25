@@ -4,6 +4,8 @@ import type { CubeLut } from './lut.ts';
 import type { Engine } from './engine.ts';
 
 export type CategoryId = 'space' | 'warp' | 'time' | 'light' | 'stylize' | 'color';
+export type LookStyle = 'natural' | 'monochrome' | 'film' | 'soft' | 'light' | 'illustrated' | 'experimental';
+export type RollStyle = 'balanced' | LookStyle;
 
 export interface CategoryMeta {
   name: string;
@@ -54,6 +56,8 @@ export interface ModuleDef {
   kind?: string;
   feedback?: boolean;
   aux?: string;
+  /** Families this effect can join when generating a restrained look. */
+  styles?: LookStyle[];
 }
 
 export interface LayerSpec {
@@ -82,6 +86,7 @@ export interface Look {
   name: string;
   vibe: string;
   group?: string;
+  style?: LookStyle;
   mine?: boolean;
   layers: LayerSpec[];
   camera: HolderSpec;
@@ -275,6 +280,8 @@ export interface Block {
   frame?: SegmentFrame;
   /** Sparse values owned by this block; unset values continue to follow the look. */
   overrides?: BlockOverrides;
+  /** A complete visual treatment owned by this appearance, independent of its source clip. */
+  look?: Look;
 }
 
 export interface BlockOverrides {
@@ -286,7 +293,7 @@ export interface BlockOverrides {
 }
 
 /** What the segment menu and the lane change on one block. */
-export type BlockPatch = Partial<Pick<Block, 'clipId' | 'in' | 'trans' | 'transBeats' | 'vel' | 'dir' | 'frame' | 'overrides'>>;
+export type BlockPatch = Partial<Pick<Block, 'clipId' | 'in' | 'trans' | 'transBeats' | 'vel' | 'dir' | 'frame' | 'overrides' | 'look'>>;
 
 /** Per-segment settings as sessions saved them before blocks, keyed by segment number. Read once, when
  * such a session opens. */
@@ -329,6 +336,7 @@ export interface Segment {
   seed: number;
   span: [number, number];
   overrides?: BlockOverrides;
+  look?: Look;
 }
 
 export interface TimelinePlan {
@@ -414,8 +422,12 @@ export interface ComposeContext {
   clips?: ClipMeta[];
 }
 
+export type TransitionType = 'Cuts & fades' | 'Wipes' | 'Slides' | 'Zoom & spin' | 'Light & color' | 'Distortion' | 'Glitch' | 'Shapes';
+
 export interface TransitionDef {
   name: string;
+  type: TransitionType;
+  description: string;
   glsl: string;
 }
 

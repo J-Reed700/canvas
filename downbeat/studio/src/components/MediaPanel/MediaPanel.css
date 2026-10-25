@@ -1,0 +1,262 @@
+/* MediaPanel styles. */
+
+.media {
+  --media-bg: #151619;
+  --media-raised: #1d1e22;
+  --media-raised-hover: #24252a;
+  --media-line: #303136;
+  --media-line-strong: #46474e;
+  --media-text: #e8e9ed;
+  --media-muted: #94969f;
+  --media-faint: #6f717a;
+  --media-accent: #b9a4ff;
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  background: var(--media-bg);
+  border-color: var(--media-line);
+  color: var(--media-text);
+}
+
+.media-head {
+  position: relative;
+  z-index: 4;
+  display: flex;
+  min-height: 43px;
+  flex: none;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 7px 9px 7px 11px;
+  background: #18191c;
+  border-bottom: 1px solid var(--media-line);
+}
+
+.media-title {
+  display: flex;
+  min-width: 0;
+  align-items: baseline;
+  gap: 7px;
+}
+
+.media-title h2 {
+  color: var(--media-text);
+  font-size: 12px;
+  font-weight: 680;
+  letter-spacing: .01em;
+}
+
+.media-title span {
+  overflow: hidden;
+  color: var(--media-faint);
+  font-size: 10px;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.media .media-import {
+  height: 25px;
+  padding: 0 8px;
+  gap: 5px;
+  color: #17151d;
+  background: var(--media-accent);
+  border-color: transparent;
+  border-radius: 4px;
+  font-size: 10.5px;
+  font-weight: 650;
+  box-shadow: none;
+}
+
+.media .media-import:hover {
+  color: #17151d;
+  background: #c5b5ff;
+  border-color: transparent;
+}
+
+.media > .scroll {
+  height: auto;
+  min-height: 0;
+  flex: 1;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+}
+
+.media .sec {
+  padding: 10px 10px 11px;
+  border-color: var(--media-line);
+}
+
+.media .sec:last-child { border-bottom: 0; }
+
+.media .sec-h {
+  min-height: 22px;
+  margin-bottom: 7px;
+  gap: 6px;
+}
+
+.media .sec-h h3 {
+  color: var(--media-muted);
+  font-size: 9.5px;
+  font-weight: 680;
+  letter-spacing: .095em;
+}
+
+.media .sec-h .meta {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--media-faint);
+  font-size: 9.5px;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.media .sec-track {
+  padding-bottom: 9px;
+}
+
+.media .track-meta {
+  gap: 4px;
+  margin-top: 6px;
+  color: var(--media-faint);
+  font-size: 9.5px;
+  line-height: 1.25;
+}
+
+.media .track-meta b {
+  color: var(--media-muted);
+}
+
+.media .bpm-edit b {
+  color: var(--media-text);
+}
+
+.media .track-meta .mini {
+  height: 19px;
+  padding: 0 5px;
+  color: var(--media-muted);
+  background: transparent;
+  border-color: var(--media-line);
+  border-radius: 4px;
+  font-size: 9px;
+}
+
+.media .track-meta .mini:hover:not(:disabled) {
+  color: var(--media-text);
+  background: var(--media-raised-hover);
+  border-color: var(--media-line-strong);
+}
+
+.media .track-meta .grid-row {
+  margin-top: 1px;
+  padding-top: 4px;
+  border-top: 1px solid #28292d;
+  color: var(--media-faint);
+  font-size: 9.5px;
+}
+
+.media .track-meta .nudge {
+  min-width: 34px;
+  color: var(--media-muted);
+  font-size: 9px;
+}
+
+.media .meters {
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 3px;
+  margin-top: 6px;
+}
+
+.media .meter {
+  gap: 2px;
+}
+
+.media .meter .bar {
+  height: 11px;
+  background: #202126;
+  border: 1px solid #28292e;
+  border-radius: 2px;
+}
+
+.media .meter .bar i {
+  border-radius: 1px;
+  box-shadow: none;
+  opacity: .58;
+}
+
+.media .meter span {
+  color: #70727a;
+  font-size: 7px;
+  letter-spacing: .025em;
+}
+
+.media .drop-hint {
+  margin-top: 8px;
+  padding: 7px 2px 0;
+  color: var(--media-faint);
+  background: none;
+  border: 0;
+  border-top: 1px solid #28292d;
+  border-radius: 0;
+  font-size: 8.5px;
+  line-height: 1.35;
+  text-align: left;
+}
+
+@media (max-width: 430px) {
+  .media-title span {
+    display: none;
+  }
+}
+
+.media { grid-area: media; }
+
+.track-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin-top: 8px; color: var(--text-3); font-size: 11.5px; font-variant-numeric: tabular-nums; }
+
+.track-meta b { color: var(--text-2); font-weight: 600; }
+
+.bpm-edit b { color: var(--text); padding: 1px 4px; margin-left: -4px; border-radius: 5px; outline: none; cursor: text; }
+
+.bpm-edit b:hover, .bpm-edit b:focus { background: var(--raised-2); box-shadow: 0 0 0 1px var(--line-2) inset; }
+
+.track-meta .mini { height: 20px; padding: 0 6px; border-radius: 6px; font: 600 10.5px var(--mono); color: var(--text-2); background: var(--raised); border: 1px solid var(--line); }
+
+.track-meta .bpm-edit { white-space: nowrap; }
+
+.track-meta .grid-row { flex-basis: 100%; display: flex; align-items: center; gap: 4px; margin-top: 2px; color: var(--text-3); font-size: 11px; }
+
+.track-meta .grid-row > span:first-child { margin-right: auto; }
+
+.track-meta .nudge { font: 600 10.5px var(--mono); color: var(--text-3); cursor: pointer; min-width: 38px; text-align: center; }
+
+.track-meta .mini:hover:not(:disabled) { color: var(--text); border-color: var(--line-2); }
+
+.track-meta .mini:disabled { opacity: 0.35; cursor: default; }
+
+.meters { display: grid; grid-template-columns: repeat(6, 1fr); gap: 6px; margin-top: 12px; }
+
+.meter { display: flex; flex-direction: column; align-items: center; gap: 5px; }
+
+.meter .bar { width: 100%; height: 38px; border-radius: 6px; background: var(--raised); position: relative; overflow: hidden; }
+
+.meter .bar i { position: absolute; left: 0; right: 0; bottom: 0; height: 0%; border-radius: 6px; background: var(--c); box-shadow: 0 0 14px var(--c); opacity: 0.9; }
+
+.meter span { font-size: 9.5px; color: var(--text-3); letter-spacing: 0.04em; text-transform: uppercase; }
+
+.drop-hint { margin-top: 10px; border: 1px dashed var(--line-2); border-radius: 10px; padding: 10px; text-align: center; color: var(--text-3); font-size: 11.5px; }
+
+@media (max-width: 1100px) {
+    .media .scroll { height: auto; overflow: visible; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+  }
+
+@media (max-width: 700px) {
+    .media .scroll { display: block; }
+  }
+
+.studio-workspace .media .scroll { display: block; height: auto; min-height: 0; overflow-y: auto; }
+
+@media (max-width: 760px) {
+  .studio-workspace .media { max-height: 650px; }
+  .studio-workspace .media .scroll { max-height: 590px; }
+}

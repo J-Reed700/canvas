@@ -1,0 +1,38 @@
+/* SearchField styles. */
+
+.media .clip-find .exp-search {
+  height: 27px;
+  padding: 0 8px;
+  gap: 6px;
+  color: var(--media-faint);
+  background: #111215;
+  border-color: var(--media-line);
+  border-radius: 6px;
+}
+
+.media .clip-find .exp-search:focus-within {
+  color: var(--media-muted);
+  border-color: #625a7e;
+  box-shadow: 0 0 0 1px #625a7e;
+}
+
+.media .clip-find .exp-search input {
+  color: var(--media-text);
+  font-size: 10.5px;
+}
+
+.exp-search { display: flex; align-items: center; gap: 7px; height: 30px; padding: 0 10px; border-radius: 9px; background: rgba(0,0,0,0.22); border: 1px solid var(--line); color: var(--text-3); cursor: text; }
+
+.exp-search:focus-within { border-color: var(--line-2); color: var(--text-2); }
+
+.exp-search input { flex: 1; min-width: 0; height: 100%; border: 0; outline: none; background: none; font-size: 12px; }
+
+.exp-search input::placeholder { color: var(--text-3); }
+
+.exp-search input::-webkit-search-cancel-button { filter: invert(0.6); cursor: pointer; }
+
+.lib-bar .exp-search { flex: 1 1 240px; height: 36px; }
+
+.lib-bar .exp-search input { font-size: 13px; }
+
+.exp-search { border-radius: 5px; background: #131418; }

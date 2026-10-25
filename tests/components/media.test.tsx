@@ -1,8 +1,8 @@
 import React from 'react';
 import { describe, expect, test, vi } from 'vitest';
 import { act, fireEvent, waitFor, within } from '@testing-library/react';
-import { MediaPanel } from '../../downbeat/studio/src/components/MediaPanel.tsx';
-import { TrackPicker } from '../../downbeat/studio/src/components/TrackPicker.tsx';
+import { MediaPanel } from '../../downbeat/studio/src/components/MediaPanel/MediaPanel.tsx';
+import { TrackPicker } from '../../downbeat/studio/src/components/TrackPicker/TrackPicker.tsx';
 import { METERS } from '../../downbeat/studio/src/lib/utils.ts';
 import { CLIPS, LOOKS, SONG, TRACKS, posted, renderStudio, resetStudio, screen, serve, st, toastText, update, withSong } from './studio.tsx';
 
