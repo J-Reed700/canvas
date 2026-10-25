@@ -2,11 +2,11 @@ import React from 'react';
 import { describe, expect, test, vi } from 'vitest';
 import { fireEvent, within } from '@testing-library/react';
 import { TimelinePanel } from '../../downbeat/studio/src/components/TimelinePanel/TimelinePanel.tsx';
-import { SegmentTransitionPicker } from '../../downbeat/studio/src/components/SegmentTransitionPicker/SegmentTransitionPicker.tsx';
+import { EditPane } from '../../downbeat/studio/src/components/EditPane/EditPane.tsx';
 import { RHYTHMS, VELOCITY } from '../../downbeat/studio/src/engine/timeline.ts';
 import { compose } from '../../downbeat/studio/src/engine/composer.ts';
 import { TRANSITIONS } from '../../downbeat/studio/src/engine/shaders.ts';
-import { S, pop, popButton, renderStudio, resetStudio, screen, st, update, withSong } from './studio.tsx';
+import { S, renderStudio, resetStudio, screen, segButton, segPanel, st, update, withSong } from './studio.tsx';
 import { cropRect, room } from '../../downbeat/studio/src/lib/utils.ts';
 
 const lane = () => document.getElementById('lane') as HTMLCanvasElement;
@@ -21,7 +21,7 @@ const block = (id: string) => st().blocks?.find((b) => b.id === id);
 function barEdit(over = {}) {
   resetStudio(over);
   update(() => { st().look!.cut.rhythm = 'bar'; st().look!.cut.transitions = ['dissolve']; st().rebuild(); });
-  renderStudio(<><TimelinePanel /><SegmentTransitionPicker /></>);
+  renderStudio(<><TimelinePanel /><EditPane /></>);
   rect(lane(), 400);
   lane().setPointerCapture = () => {};
 }
@@ -129,50 +129,47 @@ describe('lane', () => {
     expect(lane().style.cursor).toBe('');
   });
 
-  test('double-clicking a segment opens a menu for its clip, in-point, speed ramp and transition that stays open', () => {
+  test('double-clicking a segment selects it and brings its clip, in-point, speed ramp and transition into the Edit tab, which stays put', () => {
     barEdit();
     fireEvent.doubleClick(lane(), { clientX: 125, clientY: 30 });
-    const open = () => pop().classList.contains('on');
-    const tile = (title: string) => pop().querySelector<HTMLButtonElement>(`.seg-clip[title="${title}"]`)!;
-    expect(open()).toBe(true);
-    expect(pop().className).toContain('seg-menu');
-    expect(pop().querySelector('h4')!.textContent).toBe('Segment 2 of 4');
-    expect(pop().querySelector('.seg-head .meta')!.textContent).toBe('Clip 2 · appearance 1 of 1');
-    expect(pop().querySelector('.seg-scope-line')!.textContent).toMatch(/Bar 2, beat 1 · \d+\.\d\d s long$/);
-    const labels = Array.from(pop().querySelectorAll('.seg-l > span:first-child')).map((l) => l.textContent);
+    const tile = (title: string) => segPanel().querySelector<HTMLButtonElement>(`.seg-clip[title="${title}"]`)!;
+    expect(st().selectedBlock).toBe('g1');
+    expect(st().editBlock).toBe('g1');
+    expect(st().tab).toBe('edit');
+    expect(segPanel()).toBeTruthy();
+    expect(segPanel().querySelector('.seg-where')!.textContent).toMatch(/^Bar 2, beat 1 · \d+\.\d\d s long$/);
+    expect(Array.from(segPanel().querySelectorAll('.seg-family > summary')).map((l) => l.textContent)).toEqual(['Timing & transition', 'Source & playback', 'Framing']);
+    const labels = Array.from(segPanel().querySelectorAll('.seg-l > span:first-child')).map((l) => l.textContent);
     expect(labels).toEqual(['Timing', 'Transition length', 'Transition in', 'Clip', 'In-point', 'Direction', 'Clip speed', 'Speed ramp', 'Framing', 'Motion', 'Quick moves']);
-    expect(pop().querySelector('.seg-transition-picker')).toBeTruthy();
+    expect(segPanel().querySelector('.seg-transition-picker')).toBeTruthy();
 
     expect(tile('#2 city.mp4').className).toContain('on');
     fireEvent.click(tile('#3 cover'));
     expect(block('g1')!.clipId).toBe('c');
     expect(st().ctx!.tl.segs[1].clipId).toBe('c');
-    expect(open(), 'a pick keeps the menu open').toBe(true);
+    expect(st().editBlock, 'a pick keeps the segment in the Edit tab').toBe('g1');
     expect(tile('#3 cover').className).toContain('on');
     expect(tile('#2 city.mp4').className).not.toContain('on');
-    expect(pop().querySelector('.seg-name')!.textContent).toBe('cover');
+    expect(segPanel().querySelector('.seg-name')!.textContent).toBe('cover');
 
-    fireEvent.click(popButton(VELOCITY.hold.name));
+    fireEvent.click(segButton(VELOCITY.hold.name));
     expect(st().ctx!.tl.segs[1].vel).toBe('hold');
-    expect(popButton(VELOCITY.hold.name).className).toBe('on');
-    fireEvent.click(popButton('Timing'));
-    fireEvent.click(within(pop()).getByRole('button', { name: 'Choose transition' }));
+    expect(segButton(VELOCITY.hold.name).className).toBe('on');
+    fireEvent.click(within(segPanel()).getByRole('button', { name: 'Choose transition' }));
     fireEvent.change(screen.getByRole('searchbox', { name: 'Search transitions' }), { target: { value: TRANSITIONS.zoom.name } });
     fireEvent.click(screen.getByRole('button', { name: `Use ${TRANSITIONS.zoom.name}` }));
     expect(st().ctx!.tl.segs[1].trans).toBe('zoom');
     expect(block('g1')).toMatchObject({ clipId: 'c', vel: 'hold', trans: 'zoom' });
 
-    const slider = pop().querySelector('input[type=range]') as HTMLInputElement;
+    const slider = segPanel().querySelector('input[aria-label="In-point"]') as HTMLInputElement;
     fireEvent.input(slider, { target: { value: '1.5' } });
     expect(st().ctx!.tl.segs[1].in).toBe(1.5);
-    expect(pop().querySelector('[aria-label="In-point"]')!.closest('.seg-f')!.querySelector('.seg-val')!.textContent).toBe('1.50 s');
+    expect(segPanel().querySelector('[aria-label="In-point"]')!.closest('.seg-f')!.querySelector('.seg-val')!.textContent).toBe('1.50 s');
     expect(st().transport.loopTime()).toBeCloseTo(2.25, 9);
 
-    fireEvent.click(pop().querySelector('.seg-x')!);
-    expect(open()).toBe(false);
-
     fireEvent.doubleClick(lane(), { clientX: 10, clientY: 30 });
-    expect(pop().querySelector('#segment-panel-timing')!.textContent).toContain('joins the end of the loop');
+    expect(st().editBlock).toBe(st().ctx!.tl.segs[0].id);
+    expect(segPanel().textContent).toContain('joins the end of the loop');
   });
 
   test('clip speed changes only one segment, preserves its other settings, and can follow the edit again', () => {
@@ -180,12 +177,12 @@ describe('lane', () => {
     update(() => st().setBlock('g1', { overrides: { camera: { zoom: 1.3 }, finish: { grain: 0.1 } } }));
     const cuts = st().ctx!.tl.segs.map((s) => [s.t0, s.t1]);
     fireEvent.doubleClick(lane(), { clientX: 125, clientY: 30 });
-    const slider = within(pop()).getByLabelText('Clip speed');
+    const slider = within(segPanel()).getByLabelText('Clip speed');
     fireEvent.input(slider, { target: { value: '1.5' } });
     fireEvent.input(slider, { target: { value: '1.75' } });
-    expect(within(pop()).getByLabelText('Clip speed'), 'a drag keeps its input mounted').toBe(slider);
+    expect(within(segPanel()).getByLabelText('Clip speed'), 'a drag keeps its input mounted').toBe(slider);
     expect(st().ctx!.tl.segs.map((s) => s.speed)).toEqual([1, 1.75, 1, 1]);
-    expect(pop().querySelector('.seg-speed')!.parentElement!.querySelector('.seg-val')!.textContent).toBe('1.75×');
+    expect(segPanel().querySelector('.seg-speed')!.parentElement!.querySelector('.seg-val')!.textContent).toBe('1.75×');
     fireEvent.change(slider);
     expect(block('g1')!.overrides).toEqual({ camera: { zoom: 1.3, speed: 1.75 }, finish: { grain: 0.1 } });
     expect(st().ctx!.tl.segs.map((s) => [s.t0, s.t1])).toEqual(cuts);
@@ -193,7 +190,7 @@ describe('lane', () => {
     const after = compose(st().ctx!, 2.85).needs[0];
     expect(before.rate).toBe(1.75);
     expect(after.time - before.time).toBeCloseTo(0.175, 9);
-    fireEvent.click(within(pop().querySelector('.seg-speed')!).getByText('Auto'));
+    fireEvent.click(within(segPanel().querySelector('.seg-speed')!).getByText('Auto'));
     expect(st().ctx!.tl.segs[1].speed).toBe(1);
     expect(block('g1')!.overrides).toEqual({ camera: { zoom: 1.3 }, finish: { grain: 0.1 } });
   });
@@ -203,14 +200,14 @@ describe('lane', () => {
     update(() => { st().look!.cut.velocity = 'surge'; st().rebuild(); });
     const cuts = st().ctx!.tl.segs.map((s) => [s.t0, s.t1]);
     fireEvent.doubleClick(lane(), { clientX: 125, clientY: 30 });
-    fireEvent.input(within(pop()).getByLabelText('Original clip BPM'), { target: { value: '80' } });
-    fireEvent.click(popButton('Match 120 BPM'));
+    fireEvent.input(within(segPanel()).getByLabelText('Original clip BPM'), { target: { value: '80' } });
+    fireEvent.click(segButton('Match 120 BPM'));
     expect(st().ctx!.tl.segs.map((s) => s.speed)).toEqual([1, 1.5, 1, 1]);
     expect(st().ctx!.tl.segs[1].vel).toBe('none');
     expect(st().ctx!.tl.segs[0].vel).toBe('surge');
     expect(st().ctx!.tl.segs.map((s) => [s.t0, s.t1])).toEqual(cuts);
     expect(st().bpm()).toBe(120);
-    expect(pop().querySelector('.seg-speed')!.textContent).toContain('80 → 120 BPM at 1.50×');
+    expect(segPanel().querySelector('.seg-speed')!.textContent).toContain('80 → 120 BPM at 1.50×');
     const saved = st().snapshot();
     update(() => st().undo());
     expect(st().ctx!.tl.segs[1].speed).toBe(1);
@@ -224,16 +221,16 @@ describe('lane', () => {
   test('BPM matching uses the BPM clock precisely and rejects missing, invalid and unsupported tempos', () => {
     barEdit({ bpmManual: 150 });
     fireEvent.doubleClick(lane(), { clientX: 100, clientY: 30 });
-    const input = () => within(pop()).getByLabelText('Original clip BPM');
+    const input = () => within(segPanel()).getByLabelText('Original clip BPM');
     for (const value of ['', '0', '-80', '1', '1000']) {
       fireEvent.input(input(), { target: { value } });
-      expect(popButton('Match 150 BPM').disabled, value).toBe(true);
+      expect(segButton('Match 150 BPM').disabled, value).toBe(true);
       fireEvent.submit(input().closest('form')!);
       expect(st().ctx!.tl.segs[1].speed, value).toBe(1);
     }
     for (const source of [75, 600, 97.3]) {
       fireEvent.input(input(), { target: { value: String(source) } });
-      expect(popButton('Match 150 BPM').disabled).toBe(false);
+      expect(segButton('Match 150 BPM').disabled).toBe(false);
       fireEvent.submit(input().closest('form')!);
       expect(st().ctx!.tl.segs[1].speed).toBeCloseTo(150 / source, 12);
     }
@@ -243,59 +240,61 @@ describe('lane', () => {
     barEdit();
     update(() => { S.setState({ clips: st().clips.map((c) => c.id === 'b' ? { ...c, duration: 3 } : c) }); st().rebuild(); });
     fireEvent.doubleClick(lane(), { clientX: 125, clientY: 30 });
-    fireEvent.click(within(pop().querySelector('.seg-speed')!).getByText('2×'));
-    expect(pop().querySelector('.seg-speed')!.textContent).toContain('too short to fill the segment at this speed');
-    fireEvent.click(pop().querySelector('.seg-clip[title="#3 cover"]')!);
-    expect(within(pop()).queryByLabelText('Clip speed')).toBeNull();
-    expect(within(pop()).queryByLabelText('Original clip BPM')).toBeNull();
-    expect(pop().textContent).toContain('Still images have no playback speed.');
+    fireEvent.click(within(segPanel().querySelector('.seg-speed')!).getByText('2×'));
+    expect(segPanel().querySelector('.seg-speed')!.textContent).toContain('too short to fill the segment at this speed');
+    fireEvent.click(segPanel().querySelector('.seg-clip[title="#3 cover"]')!);
+    expect(within(segPanel()).queryByLabelText('Clip speed')).toBeNull();
+    expect(within(segPanel()).queryByLabelText('Original clip BPM')).toBeNull();
+    expect(segPanel().textContent).toContain('Still images have no playback speed.');
   });
 
-  test('the segment menu steps between segments with its arrows or the arrow keys, and outlines nothing once closed', () => {
+  test("the segment panel's arrows step between segments, wrapping around, its header counts them, and Done closes it", () => {
     barEdit();
     fireEvent.doubleClick(lane(), { clientX: 125, clientY: 30 });
-    const head = () => pop().querySelector('h4')!.textContent;
-    const later = vi.fn(); // stands in for the studio's own ← → (stepping looks), which listens after the menu
-    window.addEventListener('keydown', later);
-    fireEvent.click(pop().querySelector('[aria-label="Next segment"]')!);
-    expect(head()).toBe('Segment 3 of 4');
+    const where = () => segPanel().querySelector('.seg-where')!.textContent;
+    const shown = () => st().ctx!.tl.segs.findIndex((x) => x.id === st().editBlock) + 1;
+    fireEvent.click(segPanel().querySelector('[aria-label="Next segment"]')!);
+    expect(shown()).toBe(3);
+    expect(st().selectedBlock).toBe(st().editBlock);
+    expect(where()).toMatch(/^Bar 3, beat 1 · /);
     expect(st().transport.loopTime(), 'the playhead moves onto it').toBeCloseTo(4.25, 9);
-    fireEvent.keyDown(window, { key: 'ArrowRight' });
-    fireEvent.keyDown(window, { key: 'ArrowRight' });
-    expect(head(), 'wraps around').toBe('Segment 1 of 4');
-    fireEvent.keyDown(window, { key: 'ArrowLeft' });
-    expect(head()).toBe('Segment 4 of 4');
-    expect(later).not.toHaveBeenCalled();
-    fireEvent.click(pop().querySelector('.seg-x')!);
-    fireEvent.keyDown(window, { key: 'ArrowRight' });
-    expect(later, 'closed, the arrow keys go back to the studio').toHaveBeenCalledTimes(1);
-    window.removeEventListener('keydown', later);
+    fireEvent.click(segPanel().querySelector('[aria-label="Next segment"]')!);
+    fireEvent.click(segPanel().querySelector('[aria-label="Next segment"]')!);
+    expect(shown(), 'wraps around').toBe(1);
+    expect(where()).toMatch(/^Bar 1, beat 1 · /);
+    fireEvent.click(segPanel().querySelector('[aria-label="Previous segment"]')!);
+    expect(shown()).toBe(4);
+    expect(where()).toMatch(/^Bar 4, beat 1 · /);
+    expect(segPanel().querySelector('.seg-identity h4')!.textContent, 'the header counts the segments').toBe('Segment 4 of 4');
+    expect(segPanel().querySelector('.seg-identity .meta')!.textContent).toMatch(/^Clip \d · appearance \d of \d$/);
+    fireEvent.click(segPanel().querySelector('[aria-label="Done"]')!);
+    expect(st().editBlock, 'Done goes back to the whole edit').toBeNull();
+    expect(segPanel()).toBeNull();
   });
 
-  test('the in-point filmstrip, direction, the marks on what you set and Back to auto', () => {
+  test('the in-point filmstrip, direction, the marks on what you set and Reset segment', () => {
     barEdit();
     fireEvent.doubleClick(lane(), { clientX: 125, clientY: 30 });
-    const marks = () => Array.from(pop().querySelectorAll('.seg-l > span:first-child')).filter((l) => l.querySelector('.seg-mine')).map((l) => l.textContent);
-    const auto = () => pop().querySelector('.seg-auto') as HTMLButtonElement;
+    const marks = () => Array.from(segPanel().querySelectorAll('.seg-l > span:first-child')).filter((l) => l.querySelector('.seg-mine')).map((l) => l.textContent);
+    const auto = () => segPanel().querySelector('.seg-auto') as HTMLButtonElement;
     expect(marks()).toEqual([]);
     expect(auto().disabled).toBe(true);
-    expect(pop().querySelector('.seg-foot')!.textContent).toContain('Changes save automatically');
 
-    const frames = Array.from(pop().querySelectorAll<HTMLButtonElement>('.seg-strip button'));
+    const frames = Array.from(segPanel().querySelectorAll<HTMLButtonElement>('.seg-strip button'));
     expect(frames).toHaveLength(8);
-    const max = +(pop().querySelector('input[type=range]') as HTMLInputElement).max;
+    const max = +(segPanel().querySelector('input[aria-label="In-point"]') as HTMLInputElement).max;
     const t = +((max * 4.5) / 8).toFixed(2);
     expect(frames[4].dataset.thumb).toBe(`/api/thumb/b?w=120&t=${t.toFixed(2)}`); // shown once it has loaded
     fireEvent.click(frames[4]);
     expect(st().ctx!.tl.segs[1].in).toBeCloseTo(t, 9);
-    expect(pop().querySelector('[aria-label="In-point"]')!.closest('.seg-f')!.querySelector('.seg-val')!.textContent).toBe(`${t.toFixed(2)} s`);
-    expect(parseFloat((pop().querySelector('.seg-mark') as HTMLElement).style.left)).toBeCloseTo((t / max) * 100, 6);
+    expect(segPanel().querySelector('[aria-label="In-point"]')!.closest('.seg-f')!.querySelector('.seg-val')!.textContent).toBe(`${t.toFixed(2)} s`);
+    expect(parseFloat((segPanel().querySelector('.seg-mark') as HTMLElement).style.left)).toBeCloseTo((t / max) * 100, 6);
 
-    fireEvent.click(popButton('Reverse'));
+    fireEvent.click(segButton('Reverse'));
     expect([st().ctx!.tl.segs[1].rev, st().ctx!.tl.segs[1].pp]).toEqual([true, false]);
-    fireEvent.click(popButton('Ping-pong'));
+    fireEvent.click(segButton('Ping-pong'));
     expect([st().ctx!.tl.segs[1].rev, st().ctx!.tl.segs[1].pp]).toEqual([false, true]);
-    expect(popButton('Ping-pong').className).toBe('on');
+    expect(segButton('Ping-pong').className).toBe('on');
     expect(marks()).toEqual(['In-point', 'Direction']);
     expect(auto().disabled).toBe(false);
 
@@ -309,12 +308,12 @@ describe('lane', () => {
   test('Play the cut starts a beat and half a transition before the segment', () => {
     barEdit();
     fireEvent.doubleClick(lane(), { clientX: 125, clientY: 30 });
-    fireEvent.click(popButton('▶ Play the cut'));
+    fireEvent.click(segButton('▶ Play the cut'));
     expect(st().transport.playing).toBe(true);
     expect(st().transport.loopTime()).toBeCloseTo(2 - st().ctx!.tl.segs[1].transDur / 2 - 0.5, 1);
     st().transport.pause();
     fireEvent.doubleClick(lane(), { clientX: 10, clientY: 30 });
-    fireEvent.click(popButton('▶ Play the cut'));
+    fireEvent.click(segButton('▶ Play the cut'));
     expect(st().transport.loopTime(), 'the seam starts from the end of the loop').toBeCloseTo(8 - st().ctx!.tl.segs[0].transDur / 2 - 0.5, 1);
     st().transport.pause();
   });
@@ -325,20 +324,20 @@ describe('segment framing', () => {
     barEdit();
     fireEvent.doubleClick(lane(), { clientX: 125, clientY: 30 }); // segment 2, city.mp4, a 16:9 clip in the 9:16 frame
   };
-  const slider = (name: string) => pop().querySelector<HTMLInputElement>(`input[aria-label="${name}"]`)!;
+  const slider = (name: string) => segPanel().querySelector<HTMLInputElement>(`input[aria-label="${name}"]`)!;
   const value = (name: string) => slider(name).parentElement!.querySelector('.seg-val')!.textContent;
   const frame = () => st().blocks?.find((b) => b.id === 'g1')?.frame;
   const seg = () => st().ctx!.tl.segs[1];
   const cz = () => st().look!.camera.p.zoom;
   const roomX = (z: number) => room({ width: 1920, height: 1080 }, cz() * z).room[0];
-  const crop = () => pop().querySelector('.seg-crop') as HTMLElement;
+  const crop = () => segPanel().querySelector('.seg-crop') as HTMLElement;
   // the framing's Auto, not the transition length's
-  const auto = () => within(pop().querySelector('.seg-framing') as HTMLElement).getByText('Auto');
+  const auto = () => within(segPanel().querySelector('.seg-framing') as HTMLElement).getByText('Auto');
 
   test('starts automatic, and X, Y and zoom set a still framing for the segment alone', () => {
     open();
     expect(auto().className).toBe('on');
-    expect(pop().querySelectorAll('.seg-win')).toHaveLength(1);
+    expect(segPanel().querySelectorAll('.seg-win')).toHaveLength(1);
     expect(value('X')).toBe('Center');
     expect(crop().dataset.thumb).toBe(`/api/thumb/b?w=320&t=${seg().in.toFixed(2)}`);
 
@@ -348,8 +347,8 @@ describe('segment framing', () => {
     expect(st().ctx!.tl.segs.filter((x) => x.frame), 'only this segment').toHaveLength(1);
     expect(value('X')).toBe('50% right');
     fireEvent.change(slider('X'));
-    expect(popButton('Still').className).toBe('on');
-    expect(Array.from(pop().querySelectorAll('.seg-l > span:first-child')).filter((l) => l.querySelector('.seg-mine')).map((l) => l.textContent)).toEqual(['Framing']);
+    expect(segButton('Still').className).toBe('on');
+    expect(Array.from(segPanel().querySelectorAll('.seg-l > span:first-child')).filter((l) => l.querySelector('.seg-mine')).map((l) => l.textContent)).toEqual(['Framing']);
 
     fireEvent.input(slider('Zoom'), { target: { value: '2' } });
     expect(frame()!.a[2]).toBe(2);
@@ -362,11 +361,10 @@ describe('segment framing', () => {
 
     // the box shows the crop where the shader puts it
     const [l, t, w, hh] = cropRect({ width: 1920, height: 1080 }, cz() * 2, ...(frame()!.a.slice(0, 2) as [number, number]));
-    const win = pop().querySelector('.seg-win') as HTMLElement;
+    const win = segPanel().querySelector('.seg-win') as HTMLElement;
     expect([win.style.left, win.style.top, win.style.width, win.style.height].map(parseFloat).map((v) => +v.toFixed(6))).toEqual([l, t, w, hh].map((v) => +(v * 100).toFixed(6)));
 
-    fireEvent.click(popButton('Timing'));
-    fireEvent.click(within(pop()).getByRole('button', { name: 'Choose transition' }));
+    fireEvent.click(within(segPanel()).getByRole('button', { name: 'Choose transition' }));
     fireEvent.change(screen.getByRole('searchbox', { name: 'Search transitions' }), { target: { value: TRANSITIONS.zoom.name } });
     fireEvent.click(screen.getByRole('button', { name: `Use ${TRANSITIONS.zoom.name}` }));
     fireEvent.click(auto());
@@ -378,8 +376,8 @@ describe('segment framing', () => {
   test("without room to move, a slider says so; the look's zoom counts", () => {
     open();
     update(() => { st().look!.camera.p.zoom = 1; st().rebuild(); });
-    fireEvent.click(pop().querySelector('[aria-label="Next segment"]')!);
-    fireEvent.click(pop().querySelector('[aria-label="Previous segment"]')!);
+    fireEvent.click(segPanel().querySelector('[aria-label="Next segment"]')!);
+    fireEvent.click(segPanel().querySelector('[aria-label="Previous segment"]')!);
     expect(slider('Y').disabled).toBe(true);
     expect(value('Y')).toBe('No room');
     expect(slider('X').disabled).toBe(false);
@@ -389,36 +387,36 @@ describe('segment framing', () => {
 
   test('a move has a start and an end to adjust, a curve, and swaps', () => {
     open();
-    fireEvent.click(popButton('Steady'));
+    fireEvent.click(segButton('Steady'));
     expect(frame()).toEqual({ a: [0.5, 0.5, 1], b: [0.5, 0.5, 1.25], ease: 'linear' });
-    expect(pop().querySelectorAll('.seg-win:not(.live)')).toHaveLength(2);
-    expect(popButton('End').className, 'the end is ready to adjust').toBe('on');
+    expect(segPanel().querySelectorAll('.seg-win:not(.live)')).toHaveLength(2);
+    expect(segButton('End').className, 'the end is ready to adjust').toBe('on');
     const pad = Math.min(st().ctx!.tl.segs[seg().i + 1].transDur / 2 + 0.02, seg().dur * 0.3); // the transition out of it
     expect(st().transport.loopTime(), 'the preview shows the end').toBeCloseTo(seg().t1 - pad, 9);
 
     fireEvent.input(slider('X'), { target: { value: '-1' } });
     expect(frame()!.b![0]).toBeCloseTo(0.5 - roomX(1.25), 9);
     expect(frame()!.a).toEqual([0.5, 0.5, 1]);
-    fireEvent.click(popButton('Start'));
+    fireEvent.click(segButton('Start'));
     expect(st().transport.loopTime(), 'and then the start').toBeCloseTo(seg().t0 + pad, 9);
     fireEvent.input(slider('Zoom'), { target: { value: '1.1' } });
     expect(frame()!.a[2]).toBe(1.1);
 
-    fireEvent.click(popButton('On the beat'));
+    fireEvent.click(segButton('On the beat'));
     expect(frame()!.ease).toBe('beats');
-    fireEvent.click(popButton('⇄ Swap'));
+    fireEvent.click(segButton('⇄ Swap'));
     expect(frame()!.a[2]).toBe(1.25);
     expect(frame()!.b![2]).toBe(1.1);
-    fireEvent.click(popButton('Still'));
+    fireEvent.click(segButton('Still'));
     expect(frame()).toEqual({ a: [frame()!.a[0], 0.5, 1.25] });
   });
 
   test('while the playhead is in the segment, a thin box follows the crop through the move', async () => {
     open();
-    fireEvent.click(popButton('Pan →'));
-    const live = () => pop().querySelector('.seg-win.live') as HTMLElement;
+    fireEvent.click(segButton('Pan →'));
+    const live = () => segPanel().querySelector('.seg-win.live') as HTMLElement;
     const frame2 = () => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
-    const left = (k: number) => parseFloat((pop().querySelectorAll('.seg-win')[k] as HTMLElement).style.left);
+    const left = (k: number) => parseFloat((segPanel().querySelectorAll('.seg-win')[k] as HTMLElement).style.left);
     st().transport.seek(seg().t0 + seg().dur / 2);
     await frame2();
     expect(live().hidden).toBe(false);
@@ -426,13 +424,12 @@ describe('segment framing', () => {
     st().transport.seek(seg().t1 + 0.1);
     await frame2();
     expect(live().hidden, 'outside the segment').toBe(true);
-    fireEvent.click(pop().querySelector('.seg-x')!);
   });
 
   test('quick moves push in, pull out and pan across the room the clip has', () => {
     open();
     // a 16:9 clip fills the 9:16 frame top to bottom, so tilting zooms in first to make room
-    fireEvent.click(popButton('Pan ↑'));
+    fireEvent.click(segButton('Pan ↑'));
     const [a, b] = [frame()!.a, frame()!.b!];
     expect(a[2]).toBeCloseTo(1 / 0.76 / cz(), 9);
     expect(a[1]).toBeLessThan(0.5);
@@ -440,13 +437,13 @@ describe('segment framing', () => {
     expect([a[0], b[0], b[2], frame()!.ease]).toEqual([0.5, 0.5, a[2], 'smooth']);
 
     fireEvent.click(auto());
-    fireEvent.click(popButton('Push in'));
+    fireEvent.click(segButton('Push in'));
     expect(frame()).toEqual({ a: [0.5, 0.5, 1], b: [0.5, 0.5, 1.5], ease: 'smooth' });
-    fireEvent.click(popButton('Pan →'));
+    fireEvent.click(segButton('Pan →'));
     expect(frame()!.a[0], 'pans keep the start zoom').toBeCloseTo(0.5 - 0.9 * roomX(1), 9);
     expect(frame()!.b![0]).toBeCloseTo(0.5 + 0.9 * roomX(1), 9);
     fireEvent.input(slider('Zoom'), { target: { value: '2.5' } });
-    fireEvent.click(popButton('Pull out'));
+    fireEvent.click(segButton('Pull out'));
     expect(frame()!.a[2], 'near the top of the range it pulls from 3x to 2x').toBe(3);
     expect(frame()!.b![2]).toBe(2);
     expect(frame()!.a[0]).toBe(frame()!.b![0]);
@@ -477,7 +474,7 @@ describe('segment framing', () => {
       crop().dispatchEvent(ev);
       return ev;
     };
-    expect(wheel({ deltaY: -200 }).defaultPrevented, 'a plain scroll is left to scroll the menu').toBe(false);
+    expect(wheel({ deltaY: -200 }).defaultPrevented, 'a plain scroll is left to scroll the inspector').toBe(false);
     expect(frame()!.a[2]).toBe(1);
     // a trackpad pinch arrives as a wheel with Ctrl held
     expect(wheel({ deltaY: -30, ctrlKey: true }).defaultPrevented).toBe(true);
@@ -501,23 +498,28 @@ describe('segment framing', () => {
     wheel({ deltaY: 100000, metaKey: true });
     wheel({ deltaY: -200, metaKey: true });
     expect(frame()!.a[2]).toBeCloseTo(Math.exp(0.3), 9);
-    fireEvent.click(popButton('Smooth'));
+    fireEvent.click(segButton('Smooth'));
     expect(frame()!.a[2], 'a pick after zooming keeps the zoom').toBeCloseTo(Math.exp(0.3), 9);
   });
 
-  test('section arrow keys move through the editor without switching timeline appearances', () => {
+  test('the panel folds into families that stay open or closed from one segment to the next', () => {
     open();
     const selected = st().editBlock;
-    const editor = within(pop());
-    fireEvent.keyDown(editor.getByRole('tab', { name: 'Look & effects' }), { key: 'ArrowRight' });
-    expect(editor.getByRole('tab', { name: 'Timing' }).getAttribute('aria-selected')).toBe('true');
-    expect(document.activeElement).toBe(editor.getByRole('tab', { name: 'Timing' }));
-    expect(st().editBlock).toBe(selected);
-    fireEvent.keyDown(document.activeElement!, { key: 'End' });
-    expect(editor.getByRole('tab', { name: 'Framing' }).getAttribute('aria-selected')).toBe('true');
-    expect(pop().querySelector('.seg-foot')!.parentElement).toBe(pop());
-    expect(pop().querySelector('.seg-head')!.parentElement).toBe(pop());
-    expect(st().editBlock).toBe(selected);
+    const family = (key: string) => segPanel().querySelector(`.seg-family[data-family="${key}"]`) as HTMLDetailsElement;
+    const toggle = (key: string, on: boolean) => { family(key).open = on; fireEvent(family(key), new Event('toggle')); };
+    expect(['timing', 'playback', 'framing'].map((k) => family(k).open), 'everything starts open, as on the old tabs').toEqual([true, true, true]);
+    expect(segPanel().querySelectorAll('.seg-xyz input[type=range]'), 'X, Y and Zoom are in sight').toHaveLength(3);
+    toggle('timing', false);
+    toggle('playback', false);
+    expect(st().editBlock, 'folding changes no selection').toBe(selected);
+    fireEvent.click(segPanel().querySelector('[aria-label="Next segment"]')!);
+    expect(st().editBlock).not.toBe(selected);
+    expect(['timing', 'playback', 'framing'].map((k) => family(k).open)).toEqual([false, false, true]);
+    // put them back for the tests after this one
+    toggle('timing', true);
+    toggle('playback', true);
+    fireEvent.click(segPanel().querySelector('[aria-label="Previous segment"]')!);
+    expect(['timing', 'playback', 'framing'].map((k) => family(k).open)).toEqual([true, true, true]);
   });
 });
 

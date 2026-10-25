@@ -437,7 +437,7 @@ In the Edit tab, choose the cut rhythm, which transitions to use, the clip direc
 - Drag a cut to move it along the beat grid, or to half or quarter beats with Snap (`N`). Hold `Shift` to put it anywhere.
 - Drag the edge of a transition's violet band to set how long that one lasts.
 - `Alt`-drag (Option on a Mac) a segment to use a different part of its clip.
-- Double-click a segment, right-click it, press Enter, or long-press it on a touch screen to change just that one: where its cuts sit (on or off the beat), its transition and how long it lasts, and the in-point, the moment of the clip it starts on.
+- Click a segment to target that appearance in the inspector, or double-click it, right-click it, press Enter, or long-press it on a touch screen to switch straight to its Edit tab: adjust where its cuts sit (on or off the beat), its transition and how long it lasts, the in-point, clip speed, and framing.
 
 The studio picks each segment's in-point at random from the edit seed, within the clip's first 60 seconds, and a clip that comes back picks up where it left off. What you cut and set by hand is cleared when you change the clips, the rhythm or the loop, so set those first. The [studio guide](docs/STUDIO_GUIDE.md#cutting-blocks-by-hand) has the details.
 
@@ -445,7 +445,7 @@ The studio picks each segment's in-point at random from the edit seed, within th
 
 The preview shows the video on a screen of the export's shape. The Screen button in the transport bar (or `O`) switches between Phone 9:16 for a Spotify Canvas, Landscape 16:9 for a YouTube visualizer, Tablet 3:4 for Apple Music motion art, and Square 1:1 for social feeds, Apple's square art and cover art. The screen and the export format are one setting: picking a screen picks a format of that shape, and picking a format in the export sheet changes the screen. Look thumbnails take the same shape.
 
-Drag on the preview to reframe the clip that's showing, scroll to zoom in (up to 3×), and double-click to reset that clip's framing. A single segment can have its own framing instead, set in its segment menu (double-click it on the timeline), including a push in, pull out or pan from one cut to the next. The [studio guide](docs/STUDIO_GUIDE.md#framing-one-segment) covers it.
+Drag on the preview to reframe the clip that's showing, scroll to zoom in (up to 3×), and double-click to reset that clip's framing. A single segment can have its own framing instead, set under Framing in the inspector's Edit tab (select the block on the timeline), including a push in, pull out or pan from one cut to the next. The [studio guide](docs/STUDIO_GUIDE.md#framing-one-segment) covers it.
 
 Loop mode plays only the slice of the song under the Canvas, over and over. Listener mode lets the song keep playing while the Canvas loops, which is what someone listening on Spotify sees. `L` switches between them. In Listener mode, Off-sync starts the Canvas at a random point in the song, because Spotify doesn't line a Canvas up with the music.
 

@@ -13,13 +13,13 @@ import { thumbRef } from '../../lib/thumbs.ts';
 
 type LayerSection = 'all' | 'effects' | 'color' | 'motion' | 'modulation';
 
-export const LayersPane: React.FC<{ embedded?: boolean }> = ({ embedded = false }) => {
+export const LayersPane: React.FC = () => {
   const store = useStudioApi();
   const { history: historyController } = useStudioRuntime();
 
   useVersion();
   const [section, setSection] = useState<LayerSection>('effects');
-  const sectionId = (name: string) => `${embedded ? 'appearance-' : ''}layer-${name}`;
+  const sectionId = (name: string) => `layer-${name}`;
   const look = useStudioStore((s) => s.look);
   const selected = useStudioStore((s) => s.selected);
   const clipMode = useStudioStore((s) => s.clipMode);
@@ -120,11 +120,10 @@ export const LayersPane: React.FC<{ embedded?: boolean }> = ({ embedded = false 
 
   return (
     <div
-      className={`pane on layers-pane${embedded ? ' appearance-layers' : ''}`}
-      id={embedded ? 'appearance-layers' : 'pane-layers'}
+      className="pane on layers-pane"
+      id="pane-layers"
       role="tabpanel"
-      aria-labelledby={embedded ? undefined : 'inspector-tab-layers'}
-      aria-label={embedded ? 'Appearance filters' : undefined}
+      aria-labelledby="inspector-tab-layers"
     >
       <nav className="layers-subnav" aria-label="Layer inspector sections">
         {([
@@ -303,7 +302,7 @@ export const LayersPane: React.FC<{ embedded?: boolean }> = ({ embedded = false 
         </div>
       )}
 
-      {!embedded && <Card
+      <Card
         color="#b9a4ff"
         title="Master"
         defaultFolded
@@ -448,7 +447,7 @@ export const LayersPane: React.FC<{ embedded?: boolean }> = ({ embedded = false 
             </button>
           )}
         </div>
-      </Card>}
+      </Card>
 
       </section>
 
@@ -509,7 +508,7 @@ export const LayersPane: React.FC<{ embedded?: boolean }> = ({ embedded = false 
         <ModulatorsCard part="modulators" />
       </section>
 
-      {!embedded && <div className="row layer-footer" style={{ padding: '2px 12px 16px', gap: '8px' }}>
+      <div className="row layer-footer" style={{ padding: '2px 12px 16px', gap: '8px' }}>
         <button
           type="button"
           className="btn"
@@ -574,7 +573,7 @@ export const LayersPane: React.FC<{ embedded?: boolean }> = ({ embedded = false 
         >
           Revert
         </button>
-      </div>}
+      </div>
     </div>
   );
 };

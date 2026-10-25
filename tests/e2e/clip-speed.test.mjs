@@ -80,13 +80,14 @@ test('clip speed matches tempo in the browser, keeps cuts, and exports moving fo
     await tap(byText('#pane-edit .clip-speed button', '1×'));
     S.getState().transport.seek(0.5);
     await tap($('#blockTools .tl-edit'));
-    await tap(byText('#pop .seg-tabs button', 'Playback'));
+    await until(() => S.getState().tab === 'edit' && $('#pane-edit .seg-panel details[data-family="playback"]'));
+    $('.seg-panel details[data-family="playback"]').open = true;
     const id = S.getState().selectedBlock;
     const bpm = S.getState().bpm();
-    const input = $('#pop input[aria-label="Original clip BPM"]');
+    const input = $('.seg-panel input[aria-label="Original clip BPM"]');
     input.value = String(bpm / 1.5);
     input.dispatchEvent(new Event('input', { bubbles: true }));
-    await tap($('#pop .seg-bpm button'));
+    await tap($('.seg-panel .seg-bpm button'));
     const seg = S.getState().ctx.tl.segs.find((s) => s.id === id);
     if (Math.abs(seg.speed - 1.5) > 1e-9 || seg.vel !== 'none') throw new Error('BPM match did not set constant 1.5×');
     if (JSON.stringify(S.getState().ctx.tl.segs.map((s) => [s.t0, s.t1])) !== cuts || S.getState().bpm() !== bpm) throw new Error('speed changed the cuts or song tempo');
@@ -103,22 +104,23 @@ test('clip speed matches tempo in the browser, keeps cuts, and exports moving fo
     const screenshot = await browser.send('Page.captureScreenshot', { format: 'png' });
     writeFileSync(join(process.env.DOWNBEAT_SPEED_SCREENSHOT_DIR, 'clip-speed-desktop.png'), Buffer.from(screenshot.result.data, 'base64'));
   }
-  await browser.run(PAGE + `await tap($('#pop .seg-x'));`);
+  await browser.run(PAGE + `S.getState().selectBlock(null);`);
   await browser.send('Emulation.setDeviceMetricsOverride', { width: 390, height: 844, deviceScaleFactor: 1, mobile: false });
   await browser.run(PAGE + `
     await tap($('#blockTools .tl-edit'));
-    await tap(byText('#pop .seg-tabs button', 'Playback'));
+    await until(() => S.getState().tab === 'edit' && $('#pane-edit .seg-panel details[data-family="playback"]'));
+    $('.seg-panel details[data-family="playback"]').open = true;
     $('.seg-speed').scrollIntoView({ block: 'center' });
-    const box = $('#pop').getBoundingClientRect();
-    if (box.left < 0 || box.right > innerWidth || box.height > innerHeight) throw new Error('speed menu leaves the narrow viewport');
-    const button = $('#pop .seg-bpm button').getBoundingClientRect();
+    const box = $('.seg-panel').getBoundingClientRect();
+    if (box.left < 0 || box.right > innerWidth) throw new Error('the segment panel leaves the narrow viewport');
+    const button = $('.seg-panel .seg-bpm button').getBoundingClientRect();
     if (button.left < box.left || button.right > box.right) throw new Error('BPM control overflows');
   `);
   if (process.env.DOWNBEAT_SPEED_SCREENSHOT_DIR) {
     const screenshot = await browser.send('Page.captureScreenshot', { format: 'png' });
     writeFileSync(join(process.env.DOWNBEAT_SPEED_SCREENSHOT_DIR, 'clip-speed-mobile.png'), Buffer.from(screenshot.result.data, 'base64'));
   }
-  await browser.run(PAGE + `await tap($('#pop .seg-x'));`);
+  await browser.run(PAGE + `S.getState().selectBlock(null);`);
   await browser.send('Emulation.clearDeviceMetricsOverride');
   const rendered = await browser.run(PAGE + `
     S.setState({ exportOpts: { format: 'spotify', size: 'lite', autoSave: false, withSong: false } });

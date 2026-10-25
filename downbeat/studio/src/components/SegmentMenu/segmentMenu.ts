@@ -1,34 +1,33 @@
 import './SegmentMenu.css';
 import type { StudioStore } from '../../state/storeTypes.ts';
-import { openPop, closePop, h, clipAspect, cropRect, room, clipDisplayName, type DomChild } from '../../lib/utils.ts';
+import { closePop, h, clipAspect, cropRect, room, clipDisplayName, type DomChild } from '../../lib/utils.ts';
 import { clamp } from '../../engine/looks.ts';
+import { beatName, beatsText, chip, chips, createSegmentTiming } from './segTiming.ts';
 import { setMenuSeg } from '../../canvas/timelineCanvas.ts';
 import type { createPreviewController } from '../../canvas/renderLoop.ts';
-import { beatName, beatsText, chip, chips, createSegmentTiming } from './segTiming.ts';
 import { MOVES, VELOCITY, footageUsed, frameAt, moveAt } from '../../engine/timeline.ts';
 import { CLIP_SPEED_MIN, CLIP_SPEED_MAX, CLIP_SPEED_PRESETS, speedForBpm } from '../../engine/clipSpeed.ts';
 import { screenOf } from '../../lib/screens.ts';
 import { thumbBackground } from '../../lib/thumbs.ts';
 import type { Block, BlockPatch, FramePoint, Segment, SegmentFrame } from '../../engine/types.ts';
 
-export interface SegmentAppearanceTarget {
+/** Where the mounted segment panel wants React's transition picker. */
+export interface SegmentPanelTarget {
   id: string;
-  host: HTMLElement;
   transitionHost: HTMLElement;
   onTransitionChange: (id: string) => void;
 }
 
-export function createSegmentMenu(store: StudioStore, preview: ReturnType<typeof createPreviewController>) {
-  const { mirrors } = preview;
+export function createSegmentMenu(store: StudioStore, preview?: ReturnType<typeof createPreviewController>) {
   const { timingSection, segOf } = createSegmentTiming(store);
-  let appearanceTarget: SegmentAppearanceTarget | null = null;
-  const appearanceListeners = new Set<() => void>();
-  const getAppearanceTarget = () => appearanceTarget;
-  const subscribeAppearance = (listener: () => void) => { appearanceListeners.add(listener); return () => { appearanceListeners.delete(listener); }; };
-  const setAppearanceTarget = (target: SegmentAppearanceTarget | null) => {
-    if (appearanceTarget?.id === target?.id && appearanceTarget?.host === target?.host) return;
-    appearanceTarget = target;
-    appearanceListeners.forEach((listener) => listener());
+  let panelTarget: SegmentPanelTarget | null = null;
+  const panelListeners = new Set<() => void>();
+  const getPanelTarget = () => panelTarget;
+  const subscribePanel = (listener: () => void) => { panelListeners.add(listener); return () => { panelListeners.delete(listener); }; };
+  const setPanelTarget = (target: SegmentPanelTarget | null) => {
+    if (panelTarget?.id === target?.id && panelTarget?.transitionHost === target?.transitionHost) return;
+    panelTarget = target;
+    panelListeners.forEach((listener) => listener());
   };
 
   /** A clip's name as the Clips list shows it. */
@@ -69,54 +68,8 @@ export function createSegmentMenu(store: StudioStore, preview: ReturnType<typeof
   // per-cut transition lengths, in beats
   const LENGTHS: [number, string][] = [[0.25, '¼'], [0.5, '½'], [1, '1'], [2, '2'], [4, '4']];
 
-  // Unhooks the open segment menu's arrow keys, lane outline and preview copy.
-  let detachMenu: (() => void) | null = null;
-  // The open menu's live copy of the preview, shown when the menu has to cover the stage.
-  let menuPeek: HTMLCanvasElement | null = null;
-
-  const MENU_W = 660;
-  const MENU_MIN = 340; // one column of controls
-
-  /** Moves the open segment menu beside the preview when one side has room, so the frame you pick stays in
-   * sight, and keeps it on screen. Returns whether much of the preview is still out of sight: under the menu,
-   * or scrolled off the screen as it is on a phone. */
-  function placeMenu(p: HTMLElement): boolean {
-    const v = document.getElementById('view')?.getBoundingClientRect();
-    if (!v?.width) return false;
-    const gap = 12;
-    const left = v.left - gap - 8;
-    const right = window.innerWidth - v.right - gap - 8;
-    const room = Math.max(left, right);
-    if (room >= MENU_MIN) {
-      const w = Math.min(MENU_W, room);
-      p.style.width = `${w}px`;
-      p.style.left = `${right >= left ? v.right + gap : v.left - gap - w}px`;
-    }
-    keepOnScreen(p);
-    type Box = { left: number; top: number; right: number; bottom: number };
-    const cut = (a: Box, b: Box): Box => ({ left: Math.max(a.left, b.left), top: Math.max(a.top, b.top), right: Math.min(a.right, b.right), bottom: Math.min(a.bottom, b.bottom) });
-    const area = (a: Box) => Math.max(0, a.right - a.left) * Math.max(0, a.bottom - a.top);
-    const onScreen = cut(v, { left: 0, top: 0, right: window.innerWidth, bottom: window.innerHeight });
-    const seen = area(onScreen) - area(cut(onScreen, p.getBoundingClientRect()));
-    return seen / (v.width * v.height) < 0.6;
-  }
-
-  const keepOnScreen = (p: HTMLElement) => {
-    const top = parseFloat(p.style.top) || 8;
-    p.style.top = `${Math.max(8, Math.min(top, window.innerHeight - p.offsetHeight - 8))}px`;
-  };
-
-  /** A compact live preview in the identity header when the editor covers the main viewer. */
-  function showPeek(peek: HTMLCanvasElement) {
-    const v = document.getElementById('view') as HTMLCanvasElement | null;
-    const aspect = v && v.height ? v.width / v.height : 9 / 16;
-    const w = Math.min(96, 68 * aspect);
-    const dpr = Math.min(2, window.devicePixelRatio || 1);
-    peek.width = Math.round(w * dpr);
-    peek.height = Math.round((w / aspect) * dpr);
-    peek.style.cssText = `width:${Math.round(w)}px;height:${Math.round(w / aspect)}px`;
-    peek.parentElement!.hidden = false;
-  }
+  // Unhooks the mounted segment panel's store subscription and transition picker target.
+  let detachPanel: (() => void) | null = null;
 
   const ZOOM_MAX = 3;
   const NO_ROOM = 'The clip only just fills the frame this way. Zoom in to make room.';
@@ -210,12 +163,12 @@ export function createSegmentMenu(store: StudioStore, preview: ReturnType<typeof
       put([p[0], p[1], clamp(pinchFrom * (scale || 1), 1, ZOOM_MAX)]);
     });
 
-    // The menu covers the stage, so while the playhead is in this segment a thin box follows the crop as it moves.
+    // While the playhead is in this segment a thin box follows the crop as it moves.
     const live = h('i', { class: 'seg-win live' });
     live.hidden = true;
     if (moving) crop.append(live);
     const follow = () => {
-      if (!live.closest('.pop.on')) return; // closed, or redrawn with a new box
+      if (!live.isConnected) return; // unmounted, or redrawn with a new box
       const st = store.getState();
       const sg = segOf(id);
       const local = sg ? ((((st.transport.loopTime() - sg.t0) % L) + L) % L) : Infinity;
@@ -351,89 +304,99 @@ export function createSegmentMenu(store: StudioStore, preview: ReturnType<typeof
     );
   }
 
-  /** The menu a double-click on a segment opens. Picks apply straight away and the menu stays open, and ‹ › or
-   * the arrow keys move it to the next segment, so a whole edit can be gone through in one sitting. */
-  function segmentMenu(box: HTMLElement, start: string) {
-    detachMenu?.();
-    let id = start;
+  // Which families of the segment panel are open, kept while stepping from one segment to the next.
+  const openFamilies = new Set(['timing', 'playback', 'framing']);
+
+  /** Renders the controls for timeline segment `id` into `host`, the inspector's Edit tab while a segment is
+   * selected. Picks apply straight away. The panel redraws when the edit changes elsewhere, such as a cut dragged
+   * on the lane or an undo, but not while one of its own controls is in use. Returns a function that unmounts it. */
+  function mountSegmentPanel(host: HTMLElement, id: string): () => void {
+    detachPanel?.();
     let choosing = false; // the clip tiles for Put a clip in are showing
-    let section = 'appearance';
-    const appearanceHost = h('div', { class: 'seg-appearance-host' });
     const transitionHost = h('div', { class: 'seg-transition-picker' });
-    box.setAttribute('role', 'dialog');
-    box.setAttribute('aria-label', 'Edit timeline appearance');
-    // The BPM helper applies a speed once; keep its draft while navigating this open menu.
+    // The BPM helper applies a speed once; keep its draft while the panel redraws.
     const clipBpms = new Map<string, string>();
-    // Kept across redraws: a copy of the preview for when the menu sits over it.
+    const edit: { key: 'a' | 'b' } = { key: 'a' }; // which end of a framing move the controls edit
+
+    const go = (d: number) => step(id, d); // the inspector remounts the panel on the new selection
+
+    // The block being edited keeps a white outline on the lane, inside the selection's violet one.
+    setMenuSeg(id);
+    store.getState().drawLane();
+
+    // A live copy of the preview sits in the bar whenever the preview itself is mostly out of sight, as it is
+    // on a phone once the inspector is scrolled to.
     const peek = h('canvas', { class: 'seg-peek', 'aria-label': 'Preview' }) as HTMLCanvasElement;
     const peekWrap = h('div', { class: 'seg-peek-wrap' }, peek);
     peekWrap.hidden = true;
-    menuPeek = peek;
-    mirrors.add(peek);
-    const edit: { key: 'a' | 'b' } = { key: 'a' }; // which end of a framing move the controls edit
+    preview?.mirrors.add(peek);
+    const view = typeof document === 'undefined' ? null : document.getElementById('view') as HTMLCanvasElement | null;
+    const sight = view && typeof IntersectionObserver !== 'undefined'
+      ? new IntersectionObserver(([entry]) => {
+          const hidden = entry.intersectionRatio < 0.4;
+          if (hidden && peekWrap.hidden) sizePeek(peek, view);
+          peekWrap.hidden = !hidden;
+        }, { threshold: [0, 0.4, 1] })
+      : null;
+    if (view) sight?.observe(view);
 
-    const outline = () => {
-      setMenuSeg(id);
-      store.getState().drawLane();
+    // The panel's own controls redraw it as they need, so a store change made from inside it, or during a drag
+    // that began in it, is left alone; the drag redraws once it ends if anything else changed meanwhile.
+    let inside = false;
+    let holding = false;
+    let stale = false;
+    const enter = () => {
+      inside = true;
+      queueMicrotask(leave); // a handler that stops the event's propagation never reaches leave() below
     };
-    const go = (d: number) => {
-      const s = store.getState();
-      const segs = s.ctx?.tl.segs || [];
-      const k = segs.findIndex((x) => x.id === id);
-      const seg = segs[(k + d + segs.length) % segs.length];
-      if (!seg) return;
-      id = seg.id;
-      s.selectBlock(id);
-      s.transport.seek(seg.t0 + Math.min(seg.dur / 2, 0.25));
-      outline();
-      render();
+    const leave = () => { inside = false; };
+    const press = () => { holding = true; };
+    const release = () => {
+      if (!holding) return;
+      holding = false;
+      if (stale) { stale = false; render(); }
     };
-
-    const open = () => box.classList.contains('on') && box.classList.contains('seg-menu');
-    const onKey = (e: KeyboardEvent) => {
-      if (!open()) return detachMenu?.();
-      if (document.querySelector('[data-modal-blocks-shortcuts]')) return;
-      if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); closePop(); return; }
-      if ((e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') || e.metaKey || e.ctrlKey || e.altKey) return;
-      if ((e.target as HTMLElement | null)?.closest?.('input, select, textarea, [contenteditable], .seg-zoom, .seg-tabs')) return;
-      e.preventDefault();
-      e.stopPropagation(); // everywhere else ← → step through the looks
-      go(e.key === 'ArrowRight' ? 1 : -1);
-    };
-    const watch = new MutationObserver(() => {
-      if (!open()) detachMenu?.();
-    });
-    // React mounts the filter stack after the shell opens; keep that taller editor on screen too.
-    const resize = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(() => keepOnScreen(box));
-    resize?.observe(box);
-    window.addEventListener('keydown', onKey, true);
-    watch.observe(box, { attributes: true, attributeFilter: ['class'] });
+    const EVENTS = ['pointerdown', 'pointerup', 'click', 'dblclick', 'input', 'change', 'keydown', 'wheel', 'submit', 'gesturechange'];
+    for (const type of EVENTS) {
+      host.addEventListener(type, enter, true);
+      host.addEventListener(type, leave);
+    }
+    host.addEventListener('pointerdown', press, true);
+    window.addEventListener('pointerup', release, true);
+    window.addEventListener('pointercancel', release, true);
     const unsubscribe = store.subscribe((state, previous) => {
-      if (state.blocks === previous.blocks) return;
-      const block = state.blocks?.find((item) => item.id === id);
-      const automatic = state.ctx?.tl.rolled.find((item) => item.id === id);
-      const custom = !!block && (['trans', 'transBeats', 'vel', 'dir', 'frame', 'overrides', 'look'].some((key) => block[key as keyof Block] != null)
-        || !!automatic && (block.clipId !== automatic.clipId || Math.abs(block.in - automatic.in) > 1e-6));
-      const reset = box.querySelector<HTMLButtonElement>('.seg-auto');
-      if (reset) reset.disabled = !custom;
+      if (state.ctx === previous.ctx && state.blocks === previous.blocks && state.snap === previous.snap
+        && state.selected === previous.selected && state.clips === previous.clips) return;
+      if (inside || holding) { stale = holding; return; }
+      render();
     });
-    detachMenu = () => {
-      window.removeEventListener('keydown', onKey, true);
-      watch.disconnect();
-      resize?.disconnect();
+    const detach = () => {
+      for (const type of EVENTS) {
+        host.removeEventListener(type, enter, true);
+        host.removeEventListener(type, leave);
+      }
+      host.removeEventListener('pointerdown', press, true);
+      window.removeEventListener('pointerup', release, true);
+      window.removeEventListener('pointercancel', release, true);
       unsubscribe();
-      mirrors.delete(peek);
-      setAppearanceTarget(null);
-      if (menuPeek === peek) menuPeek = null;
-      detachMenu = null;
+      sight?.disconnect();
+      preview?.mirrors.delete(peek);
+      setPanelTarget(null);
+      host.replaceChildren();
+      if (detachPanel === detach) detachPanel = null;
       setMenuSeg(null);
       store.getState().drawLane();
     };
+    detachPanel = detach;
 
     const render = () => {
       const s = store.getState();
       const seg = segOf(id);
-      if (!s.ctx || !seg) return closePop();
+      if (!s.ctx || !seg) {
+        setPanelTarget(null);
+        host.replaceChildren();
+        return;
+      }
       const { L, beatDur, tl } = s.ctx;
       const si = seg.i;
       const n = tl.segs.length;
@@ -608,107 +571,103 @@ export function createSegmentMenu(store: StudioStore, preview: ReturnType<typeof
           h('div', { class: 'seg-note' }, `Shortened from ${beatsText(want)} to fit the segments either side.`),
       );
 
-      const sourceNo = s.selected.indexOf(seg.clipId) + 1;
       const appearances = tl.segs.filter((item) => item.clipId === seg.clipId);
       const appearanceNo = appearances.findIndex((item) => item.id === id) + 1;
-      const sections = [['appearance', 'Look & effects'], ['timing', 'Timing'], ['playback', 'Playback'], ['framing', 'Framing']];
-      const panel = (key: string, ...children: DomChild[]) => h('section', {
-        class: 'seg-workspace-panel', id: `segment-panel-${key}`, role: 'tabpanel',
-        'aria-labelledby': `segment-tab-${key}`, hidden: section !== key,
-      }, ...children);
-      const card = (title: string, detail: string, ...children: DomChild[]) => h('div', { class: 'seg-workspace-card' },
-        h('div', { class: 'seg-family-heading' }, h('h5', {}, title), h('p', {}, detail)), ...children);
-      box.replaceChildren(
-        h('div', { class: 'seg-head' },
-          h('div', { class: 'seg-identity' }, peekWrap,
+      // Split, Repeat and Put a clip in reshape the timeline around this segment; the panel stays on it.
+      const stay = () => {
+        if (store.getState().selectedBlock !== id && segOf(id)) store.getState().selectBlock(id);
+        render();
+      };
+      const family = (key: string, title: string, ...children: DomChild[]) => {
+        const details = h('details', { class: 'edit-family seg-family', 'data-family': key, open: openFamilies.has(key) },
+          h('summary', {}, title), h('div', { class: 'edit-family-body' }, ...children));
+        details.addEventListener('toggle', () => { if ((details as HTMLDetailsElement).open) openFamilies.add(key); else openFamilies.delete(key); });
+        return details;
+      };
+      host.replaceChildren(
+        h('div', { class: 'seg-panel-bar' },
+          peekWrap,
+          h('div', { class: 'seg-identity' },
             h('span', { class: 'seg-index' }, String(si + 1).padStart(2, '0')),
-            h('div', {}, h('span', { class: 'seg-eyebrow' }, 'Timeline appearance'),
-              h('h4', {}, `Segment ${si + 1}`, h('small', {}, ` of ${n}`)),
-              h('span', { class: 'meta' }, `Clip ${sourceNo} · appearance ${appearanceNo} of ${appearances.length}`))),
-          h('div', { class: 'seg-navigation', role: 'group', 'aria-label': 'Navigate appearances' },
-            h('button', { class: 'seg-step', title: 'Previous segment (←)', 'aria-label': 'Previous segment', disabled: n < 2, onclick: () => go(-1) }, '‹'),
-            h('button', { class: 'seg-step', title: 'Next segment (→)', 'aria-label': 'Next segment', disabled: n < 2, onclick: () => go(1) }, '›')),
-          h('button', { class: 'seg-play', title: 'Play from a beat before the cut into this segment', onclick: playCut }, '▶ Play the cut'),
-          h('button', { class: 'seg-x', title: 'Close (Esc)', 'aria-label': 'Close', onclick: closePop }, '✕')),
-        h('div', { class: 'seg-scope-line' }, h('span', { class: 'seg-scope-pill' }, 'Only this appearance'), h('span', {}, where)),
-        h('div', { class: 'seg-tabs', role: 'tablist', 'aria-label': 'Appearance editor sections' },
-          ...sections.map(([key, label]) => h('button', {
-            class: `seg-tab${section === key ? ' on' : ''}`, id: `segment-tab-${key}`, type: 'button', role: 'tab',
-            'aria-selected': String(section === key), 'aria-controls': `segment-panel-${key}`, tabindex: section === key ? 0 : -1,
-            onclick: () => { section = key; render(); box.querySelector<HTMLElement>(`#segment-tab-${key}`)?.focus(); },
-            onkeydown: (event: KeyboardEvent) => {
-              const current = sections.findIndex(([item]) => item === section);
-              const next = event.key === 'ArrowRight' ? (current + 1) % sections.length : event.key === 'ArrowLeft' ? (current + sections.length - 1) % sections.length : event.key === 'Home' ? 0 : event.key === 'End' ? sections.length - 1 : -1;
-              if (next < 0) return;
-              event.preventDefault(); event.stopPropagation(); section = sections[next][0]; render();
-              box.querySelector<HTMLElement>(`#segment-tab-${section}`)?.focus();
-            },
-          }, label))),
-        h('div', { class: 'seg-workspace-scroll' },
-          panel('appearance', appearanceHost),
-          panel('timing', timingSection(id, render, length),
-            card('Transition into this appearance', 'Choose how the previous segment joins this one.',
-              field('Transition in', 'trans', null,
-                si === 0 && h('div', { class: 'seg-note' }, 'This cut joins the end of the loop back to its start.'),
-                transitionHost)),
-            card('Segment actions', 'Reshape this part of the timeline.',
-              h('div', { class: 'seg-acts' },
-                h('button', { title: 'Split at the playhead, or in half when the playhead is in another segment (B)', onclick: () => { s.splitBlockAt(id); outline(); render(); } }, '✂ Split'),
-                h('button', { title: 'Split in half and play the first half twice (⌘D)', onclick: () => { s.repeatSegment(id); outline(); render(); } }, 'Repeat'),
-                h('button', { class: choosing ? 'on' : '', title: 'Put another clip in the second half of this segment', onclick: () => { choosing = !choosing; render(); } }, 'Put a clip in'),
-                h('button', { class: 'seg-del', disabled: n < 2, title: n < 2 ? 'The loop needs at least one segment' : 'Delete this segment. The one before it plays on to the next cut (Delete)', onclick: () => { s.deleteBlock(id); id = store.getState().selectedBlock || id; outline(); render(); } }, 'Delete'),
-                choosing && h('div', { class: 'seg-put' }, h('small', {}, 'Pick the clip for the second half'), clipTiles(null, (cid) => { choosing = false; s.insertClip(cid, { id }); outline(); render(); }))))),
-          panel('playback',
-            card('Source & in-point', 'Choose the footage and the moment this appearance begins.',
-              field('Clip', 'clipId', null, clips, h('div', { class: 'seg-name' }, clipName(seg.clipId))),
-              field('In-point', 'in', h('span', {}, inVal, h('small', {}, ` of ${dur.toFixed(1)} s`)), strip, slider,
-                maxIn <= 0 && h('div', { class: 'seg-note' }, 'This clip is only just long enough to fill the segment.'))),
-            card('Playback', 'Speed and direction for this appearance.',
-              field('Direction', 'dir', null, chips(...DIRS.map(([key, label]) => chip(dirNow === key, label, () => pick({ dir: key }))))),
-              speedField,
-              field('Speed ramp', 'vel', null, chips(...Object.entries(VELOCITY).map(([key, value]) => chip(seg.vel === key, value.name, () => pick({ vel: key }), value.desc || 'Constant clip speed')))))),
-          panel('framing', framingSection(id, seg, block?.frame, edit, render))),
-        h('div', { class: 'seg-foot' },
-          h('span', {}, 'Changes save automatically'),
-          h('button', { class: 'seg-auto', disabled: !any, title: 'Forget all custom settings for this segment', onclick: () => { s.clearBlock(id); render(); } }, '↺ Reset segment'),
-          h('button', { class: 'btn primary seg-done', onclick: closePop }, 'Done')),
+            h('div', {}, h('h4', {}, `Segment ${si + 1}`, h('small', {}, ` of ${n}`)),
+              h('span', { class: 'meta' }, `Clip ${s.selected.indexOf(seg.clipId) + 1} · appearance ${appearanceNo} of ${appearances.length}`))),
+          h('button', { class: 'seg-x', type: 'button', title: 'Done: back to the whole edit (Esc)', 'aria-label': 'Done', onclick: () => s.selectBlock(null) }, '✕'),
+          h('div', { class: 'seg-navigation', role: 'group', 'aria-label': 'Navigate segments' },
+            h('button', { class: 'seg-step', type: 'button', title: 'Previous segment (←)', 'aria-label': 'Previous segment', disabled: n < 2, onclick: () => go(-1) }, '‹'),
+            h('button', { class: 'seg-step', type: 'button', title: 'Next segment (→)', 'aria-label': 'Next segment', disabled: n < 2, onclick: () => go(1) }, '›')),
+          h('span', { class: 'seg-where' }, where),
+          h('div', { class: 'seg-panel-acts' },
+            h('button', { class: 'seg-play', type: 'button', title: 'Play from a beat before the cut into this segment', onclick: playCut }, '▶ Play the cut'),
+            h('button', { class: 'seg-auto', type: 'button', disabled: !any, title: 'Forget all custom settings for this segment', onclick: () => { s.clearBlock(id); render(); } }, '↺ Reset segment'))),
+        family('timing', 'Timing & transition',
+          timingSection(id, render, length),
+          field('Transition in', 'trans', null,
+            si === 0 && h('div', { class: 'seg-note' }, 'This cut joins the end of the loop back to its start.'),
+            transitionHost),
+          h('div', { class: 'seg-acts' },
+            h('button', { type: 'button', title: 'Split at the playhead, or in half when the playhead is in another segment (B)', onclick: () => { s.splitBlockAt(id); stay(); } }, '✂ Split'),
+            h('button', { type: 'button', title: 'Split in half and play the first half twice (⌘D)', onclick: () => { s.repeatSegment(id); stay(); } }, 'Repeat'),
+            h('button', { type: 'button', class: choosing ? 'on' : '', title: 'Put another clip in the second half of this segment', onclick: () => { choosing = !choosing; render(); } }, 'Put a clip in'),
+            h('button', { type: 'button', class: 'seg-del', disabled: n < 2, title: n < 2 ? 'The loop needs at least one segment' : 'Delete this segment. The one before it plays on to the next cut (Delete)', onclick: () => s.deleteBlock(id) }, 'Delete'),
+            choosing && h('div', { class: 'seg-put' }, h('small', {}, 'Pick the clip for the second half'), clipTiles(null, (cid) => { choosing = false; s.insertClip(cid, { id }); stay(); })))),
+        family('playback', 'Source & playback',
+          field('Clip', 'clipId', null, clips, h('div', { class: 'seg-name' }, clipName(seg.clipId))),
+          field('In-point', 'in', h('span', {}, inVal, h('small', {}, ` of ${dur.toFixed(1)} s`)), strip, slider,
+            maxIn <= 0 && h('div', { class: 'seg-note' }, 'This clip is only just long enough to fill the segment.')),
+          field('Direction', 'dir', null, chips(...DIRS.map(([key, label]) => chip(dirNow === key, label, () => pick({ dir: key }))))),
+          speedField,
+          field('Speed ramp', 'vel', null, chips(...Object.entries(VELOCITY).map(([key, value]) => chip(seg.vel === key, value.name, () => pick({ vel: key }), value.desc || 'Constant clip speed'))))),
+        family('framing', 'Framing', framingSection(id, seg, block?.frame, edit, render)),
       );
-      setAppearanceTarget({ id, host: appearanceHost, transitionHost, onTransitionChange: (trans) => pick({ trans }) });
+      setPanelTarget({ id, transitionHost, onTransitionChange: (trans) => pick({ trans }) });
     };
 
-    outline();
     render();
+    return detach;
   }
 
-  /** Opens the segment menu on block `id`, from the element or point it was asked for at, or else from the block
-   * on the lane. Double-click, right-click, a long press, Enter, the toolbar's Edit button and the Edit chip on
-   * the selected block all come here. */
-  function openSegmentMenu(id: string, from?: HTMLElement | { x: number; y: number }) {
+  /** Selects the segment `d` along from `id`, wrapping round the loop, and moves the playhead into it. */
+  function step(id: string, d: number) {
+    const s = store.getState();
+    const segs = s.ctx?.tl.segs || [];
+    const k = segs.findIndex((x) => x.id === id);
+    const seg = segs[(k + d + segs.length) % segs.length];
+    if (!seg) return;
+    s.selectBlock(seg.id);
+    s.transport.seek(seg.t0 + Math.min(seg.dur / 2, 0.25));
+  }
+
+  /** ← → while a segment's settings are showing: steps to the next or previous segment. Returns whether it did. */
+  function stepSegment(d: number): boolean {
+    if (!panelTarget || !segOf(panelTarget.id)) return false;
+    step(panelTarget.id, d);
+    return true;
+  }
+
+  /** Sizes the bar's copy of the preview to the preview's shape. */
+  function sizePeek(peek: HTMLCanvasElement, view: HTMLCanvasElement) {
+    const aspect = view.height ? view.width / view.height : 9 / 16;
+    const w = Math.min(96, 68 * aspect);
+    const dpr = Math.min(2, window.devicePixelRatio || 1);
+    peek.width = Math.round(w * dpr);
+    peek.height = Math.round((w / aspect) * dpr);
+    peek.style.cssText = `width:${Math.round(w)}px;height:${Math.round(w / aspect)}px`;
+  }
+
+  /** Brings segment `id` into the inspector: selects it, moves the playhead into it and opens the Edit tab. A
+   * double-click, right-click or long press on a block, Enter and the toolbar's Edit button all come here. */
+  function revealSegment(id: string) {
     const s = store.getState();
     const seg = segOf(id);
     if (!s.ctx || !seg) return;
-    if (!from) {
-      const r = document.getElementById('lane')?.getBoundingClientRect();
-      from = r ? { x: r.left + ((seg.t0 + seg.dur / 2) / s.ctx.L) * r.width, y: r.top + r.height / 2 } : { x: innerWidth / 2, y: innerHeight / 2 };
-    }
-    let anchor = from as HTMLElement;
-    if (!(from instanceof HTMLElement)) {
-      anchor = document.createElement('div');
-      anchor.style.cssText = `position:fixed;left:${from.x}px;top:${from.y}px;width:1px;height:1px`;
-      document.body.append(anchor);
-    }
     s.selectBlock(id);
     s.transport.seek(seg.t0 + Math.min(seg.dur / 2, 0.25));
-    openPop(anchor, (box) => segmentMenu(box, id), 'seg-menu');
-    if (anchor !== from) anchor.remove();
-    const p = document.getElementById('pop')!;
-    if (placeMenu(p) && menuPeek) {
-      showPeek(menuPeek);
-      keepOnScreen(p);
-    }
-
+    if (s.tab !== 'edit') s.setTab('edit');
+    const tab = typeof document === 'undefined' ? null : document.getElementById('inspector-tab-edit');
+    tab?.scrollIntoView?.({ block: 'nearest' });
   }
-  function dispose() { detachMenu?.(); }
 
-  return { clipTiles, clipPicker, placeMenu, showPeek, framingSection, segmentMenu, openSegmentMenu, dispose, getAppearanceTarget, subscribeAppearance };
+  function dispose() { detachPanel?.(); }
+
+  return { clipTiles, clipPicker, framingSection, mountSegmentPanel, revealSegment, stepSegment, dispose, getPanelTarget, subscribePanel };
 }

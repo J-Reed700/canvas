@@ -10,10 +10,17 @@ camera and modulation into separate families. Preset discovery stays with preset
 management stay above the stack; saving and reverting stay together in the footer. Less frequent global
 generation controls are folded under Master. Edit groups timing, transitions, playback and generation.
 
-The double-click appearance editor is the primary place to override a repeated clip. It opens on
-Look & effects and names the source plus its occurrence (for example, Clip 4 · appearance 2 of 2).
-Timing, Playback and Framing have their own sections. Navigation, scope and closing actions stay outside
-the scrolling controls. Nested effect and modulation pickers preserve the editor underneath.
+The unified inspector is the primary place to override a segment or repeated clip. Selecting a block on
+the timeline targets that segment (scope 'This appearance') and names the source plus its occurrence (for
+example, Clip 4 · appearance 2 of 2). The Looks and Layers tabs edit that appearance's own look and effects
+(forking from the source on first edit, with 'Use source look' to reset). The Edit tab presents that
+segment's own settings inline as collapsible sections: Timing & transition (timing strip, cuts, transitions,
+and block actions), Source & playback (clip, in-point filmstrip and slider, direction, speed, and ramps),
+Framing (crop box, coordinates, motion, and quick moves), and Advanced values (macro, camera, finish, and
+layer overrides). A top bar provides ‹ › segment stepping, position readout, '▶ Play the cut', and '↺ Reset
+segment'. When scope is Whole edit or All uses, the Edit tab displays the whole-edit arrangement settings as
+before. Double-click, right-click, Enter, or the toolbar's Edit segment button select the block and open its
+Edit tab directly.
 
 Research informing these decisions:
 

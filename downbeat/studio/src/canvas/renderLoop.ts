@@ -25,7 +25,7 @@ export function createPreviewController(store: StudioStore, mirrors = new Set<HT
   let stopRenderLoop: (() => void) | undefined;
   let lastFrame: ComposedFrame | null = null;
 
-  /** Canvases that show a live copy of the preview, such as the segment menu's when it has to sit over the stage. */
+  /** `mirrors` holds canvases that show a live copy of the preview, such as the segment panel's when the preview is out of sight. */
 
   /** The frame on screen, so the preview can tell which clip a drag or scroll should reframe. */
   const getLastFrame = (): ComposedFrame | null => lastFrame;

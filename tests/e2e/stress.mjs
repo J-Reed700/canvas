@@ -350,14 +350,16 @@ async function segmentMenu() {
   const lane = await run(`const r = document.getElementById('lane')?.getBoundingClientRect(); return r ? [r.left, r.top, r.width, r.height] : null;`);
   if (!lane) return 'no lane';
   const x = lane[0] + 10 + rnd() * (lane[2] - 20), y = lane[1] + lane[3] / 2;
+  // a double-click shows the segment in the inspector's Edit tab
   await mouse('mousePressed', x, y); await mouse('mouseReleased', x, y);
   await mouse('mousePressed', x, y, 2); await mouse('mouseReleased', x, y, 2);
   await sleep(400);
   const done = [];
+  const open = (family) => `const d = document.querySelector('.seg-panel details[data-family="${family}"]'); if (d) d.open = true;`;
   for (let k = 0; k < 1 + Math.floor(rnd() * 4); k++) {
     const what = pick(['crop', 'crop', 'start frame', 'next cut', 'slider']);
     if (what === 'crop') {
-      const box = await run(`const b = document.querySelector('.pop.seg-menu .seg-crop'); if (!b) return null; b.scrollIntoView({ block: 'center' }); const r = b.getBoundingClientRect(); return [r.left, r.top, r.width, r.height];`);
+      const box = await run(`${open('framing')} const b = document.querySelector('.seg-panel .seg-crop'); if (!b) return null; b.scrollIntoView({ block: 'center' }); const r = b.getBoundingClientRect(); return [r.left, r.top, r.width, r.height];`);
       if (!box) continue;
       let px = box[0] + box[2] / 2, py = box[1] + box[3] / 2;
       await mouse('mousePressed', px, py);
@@ -368,11 +370,11 @@ async function segmentMenu() {
       }
       await mouse('mouseReleased', px, py);
     } else if (what === 'start frame') {
-      if (!(await run(`const b = [...document.querySelectorAll('.pop.seg-menu .seg-strip button')]; if (!b.length) return false; b[Math.floor(Math.random() * b.length)].click(); return true;`))) continue;
+      if (!(await run(`${open('playback')} const b = [...document.querySelectorAll('.seg-panel .seg-strip button')]; if (!b.length) return false; b[Math.floor(Math.random() * b.length)].click(); return true;`))) continue;
     } else if (what === 'next cut') {
-      await press('ArrowRight', 'ArrowRight', 39);
+      if (!(await run(`const b = document.querySelector('.seg-panel [aria-label="Next segment"]'); if (!b || b.disabled) return false; b.click(); return true;`))) continue;
     } else if (!(await run(`
-      const ins = [...document.querySelectorAll('.pop.seg-menu input[type=range]')];
+      const ins = [...document.querySelectorAll('.seg-panel input[type=range]')];
       if (!ins.length) return false;
       const i = ins[Math.floor(Math.random() * ins.length)];
       Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(i, String(+i.min + Math.random() * (+i.max - +i.min)));
@@ -381,8 +383,8 @@ async function segmentMenu() {
     done.push(what);
     await sleep(150 + rnd() * 800);
   }
-  if (rnd() < 0.7) await press('Escape', 'Escape', 27);
-  return done.join(', ') || 'opened and closed';
+  if (rnd() < 0.7) await press('Escape', 'Escape', 27); // deselects, so the inspector goes back to the whole edit
+  return done.join(', ') || 'opened';
 }
 
 const WEIGHTS = {

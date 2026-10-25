@@ -125,8 +125,8 @@ export function toast(msg: string, ms = 2400) {
 }
 
 export function openPop(anchor: HTMLElement, build: (p: HTMLElement) => void, cls = '') {
-  // Controls inside the appearance editor get a child popover; the editor stays mounted.
-  const child = anchor.closest('.seg-menu, #subpop') && document.getElementById('subpop');
+  // Controls inside a child popover open another child popover; the main popover stays mounted.
+  const child = anchor.closest('#subpop') && document.getElementById('subpop');
   const p = child || document.getElementById('pop');
   if (!p) return;
   if (!child) document.getElementById('subpop')?.classList.remove('on');

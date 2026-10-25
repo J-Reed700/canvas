@@ -122,9 +122,10 @@ export const TimelinePanel: React.FC = () => {
 
     const segAtTime = (t: number): Segment | undefined => store.getState().ctx?.tl.segs.find((s) => t >= s.t0 && t < s.t1);
 
-    const openMenu = (e: MouseEvent | PointerEvent) => {
+    // brings the block under the pointer into the inspector's Edit tab
+    const revealAt = (e: MouseEvent | PointerEvent) => {
       const seg = segAtTime(laneTime(e));
-      if (seg) menus.openSegmentMenu(seg.id, { x: e.clientX, y: e.clientY });
+      if (seg) menus.revealSegment(seg.id);
     };
 
 
@@ -192,10 +193,10 @@ export const TimelinePanel: React.FC = () => {
       const seg = segAtTime(laneTime(e));
       if (seg) s.selectBlock(seg.id);
       transport.seek(laneTime(e));
-      // a long press opens the segment menu where there's no double-click
+      // a long press opens the segment's settings where there's no double-click
       if (e.pointerType !== 'mouse') {
         cancelPress();
-        pressRef.current = { x: e.clientX, timer: setTimeout(() => { pressRef.current = null; openMenu(e); }, LONG_PRESS) };
+        pressRef.current = { x: e.clientX, timer: setTimeout(() => { pressRef.current = null; revealAt(e); }, LONG_PRESS) };
       }
     };
 
@@ -213,13 +214,13 @@ export const TimelinePanel: React.FC = () => {
     };
 
     const onDblClick = (e: MouseEvent) => {
-      if (store.getState().ctx) openMenu(e);
+      if (store.getState().ctx) revealAt(e);
     };
     const onContextMenu = (e: MouseEvent) => {
       if (!store.getState().ctx) return;
       e.preventDefault();
       transport.seek(laneTime(e));
-      openMenu(e);
+      revealAt(e);
     };
 
     lane.addEventListener('pointermove', onPointerMove);
@@ -389,12 +390,11 @@ export const TimelinePanel: React.FC = () => {
           <button
             className="tl-tool tl-edit"
             data-label={selNo ? `Edit segment ${selNo}` : 'Edit segment'}
-            data-pop
             disabled={!ctx}
-            title="Open the menu for the selected segment, or the one under the playhead: its timing, clip, transition and framing (Enter)"
-            onClick={(e) => {
+            title="Show the selected segment, or the one under the playhead, in the inspector: its timing, clip, transition and framing (Enter)"
+            onClick={() => {
               const id = blocks.targetBlock();
-              if (id) menus.openSegmentMenu(id, e.currentTarget);
+              if (id) menus.revealSegment(id);
             }}
           >
             ✎ {selNo ? `Edit segment ${selNo}` : 'Edit segment'}
@@ -466,22 +466,9 @@ export const TimelinePanel: React.FC = () => {
             id="lane"
             ref={laneRef}
             aria-label="Editable video timeline with audio waveform"
-            title={'The loop, left to right. Each block is one cut: #n is clip n from the Clips list (thumbnail = the moment it starts on).\nViolet diamonds are animated transitions, white diamonds are hard cuts, and the violet band is the transition duration. Audio: source waveform plus kick (red), hats (blue), and energy (green).\nClick: select and seek · drag a cut line: move it (Shift: off the grid) · drag a band edge: transition length · double-click, right-click or long-press a block, or press Enter: its menu · ⌥-drag: slip the clip · B: split at the playhead'}
+            title={'The loop, left to right. Each block is one cut: #n is clip n from the Clips list (thumbnail = the moment it starts on).\nViolet diamonds are animated transitions, white diamonds are hard cuts, and the violet band is the transition duration. Audio: source waveform plus kick (red), hats (blue), and energy (green).\nClick: select and seek · drag a cut line: move it (Shift: off the grid) · drag a band edge: transition length · double-click, right-click or long-press a block, or press Enter: its settings in the inspector · ⌥-drag: slip the clip · B: split at the playhead'}
           />
           <div className="playhead" id="playhead" />
-          {selSeg && ctx && (
-            <button
-              className="lane-edit"
-              data-label="Edit"
-              data-pop
-              title="Open this segment's menu (Enter)"
-              style={{ left: `${((selSeg.t0 + selSeg.dur / 2) / ctx.L) * 100}%` }}
-              onClick={(e) => menus.openSegmentMenu(selSeg.id, e.currentTarget)}
-            >
-              ✎ Edit
-              <ToolIcon name="edit" />
-            </button>
-          )}
         </div>
       </div>
     </section>

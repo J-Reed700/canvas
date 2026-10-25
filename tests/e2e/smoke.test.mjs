@@ -267,16 +267,16 @@ test('the studio works end to end in a real browser', { skip: missing.length ? `
     const lane = $('#lane'), rect = lane.getBoundingClientRect();
     const segment = S.getState().ctx.tl.segs[1];
     lane.dispatchEvent(new MouseEvent('dblclick', { bubbles: true, clientX: rect.left + (segment.t0 + segment.dur / 2) / S.getState().ctx.L * rect.width, clientY: rect.top + 20 }));
-    await tap(await until(() => $('#segment-tab-timing')));
-    await tap($('#pop [aria-label="Choose transition"]'));
+    await tap(await until(() => $('.seg-panel [aria-label="Choose transition"]'), 5000, 'the segment panel in the inspector'));
+    if (S.getState().tab !== 'edit' || S.getState().editBlock !== segment.id) throw new Error('double-click did not show the segment in the Edit tab');
     const input = await until(() => $('[aria-label="Search transitions"]'));
     input.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
     input.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }));
-    if (!$('#pop').classList.contains('on') || S.getState().selectedBlock !== segment.id) throw new Error('nested picker moved or closed the editor');
+    if (!$('.seg-panel') || S.getState().selectedBlock !== segment.id) throw new Error('nested picker moved the selection or dropped the segment panel');
     setRange(input, 'checkerboard'); await sleep(0);
     await tap($('[aria-label="Use Checkerboard"]'));
     await until(() => !$('[aria-label="Transition library"]'));
-    if (!$('#pop').classList.contains('on')) throw new Error('appearance closed after choosing a transition');
+    if (!$('.seg-panel') || S.getState().editBlock !== segment.id) throw new Error('the segment panel went away after choosing a transition');
     if (S.getState().ctx.tl.segs.find((item) => item.id === segment.id).trans !== 'checkerboard') throw new Error('cut transition was not applied');
     if (JSON.stringify(S.getState().look.cut.transitions) !== JSON.stringify(originalPool)) throw new Error('single pick changed the edit pool');
     S.getState().undo(); key('Escape'); window.__studio.store.setState(originalScope); S.getState().setTab(originalTab);
@@ -469,7 +469,7 @@ test('the studio works end to end in a real browser', { skip: missing.length ? `
     // The next export includes this appearance-specific treatment.
   `);
 
-  await step('double-click edits one appearance in a bounded dialog, with nested effect pickers', `
+  await step('double-click shows one appearance in the inspector, and its looks, effects and segment panel stay on it', `
     const state = S.getState();
     const segment = [...state.ctx.tl.segs].reverse().find((item) => state.ctx.tl.segs.some((other) => other.clipId === item.clipId && other.id !== item.id));
     if (!segment) throw new Error('fixture must repeat a source clip');
@@ -477,30 +477,37 @@ test('the studio works end to end in a real browser', { skip: missing.length ? `
     if (!siblings.length) throw new Error('fixture must repeat this source clip');
     const otherLooks = JSON.stringify(state.ctx.tl.segs.filter((item) => item.id !== segment.id).map((item) => [item.id, item.look]));
     const main = JSON.stringify(state.look);
+    state.setTab('layers');
+    await sleep(0);
     const lane = $('#lane');
     const r = lane.getBoundingClientRect();
     lane.dispatchEvent(new MouseEvent('dblclick', { bubbles: true, clientX: r.left + (segment.t0 + segment.dur / 2) / state.ctx.L * r.width, clientY: r.top + r.height / 2 }));
-    await until(() => $('#pop .appearance-editor'), 5000, 'the appearance editor');
-    const fits = () => { const r = $('#pop').getBoundingClientRect(); return r.top >= 0 && r.left >= 0 && r.bottom <= innerHeight + 1 && r.right <= innerWidth + 1; };
-    await until(fits, 2000, 'the dialog to fit the window');
-    if (!$('#pop').textContent.includes('Only this appearance')) throw new Error('missing scope');
-    await tap(byText('#pop button', 'Browse looks'));
-    await tap($('#pop [data-segment-look-id="thermal"]'));
+    await until(() => $('#pane-edit .seg-panel .seg-panel-bar'), 5000, 'the segment panel in the Edit tab');
+    if (S.getState().editBlock !== segment.id || S.getState().selectedBlock !== segment.id) throw new Error('double-click did not select the segment');
+    if ($('#pop.on')) throw new Error('a floating menu opened');
+    const pressed = $$('.scope-choices button').find((b) => b.getAttribute('aria-pressed') === 'true');
+    if (pressed?.textContent !== 'This appearance') throw new Error('missing scope');
+    S.getState().setTab('looks');
+    await tap(await until(() => $('#pane-looks [data-look-id="thermal"]'), 5000, 'the looks'));
     await until(() => S.getState().ctx.tl.segs.find((item) => item.id === segment.id)?.look?.id === 'thermal', 2000, 'the appearance preset');
-    if (JSON.stringify(S.getState().look) !== main) throw new Error('the dialog changed the main look');
+    if (JSON.stringify(S.getState().look) !== main) throw new Error('the segment look changed the main look');
     if (JSON.stringify(S.getState().ctx.tl.segs.filter((item) => item.id !== segment.id).map((item) => [item.id, item.look])) !== otherLooks) throw new Error('the other appearance changed');
-    await tap(byText('#pop button', '+ Add effect'));
-    await until(() => $('#subpop.on'), 2000, 'the child effect picker');
-    await tap($$('#subpop button').find((button) => button.querySelector('b')?.textContent === 'Mosaic'));
-    if (!$('#pop.seg-menu.on') || $('#subpop.on')) throw new Error('the effect picker replaced the editor');
-    for (const name of ['Timing', 'Playback', 'Framing', 'Look & effects']) {
-      await tap(byText('#pop .seg-tabs button', name));
-      await until(fits, 2000, 'the ' + name + ' panel to fit');
+    S.getState().setTab('layers');
+    await tap(await until(() => byText('#pane-layers button', '+ Add effect'), 5000, 'Add effect'));
+    await until(() => $('#pop.on'), 2000, 'the effect picker');
+    await tap($$('#pop button').find((button) => button.querySelector('b')?.textContent === 'Mosaic'));
+    await until(() => S.getState().ctx.tl.segs.find((item) => item.id === segment.id)?.look?.layers.some((layer) => layer.m === 'mosaic'), 2000, 'the effect on the appearance');
+    if (JSON.stringify(S.getState().look) !== main) throw new Error('the effect went on the main look');
+    if (JSON.stringify(S.getState().ctx.tl.segs.filter((item) => item.id !== segment.id).map((item) => [item.id, item.look])) !== otherLooks) throw new Error('the effect reached another appearance');
+    S.getState().setTab('edit');
+    const panel = await until(() => $('#pane-edit .seg-panel'), 5000, 'the segment panel');
+    for (const family of ['timing', 'playback', 'framing']) {
+      const details = panel.querySelector('details[data-family="' + family + '"]');
+      if (!details) throw new Error('missing the ' + family + ' section');
+      details.open = true;
+      await sleep(50);
+      if (panel.scrollWidth > panel.clientWidth + 1) throw new Error('the ' + family + ' section overflows the inspector');
     }
-    const done = byText('#pop button', 'Done').getBoundingClientRect();
-    if (done.bottom > innerHeight || done.top < 0) throw new Error('Done is offscreen');
-    await tap(byText('#pop button', 'Done'));
-    await until(() => !$('#pop.on'), 2000, 'the editor to close');
   `);
 
   await step('exports a Spotify Canvas that passes every check', `

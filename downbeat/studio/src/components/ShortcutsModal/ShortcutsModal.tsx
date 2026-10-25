@@ -9,7 +9,7 @@ const SHORTCUTS: [string, string][] = [
   [', .', 'Previous / next frame (pauses playback)'],
   ['⌘ K', 'Search studio commands (Ctrl+K on Windows and Linux)'],
   ['⇧ F', 'Focus viewer / restore workspace'],
-  ['← →', 'Previous / next look'],
+  ['← →', 'Previous / next look, or previous / next segment while editing one in Edit'],
   ['M', 'Variations of the current look. Press it again for six more'],
   ['D', '🎲 Roll everything: look, layers, edit, per-clip FX'],
   ['⇧ D', 'Undo the last roll'],
@@ -34,7 +34,7 @@ const SHORTCUTS: [string, string][] = [
   ['Drag', 'On the preview: reframe the current clip · scroll to zoom · double-click to reset'],
   ['⇧ Drag', 'On a cut line: move it off the snap grid'],
   ['⌥ Drag', 'On a timeline segment: slip to a different moment of the clip'],
-  ['Dbl-click', 'On a timeline segment: its menu, with timing, clip, in-point, speed ramp, transition and framing. Right-click, Enter, Edit segment or a long press open it too'],
+  ['Dbl-click', 'On a timeline segment: select it and open the inspector’s Edit tab, with its timing, clip, in-point, speed ramp, transition and framing. Right-click, Enter, Edit segment or a long press do the same'],
 ];
 
 export const ShortcutsModal: React.FC = () => {

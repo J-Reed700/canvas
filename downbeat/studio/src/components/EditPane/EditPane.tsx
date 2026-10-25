@@ -1,6 +1,7 @@
 import './EditPane.css';
-import { useStudioStore, useVersion, useStudioApi } from '../../state/StudioContext.tsx';
-import React from 'react';
+import { useStudioStore, useVersion, useStudioApi, useSegmentMenu } from '../../state/StudioContext.tsx';
+import { SegmentTransitionPicker } from '../SegmentTransitionPicker/SegmentTransitionPicker.tsx';
+import React, { useLayoutEffect, useRef } from 'react';
 import { BAR_CHOICES, TRANS_BEATS, fmtLength, parseLength } from '../../lib/utils.ts';
 import { RHYTHMS, DIRECTIONS, VELOCITY } from '../../engine/timeline.ts';
 import { TransitionPicker } from '../TransitionPicker/TransitionPicker.tsx';
@@ -231,7 +232,37 @@ const LoopLength: React.FC = () => {
   );
 };
 
+/** The selected timeline segment's own timing, transition, playback and framing, drawn by the segment panel. */
+const SegmentPanel: React.FC<{ id: string }> = ({ id }) => {
+  const menus = useSegmentMenu();
+  const host = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => menus.mountSegmentPanel(host.current!, id), [menus, id]);
+  return <div className="seg-panel" ref={host} />;
+};
+
+const SegmentEditPane: React.FC<{ id: string }> = ({ id }) => (
+  <div className="pane on edit-pane" id="pane-edit" role="tabpanel" aria-labelledby="inspector-tab-edit">
+    <div style={{ padding: '14px' }}>
+      <div className="edit-scope-note">Segment settings · only this segment</div>
+      <SegmentPanel id={id} />
+      <SegmentTransitionPicker />
+      <details className="edit-family">
+        <summary>Advanced values</summary>
+        <div className="edit-family-body">
+          <BlockLookOverrides />
+        </div>
+      </details>
+    </div>
+  </div>
+);
+
+/** Edit follows the inspector's target: a selected segment's own settings, or the arrangement of the whole edit. */
 export const EditPane: React.FC = () => {
+  const segment = useStudioStore((s) => (s.editBlock && s.ctx?.tl.segs.some((seg) => seg.id === s.editBlock) ? s.editBlock : null));
+  return segment ? <SegmentEditPane id={segment} /> : <ArrangementPane />;
+};
+
+const ArrangementPane: React.FC = () => {
   const exporting = useStudioStore((s) => s.exporting);
   const store = useStudioApi();
 
@@ -412,7 +443,7 @@ export const EditPane: React.FC = () => {
           </div>
           <div className="note">
             Speeds footage up or slows it down while cuts stay on the beat and the song keeps its tempo.
-            Double-click a segment to set only its speed or match its original BPM to the song.
+            Select a segment on the timeline to set only its speed or match its original BPM to the song.
           </div>
         </div>
 
@@ -453,7 +484,7 @@ export const EditPane: React.FC = () => {
             ))}
           </div>
           <div className="note" style={{ marginTop: '6px' }}>
-            Velocity-edit curves locked to the beat. Each averages out to the clip speed, so total segment timing is preserved. Double-click a segment to ramp just that one.
+            Velocity-edit curves locked to the beat. Each averages out to the clip speed, so total segment timing is preserved. Select a segment on the timeline to ramp just that one.
           </div>
         </div>
 
@@ -522,10 +553,6 @@ export const EditPane: React.FC = () => {
           </label>
         </div>
 
-        </div></details>
-
-        <details className="edit-family"><summary>Advanced segment values</summary><div className="edit-family-body">
-          <BlockLookOverrides />
         </div></details>
 
         <div className="note">
