@@ -37,6 +37,12 @@ export interface GhostItem {
   read: (fr: ComposedFrame) => number | undefined;
 }
 
+export interface MediaImport {
+  total: number;
+  completed: number;
+  filename: string;
+}
+
 export interface StudioState {
   clips: ClipMeta[];
   tracks: TrackMeta[];
@@ -82,6 +88,8 @@ export interface StudioState {
   muted: boolean;
   tab: 'looks' | 'layers' | 'edit';
   exporting: boolean;
+  /** File transfers and analysis in progress; playback copies may continue preparing afterward. */
+  mediaImport: MediaImport | null;
   exportOpts: ExportOptions;
   varOpen: boolean;
   helpOpen: boolean;

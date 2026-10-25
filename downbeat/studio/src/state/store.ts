@@ -94,6 +94,7 @@ export const useStudioStore = create<StudioState>((set, get) => ({
   muted: false,
   tab: 'looks',
   exporting: false,
+  mediaImport: null,
   exportOpts: { size: 'master', withSong: false, format: 'spotify', promo: 0, autoSave: true },
   varOpen: false,
   helpOpen: false,

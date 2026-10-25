@@ -6,6 +6,7 @@ import { getLastFrame } from '../canvas/renderLoop.ts';
 import { SCREENS, screenOf, type Screen } from '../lib/screens.ts';
 import { useWorkspaceStore } from '../state/workspaceStore.ts';
 import { stepFrame } from '../lib/playback.ts';
+import { isMediaLoading } from '../state/mediaLoading.ts';
 import { Icon, ICONS } from './ui.tsx';
 import { SAFE_GUIDES, guideFor } from '../lib/safeGuides.ts';
 import type { ClipMeta, FramePoint } from '../engine/types.ts';
@@ -39,6 +40,7 @@ export const StagePanel: React.FC = () => {
   const safe = useStudioStore((s) => s.safe);
   const muted = useStudioStore((s) => s.muted);
   const exporting = useStudioStore((s) => s.exporting);
+  const mediaLoading = useStudioStore(isMediaLoading);
   const glError = useStudioStore((s) => s.glError);
   const transport = useStudioStore((s) => s.transport);
   const save = useStudioStore((s) => s.save);
@@ -185,7 +187,7 @@ export const StagePanel: React.FC = () => {
   };
 
   const handlePlayToggle = () => {
-    if (!exporting) transport.toggle();
+    if (!exporting && !mediaLoading) transport.toggle();
   };
 
   const handleModeChange = (mode: 'loop' | 'listen') => {
@@ -310,6 +312,7 @@ export const StagePanel: React.FC = () => {
                     className="pp"
                     title={playing ? 'Pause (Space)' : 'Play (Space)'}
                     aria-label={playing ? 'Pause' : 'Play'}
+                    disabled={exporting || mediaLoading}
                     onClick={handlePlayToggle}
                   >
                     <PlayIcon playing={playing} />
@@ -352,18 +355,19 @@ export const StagePanel: React.FC = () => {
       <div className="transport">
         <div className="transport-readout"><span id="viewerTimecode">00:00:00:00</span><small> / <span id="viewerDuration">00:00:08:00</span></small><span id="timeNow" hidden>0.00</span><span id="timeLen" hidden>0.00</span></div>
         <div className="transport-playback">
-          <button className="transport-step" aria-label="Go to start" title="Go to start" disabled={exporting} onClick={() => transport.seek(0)}><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 5v14M19 5 8 12l11 7Z" /></svg></button>
-          <button className="transport-step" aria-label="Previous frame" title="Previous frame (,)" disabled={exporting} onClick={() => stepFrame(transport, -1)}><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 5v14M17 6l-8 6 8 6" /></svg></button>
+          <button className="transport-step" aria-label="Go to start" title="Go to start" disabled={exporting || mediaLoading} onClick={() => transport.seek(0)}><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 5v14M19 5 8 12l11 7Z" /></svg></button>
+          <button className="transport-step" aria-label="Previous frame" title="Previous frame (,)" disabled={exporting || mediaLoading} onClick={() => stepFrame(transport, -1)}><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 5v14M17 6l-8 6 8 6" /></svg></button>
         <button
           className="play"
           id="btnPlay"
           title="Play / pause (Space)"
           aria-label={playing ? 'Pause' : 'Play'}
+          disabled={exporting || mediaLoading}
           onClick={handlePlayToggle}
         >
           <PlayIcon playing={playing} />
         </button>
-          <button className="transport-step" aria-label="Next frame" title="Next frame (.)" disabled={exporting} onClick={() => stepFrame(transport, 1)}><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 5v14M7 6l8 6-8 6" /></svg></button>
+          <button className="transport-step" aria-label="Next frame" title="Next frame (.)" disabled={exporting || mediaLoading} onClick={() => stepFrame(transport, 1)}><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 5v14M7 6l8 6-8 6" /></svg></button>
         </div>
         <div className="transport-audition">
         <div className="seg" id="modeSeg" style={{ display: features ? '' : 'none' }}>

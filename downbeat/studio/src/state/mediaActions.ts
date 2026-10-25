@@ -38,7 +38,8 @@ export async function requestProxies() {
     useStudioStore.setState((p) => ({ clips: p.clips.map((c) => (requested.has(c.id) ? { ...c, proxy: status(c.id) ?? c.proxy } : c)) }));
   mark(() => 'queued'); // so a second call while this one is out doesn't ask again
   const r = await postJSON<{ ok?: boolean; proxies?: Record<string, string> }>('/api/proxies', { ids }).catch(() => null);
-  if (r?.proxies) mark((id) => r.proxies![id]);
+  // A failed queue request must not leave the editor waiting on jobs that never started.
+  mark((id) => r?.proxies?.[id] ?? 'error');
 }
 
 const count = (n: number, what: string) => `${n || 'no'} ${what}${n === 1 ? '' : 's'}`;
@@ -95,16 +96,43 @@ export async function removeFolder(path: string) {
   if (r.ok !== false) applyLibrary(r);
 }
 
-export async function uploadFiles(files: File[]) {
+let uploadQueue = Promise.resolve();
+let queuedImports = 0;
+
+/** Extra drops join the current import without starting competing transfers. */
+export function uploadFiles(files: File[]): Promise<void> {
+  if (!files.length) return Promise.resolve();
+  const s = useStudioStore.getState();
+  if (s.exporting) {
+    toast('Wait for the export to finish before adding files');
+    return Promise.resolve();
+  }
+  queuedImports++;
+  s.transport.pause();
+  s.bank?.sync([], false);
+  useStudioStore.setState((p) => ({ mediaImport: p.mediaImport
+    ? { ...p.mediaImport, total: p.mediaImport.total + files.length }
+    : { total: files.length, completed: 0, filename: files[0].name } }));
+  uploadQueue = uploadQueue.then(() => uploadBatch(files)).catch((error: unknown) => {
+    toast(`Could not finish importing: ${error instanceof Error ? error.message : String(error)}`, 5000);
+  }).finally(() => {
+    if (--queuedImports === 0) useStudioStore.setState({ mediaImport: null });
+  });
+  return uploadQueue;
+}
+
+async function uploadBatch(files: File[]) {
   let n = 0;
   let stills = 0;
   let refresh = false;
   let pendingTrack: string | null = null;
   for (const f of files) {
+    useStudioStore.setState((p) => ({ mediaImport: p.mediaImport && { ...p.mediaImport, filename: f.name } }));
     // the library lists the usual video types; the server turns other videos into an .mp4 first
     const convert = !/\.(mp4|mov|m4v|webm|mkv)$/i.test(f.name) && (f.type.startsWith('video/') || /\.(avi|mts|m2ts|ts|wmv|flv|mpe?g|3gp|vob|ogv)$/i.test(f.name));
     toast(convert ? `Uploading ${f.name} and converting it to .mp4…` : `Uploading ${f.name}…`, convert ? 60000 : 6000);
     const r = await uploadMedia(f);
+    useStudioStore.setState((p) => ({ mediaImport: p.mediaImport && { ...p.mediaImport, completed: p.mediaImport.completed + 1 } }));
     if (!r.ok) {
       toast(r.error, 5000);
       continue;

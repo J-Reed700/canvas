@@ -160,6 +160,10 @@ still being made. The other videos from your folders are dimmed with a dashed bo
 + Add (or tap it) to put it in the edit, which starts its proxy. Still images become clips too, and
 adding one switches to the Living Cover Art look, which is designed for a single image.
 
+While files import or clips in the edit prepare for playback, a loading screen shows the progress.
+Playback pauses and the editor's controls wait until preparation finishes. Extra files dropped during an
+import join the queue. Once the loading screen clears, press Play to preview the edit.
+
 ### Finding a clip
 
 The search box above the clips narrows them by file name, folder or size (`1920x1080`, or Vertical,

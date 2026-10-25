@@ -6,6 +6,7 @@ const dom = installDom();
 const { useStudioStore: S } = await import('../downbeat/studio/src/state/store.ts');
 const history = await import('../downbeat/studio/src/state/historyController.ts');
 const media = await import('../downbeat/studio/src/state/mediaActions.ts');
+const { isMediaLoading, pendingClipCount } = await import('../downbeat/studio/src/state/mediaLoading.ts');
 const { LOOKS, cloneLook } = await import('../downbeat/studio/src/engine/looks.ts');
 const { MODULES } = await import('../downbeat/studio/src/engine/modules.ts');
 const { RHYTHMS } = await import('../downbeat/studio/src/engine/timeline.ts');
@@ -70,6 +71,7 @@ function fresh(over = {}) {
     snap: 1,
     clipFrame: {},
     palettes: {},
+    mediaImport: null,
     rollOpts: { look: true, edit: true, perClip: true, clips: false, loop: false },
     exportOpts: { size: 'master', withSong: false, format: 'spotify', promo: 0, autoSave: true },
     ...over,
@@ -960,6 +962,19 @@ test('proxy requests retain the edit order when it differs from library order', 
   assert.deepEqual(JSON.parse(requests[0].body).ids, ['c', 'a']);
 });
 
+test('a failed playback-copy request releases the media loading state', async () => {
+  fresh({ clips: CLIPS.map((clip) => ({ ...clip, proxy: 'none' })) });
+  let fail;
+  stubFetch({ 'POST /api/proxies': () => new Promise((_, reject) => { fail = reject; }) });
+  const requesting = media.requestProxies();
+  assert.equal(pendingClipCount(st()), 3);
+  assert.equal(isMediaLoading(st()), true);
+  fail(new Error('offline'));
+  await requesting;
+  assert.equal(isMediaLoading(st()), false);
+  assert.ok(st().clips.every((clip) => clip.proxy === 'error'));
+});
+
 test('removing a clip drops it everywhere, and the message says whether the file was deleted', async () => {
   let reply = { ok: true, deleted: true };
   const reqs = stubFetch({ 'POST /api/clip/remove': () => reply });
@@ -1082,6 +1097,66 @@ test('metadata uploads update the library incrementally without full-library req
   assert.equal(st().tracks[0].name, 'song.wav');
   assert.match(st().lookId, /^art-/);
   assert.equal(lastToast(), 'Added 3 files. For images, try the Album art & stills looks.');
+});
+
+test('additional file drops queue behind the current import and failures release the controls', async () => {
+  fresh();
+  st().transport.play();
+  const release = [];
+  const requests = stubFetch({
+    'POST /api/upload': (_url, init) => new Promise((resolve) => {
+      const name = decodeURIComponent(init.headers['X-Filename']);
+      release.push(() => resolve(name === 'broken.mp4'
+        ? { ok: false, error: 'unreadable' }
+        : { ok: true, kind: 'video', id: name, clip: { id: name, name, duration: 4, proxy: 'ready' } }));
+    }),
+  });
+  const first = st().uploadFiles([new File(['x'], 'first.mp4')]);
+  const second = st().uploadFiles([new File(['x'], 'broken.mp4')]);
+  assert.equal(st().transport.playing, false);
+  assert.equal(st().mediaImport.total, 2);
+  await tick();
+  assert.equal(requests.length, 1, 'extra drops do not start competing transfers');
+  release[0]();
+  await first;
+  await tick();
+  assert.equal(st().mediaImport.completed, 1);
+  assert.equal(st().mediaImport.filename, 'broken.mp4');
+  assert.equal(isMediaLoading(st()), true, 'finishing one drop does not unlock the next drop');
+  release[1]();
+  await second;
+  assert.equal(st().mediaImport, null);
+  assert.equal(isMediaLoading(st()), false);
+  assert.ok(st().selected.includes('first.mp4'));
+  assert.match(lastToast(), /Could not add broken.mp4/);
+  await st().uploadFiles([]);
+  assert.equal(st().mediaImport, null, 'empty drops do not lock the editor');
+});
+
+test('an unexpected import error unlocks the editor and later drops still work', async () => {
+  fresh();
+  stubFetch({ 'POST /api/upload': () => ({ ok: true, kind: 'video', id: 'new', clip: { id: 'new', name: 'new.mp4', duration: 4, proxy: 'ready' } }) });
+  const rebuild = st().rebuild;
+  S.setState({ rebuild: () => { throw new Error('could not build the edit'); } });
+  try {
+    await st().uploadFiles([new File(['x'], 'new.mp4')]);
+    assert.equal(st().mediaImport, null);
+    assert.match(lastToast(), /could not build the edit/);
+  } finally { S.setState({ rebuild }); }
+  await st().uploadFiles([new File(['x'], 'new.mp4')]);
+  assert.equal(st().mediaImport, null);
+  assert.equal(lastToast(), 'Added 1 file');
+});
+
+test('dropping files during an export leaves the import queue idle', async () => {
+  fresh({ exporting: true });
+  const requests = stubFetch({});
+  try {
+    await st().uploadFiles([new File(['x'], 'new.mp4')]);
+    assert.equal(st().mediaImport, null);
+    assert.equal(requests.length, 0);
+    assert.match(lastToast(), /Wait for the export/);
+  } finally { S.setState({ exporting: false }); }
 });
 
 test('clip palettes are fetched once per clip', async () => {

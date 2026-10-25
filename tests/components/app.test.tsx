@@ -209,6 +209,63 @@ describe('keyboard shortcuts', () => {
 });
 
 describe('dropping files', () => {
+  test('bulk drops show progress, pause playback and wait for playback copies before unlocking', async () => {
+    const release: Array<() => void> = [];
+    serve({
+      'POST /api/upload': (_url, init) => new Promise((resolve) => {
+        const name = decodeURIComponent((init.headers as Record<string, string>)['X-Filename']);
+        release.push(() => resolve({ ok: true, kind: 'video', id: name, clip: { id: name, name, duration: 5, proxy: 'queued' } }));
+      }),
+    });
+    resetStudio();
+    renderApp();
+    update(() => st().transport.play());
+    const files = ['first.mp4', 'second.mp4'].map((name) => new File(['x'], name, { type: 'video/mp4' }));
+    fireEvent.drop(window, { dataTransfer: { types: ['Files'], files } });
+    expect(st().transport.playing).toBe(false);
+    expect(document.querySelector('.studio-content')!.hasAttribute('inert')).toBe(true);
+    expect(screen.getByRole('status', { name: 'Media loading' }).textContent).toContain('File 1 of 2');
+    expect(screen.getByRole('status', { name: 'Media loading' }).textContent).toContain('first.mp4');
+    expect((document.getElementById('btnPlay') as HTMLButtonElement).disabled).toBe(true);
+    expect((document.getElementById('btnExport') as HTMLButtonElement).disabled).toBe(true);
+    const before = st().snapshot();
+    for (const key of [' ', '.', ',', 'd', 'e', 'ArrowRight']) press(key);
+    press('k', { metaKey: true });
+    press('z', { ctrlKey: true });
+    const reload = new KeyboardEvent('keydown', { key: 'r', ctrlKey: true, cancelable: true });
+    window.dispatchEvent(reload);
+    expect(reload.defaultPrevented, 'browser shortcuts stay available').toBe(false);
+    expect(st().transport.playing).toBe(false);
+    expect(st().snapshot()).toBe(before);
+    expect(st().exportOpen).toBe(false);
+    await waitFor(() => expect(release).toHaveLength(1));
+    await act(async () => release[0]());
+    await waitFor(() => expect(release).toHaveLength(2));
+    expect(screen.getByRole('status', { name: 'Media loading' }).textContent).toContain('File 2 of 2');
+    expect((screen.getByRole('progressbar') as HTMLProgressElement).value).toBe(1);
+    await act(async () => release[1]());
+    await waitFor(() => expect(st().mediaImport).toBeNull());
+    expect(screen.getByRole('status', { name: 'Media loading' }).textContent).toContain('2 clips left to prepare');
+    expect(document.querySelector('.studio-content')!.getAttribute('aria-busy')).toBe('true');
+    update(() => S.setState({ clips: st().clips.map((c) => c.id === 'first.mp4' ? { ...c, proxy: 'ready' } : c) }));
+    expect(screen.getByRole('status', { name: 'Media loading' }).textContent).toContain('1 clip left to prepare');
+    // Failed jobs also finish waiting; a broken clip must not lock the whole editor.
+    update(() => S.setState({ clips: st().clips.map((c) => c.id === 'second.mp4' ? { ...c, proxy: 'error' } : c) }));
+    expect(screen.queryByRole('status', { name: 'Media loading' })).toBeNull();
+    expect(document.querySelector('.studio-content')!.hasAttribute('inert')).toBe(false);
+    press(' ');
+    expect(st().transport.playing).toBe(true);
+  });
+
+  test('background preparation for clips outside the edit keeps the studio available', () => {
+    resetStudio({ selected: ['a'], clips: st().clips.map((c) => ({ ...c, proxy: c.id === 'a' ? 'ready' : 'building' })) });
+    renderApp();
+    expect(screen.queryByRole('status', { name: 'Media loading' })).toBeNull();
+    expect(document.querySelector('.studio-content')!.hasAttribute('inert')).toBe(false);
+    press(' ');
+    expect(st().transport.playing).toBe(true);
+  });
+
   test('dragging files over the window highlights it, and dropping uploads them', async () => {
     const fetch = serve({
       'POST /api/upload': () => ({ ok: true, kind: 'video', id: 'dropped' }),
