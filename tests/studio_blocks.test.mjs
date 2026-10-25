@@ -190,6 +190,20 @@ test('a split copies block look overrides to both independent halves', () => {
   assert.ok(!('overrides' in autoBlock(split, split[1].id)[1]), 'Use look clears the block styling');
 });
 
+test('splitting a full segment treatment gives both halves independent nested values', async () => {
+  const { LOOKS, cloneLook } = await import('../downbeat/studio/src/engine/looks.ts');
+  const { o, tl, blocks } = plan();
+  const seg = tl.segs[1];
+  const look = cloneLook(LOOKS[0]);
+  const owned = patchBlock(blocks, seg.id, { look });
+  const split = splitBlock(owned, resolve(owned, o), seg.id, seg.t0 / o.beatDur + 2);
+  assert.deepEqual(split[1].look, split[2].look);
+  assert.notEqual(split[1].look.layers[0].p, split[2].look.layers[0].p);
+  split[2].look.layers[0].p.scale = 9;
+  assert.notEqual(split[1].look.layers[0].p.scale, 9);
+  assert.equal(autoBlock(split, split[1].id)[1].look, undefined);
+});
+
 test('a block camera speed override retimes only that segment', () => {
   const { o, blocks } = plan();
   let next = patchBlock(blocks, 'g1', { overrides: { camera: { speed: 1.75 } } });

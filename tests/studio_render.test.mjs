@@ -3,8 +3,8 @@ import assert from 'node:assert/strict';
 import { installDom, FakeElement, fakeCanvas, stubFetch } from './fakes.mjs';
 
 const dom = installDom();
-const { useStudioStore: S } = await import('../downbeat/studio/src/state/store.ts');
-const R = await import('../downbeat/studio/src/canvas/renderLoop.ts');
+const { studioStore: S } = await import('../downbeat/studio/src/state/store.ts');
+const R = (await import('../downbeat/studio/src/state/store.ts')).studioRuntime.preview;
 const { LOOKS, cloneLook } = await import('../downbeat/studio/src/engine/looks.ts');
 const { METERS } = await import('../downbeat/studio/src/lib/utils.ts');
 const { MODULES } = await import('../downbeat/studio/src/engine/modules.ts');
@@ -132,6 +132,28 @@ test('readouts follow the transport: time, length, bar.beat and the playhead', (
   assert.equal(ids.hudProg.style.width, '62.5%');
   at(0);
   assert.equal(ids.bbt.textContent, '1.1');
+});
+
+test('a paused preview redraws the decoded frame when its seek lands without another edit', () => {
+  fresh();
+  const video = { readyState: 4, seeking: true };
+  const engine = st().engine;
+  let uploaded = 'old frame';
+  st().bank.get = () => video;
+  engine.video = () => {
+    if (!video.seeking) uploaded = 'requested frame';
+    return { picture: uploaded };
+  };
+  at(1);
+  assert.equal(engine.frames.at(-1).sources[0].picture, 'old frame');
+  frame();
+  assert.equal(engine.frames.length, 1, 'a pending decoder keeps its previous image without rendering it again');
+  video.seeking = false;
+  frame();
+  assert.equal(engine.frames.at(-1).sources[0].picture, 'requested frame', 'landing the seek must update the visible image at the same timecode');
+  const drawn = engine.frames.length;
+  frame();
+  assert.equal(engine.frames.length, drawn, 'an idle decoded frame does not keep rendering');
 });
 
 test('the frame rate readout updates about twice a second', () => {

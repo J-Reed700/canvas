@@ -1,10 +1,10 @@
 import React from 'react';
 import { describe, expect, test, vi } from 'vitest';
-import { fireEvent, render, within } from '@testing-library/react';
-import { Modals } from '../../downbeat/studio/src/components/Modals.tsx';
+import { fireEvent, within } from '@testing-library/react';
+import { Modals } from '../../downbeat/studio/src/components/Modals/Modals.tsx';
 import { FORMATS } from '../../downbeat/studio/src/lib/utils.ts';
 import { MODULES } from '../../downbeat/studio/src/engine/modules.ts';
-import { LOOKS, S, TRACKS, resetStudio, screen, st, update, withSong } from './studio.tsx';
+import { render, LOOKS, S, TRACKS, resetStudio, screen, st, update, withSong } from './studio.tsx';
 
 const sheet = () => document.getElementById('exportForm') as HTMLElement;
 const summary = () => {

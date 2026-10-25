@@ -245,7 +245,78 @@ test('the studio works end to end in a real browser', { skip: missing.length ? `
     if (errors.length) throw new Error(errors.join('\\n'));
   `);
 
+  await step('the shared transition library searches, groups and paginates the edit pool and one cut', `
+    const originalTab = S.getState().tab;
+    const originalScope = { editBlock: S.getState().editBlock, editClip: S.getState().editClip, selectedBlock: S.getState().selectedBlock };
+    const originalPool = [...S.getState().look.cut.transitions];
+    S.getState().setTab('edit');
+    await tap(await until(() => $('[aria-label="Browse transitions"]')));
+    const library = await until(() => $('[aria-label="Transition library"]'));
+    if (library.querySelectorAll('[data-transition-id]').length !== 8) throw new Error('transition page is unbounded');
+    await tap(library.querySelector('[aria-label="Next page"]'));
+    if (!library.textContent.includes('9–16 of 64')) throw new Error('pagination did not advance');
+    await tap(library.querySelector('[aria-label="Shapes"]'));
+    if (!library.textContent.includes('1–8 of 8')) throw new Error('type did not reset pagination');
+    const search = library.querySelector('[aria-label="Search transitions"]');
+    setRange(search, 'diamond'); await sleep(0);
+    await tap(library.querySelector('[aria-label="Include Diamond Reveal"]'));
+    if (!S.getState().look.cut.transitions.includes('diamond')) throw new Error('transition was not added');
+    await tap(library.querySelector('[aria-label="Include Diamond Reveal"]'));
+    key('Escape'); await until(() => !$('[aria-label="Transition library"]'));
+    if (JSON.stringify(S.getState().look.cut.transitions) !== JSON.stringify(originalPool)) throw new Error('pool did not restore');
+    const lane = $('#lane'), rect = lane.getBoundingClientRect();
+    const segment = S.getState().ctx.tl.segs[1];
+    lane.dispatchEvent(new MouseEvent('dblclick', { bubbles: true, clientX: rect.left + (segment.t0 + segment.dur / 2) / S.getState().ctx.L * rect.width, clientY: rect.top + 20 }));
+    await tap(await until(() => $('#segment-tab-timing')));
+    await tap($('#pop [aria-label="Choose transition"]'));
+    const input = await until(() => $('[aria-label="Search transitions"]'));
+    input.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
+    input.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }));
+    if (!$('#pop').classList.contains('on') || S.getState().selectedBlock !== segment.id) throw new Error('nested picker moved or closed the editor');
+    setRange(input, 'checkerboard'); await sleep(0);
+    await tap($('[aria-label="Use Checkerboard"]'));
+    await until(() => !$('[aria-label="Transition library"]'));
+    if (!$('#pop').classList.contains('on')) throw new Error('appearance closed after choosing a transition');
+    if (S.getState().ctx.tl.segs.find((item) => item.id === segment.id).trans !== 'checkerboard') throw new Error('cut transition was not applied');
+    if (JSON.stringify(S.getState().look.cut.transitions) !== JSON.stringify(originalPool)) throw new Error('single pick changed the edit pool');
+    S.getState().undo(); key('Escape'); window.__studio.store.setState(originalScope); S.getState().setTab(originalTab);
+  `);
+
+  await step('the transition table remains reachable on a narrow screen', `
+    const originalTab = S.getState().tab;
+    S.getState().setTab('edit');
+    await tap(await until(() => $('[aria-label="Browse transitions"]')));
+    const library = await until(() => $('[aria-label="Transition library"]'));
+    await sleep(100);
+    const rect = library.getBoundingClientRect();
+    if (rect.left < 0 || rect.right > innerWidth || rect.top < 0 || rect.bottom > innerHeight) throw new Error('transition modal is outside viewport');
+    if (library.scrollWidth > library.clientWidth + 1) throw new Error('transition modal overflows horizontally');
+    const done = byText('.transition-browser button', 'Done');
+    const bounds = done.getBoundingClientRect();
+    if (bounds.bottom > innerHeight || bounds.top < 0) throw new Error('transition modal footer is not reachable');
+    await tap(done); S.getState().setTab(originalTab);
+  `, { width: 390, height: 844 });
+
+  if (!broken && process.env.DOWNBEAT_TRANSITION_SCREENSHOT_DIR) {
+    mkdirSync(process.env.DOWNBEAT_TRANSITION_SCREENSHOT_DIR, { recursive: true });
+    for (const [name, width, height] of [['desktop', 1440, 1000], ['mobile', 390, 844]]) {
+      await browser.send('Emulation.setDeviceMetricsOverride', { width, height, deviceScaleFactor: 1, mobile: false });
+      await browser.run(PAGE + `
+        S.getState().setTab('edit');
+        await tap(await until(() => $('[aria-label="Browse transitions"]')));
+        await until(() => $('[aria-label="Transition library"]')); await sleep(100);
+      `);
+      const shot = await browser.send('Page.captureScreenshot', { format: 'png' });
+      writeFileSync(join(process.env.DOWNBEAT_TRANSITION_SCREENSHOT_DIR, 'transitions-' + name + '.png'), Buffer.from(shot.result.data, 'base64'));
+      await browser.run(PAGE + `key('Escape'); S.getState().setTab('layers');`);
+    }
+    await browser.send('Emulation.clearDeviceMetricsOverride');
+  }
+
   await step('Color studio imports a LUT, applies it in the finish pass, and draws scopes', `
+    S.getState().setTab('layers');
+    await until(() => $('.layers-subnav'), 5000, 'layer families');
+    await tap(byText('.layers-subnav button', 'Color'));
     S.getState().setTab('layers');
     await until(() => document.querySelector('[aria-label="Import 3D LUT"]'), 5000, 'the color studio');
     const upload = document.querySelector('[aria-label="Import 3D LUT"]');
@@ -310,20 +381,24 @@ test('the studio works end to end in a real browser', { skip: missing.length ? `
   await step('Layers: the step grid, a layer switch, Add effect, a macro and the palette respond', `
     byText('#tabs button', 'Layers ' + $('#layerCount').textContent).click();
     await until(() => $('#pane-layers'), 5000, 'the Layers tab');
+    await tap(byText('.layers-subnav button', 'Animate'));
     const n = S.getState().look.layers.length;
     const cell = $$('.seqgrid button')[5];
     const was = cell.className;
     await tap(cell);
     await until(() => $$('.seqgrid button')[5].className !== was, 2000, 'the step to light');
+    await tap($('.layers-subnav button[aria-controls="layer-effects-section"]'));
     const firstCard = $$('.card').find((c) => c.querySelector('.sw'));
     await tap(firstCard.querySelector('.sw'));
     await until(() => firstCard.className.includes('off'), 2000, 'the layer switch');
     await tap(byText('.layer-tools button', '+ Add effect'));
     await tap($$('#pop button').find((b) => b.textContent.startsWith('Feedback Trails')));
     await until(() => card('Feedback Trails') && $('#layerCount').textContent === String(n + 1), 2000, 'the new layer card');
+    await tap(byText('.layers-subnav button', 'Animate'));
     const macro = $$('.prm').find((r) => r.querySelector('label')?.textContent === 'Macro A');
     setRange(macro.querySelector('input'), 0.7);
     await until(() => macro.querySelector('output').textContent === '70%', 2000, 'the macro slider');
+    await tap(byText('.layers-subnav button', 'Color'));
     await until(() => $('.pal-row'), 20000, 'the clip palette');
     await tap($('.pal-row'));
     await until(() => $('.pal-row').className.includes('on'), 2000, 'the palette tint');
@@ -331,6 +406,7 @@ test('the studio works end to end in a real browser', { skip: missing.length ? `
 
   if (!broken && process.env.DOWNBEAT_E2E_SCREENSHOT) {
     await browser.run(PAGE + `
+      await tap(byText('.layers-subnav button', 'Color'));
       const color = card('Color studio');
       color?.scrollIntoView({ block: 'end' });
       await tap(byText('.scope-toolbar button', 'Waveform'));
@@ -373,6 +449,58 @@ test('the studio works end to end in a real browser', { skip: missing.length ? `
     await until(() => n() === 4 && S.getState().ctx.tl.handCut, 2000, 'the repeat');
     await until(() => byText('#rhythmSeg button', 'Custom'), 2000, 'the Custom chip');
     // the export that follows renders this hand cut
+  `);
+
+  await step('a repeated source appearance gets its own full look through the inspector', `
+    const s = S.getState();
+    const seg = s.ctx.tl.segs.find((item) => s.ctx.tl.segs.some((other) => other.clipId === item.clipId && other.id !== item.id));
+    const main = JSON.stringify(s.look);
+    const other = s.ctx.tl.segs.filter((item) => item.id !== seg.id).map((item) => [item.id, item.look?.id]);
+    s.selectBlock(seg.id);
+    s.setTab('looks');
+    await until(() => $('#pane-looks') && $('.scope-target-copy').textContent.includes('Segment ' + (seg.i + 1)), 5000, 'segment scope');
+    await tap(document.querySelector('[data-look-id="vhs"]'));
+    await until(() => S.getState().ctx.tl.segs.find((item) => item.id === seg.id)?.look?.id === 'vhs', 2000, 'the independent look');
+    if (JSON.stringify(S.getState().look) !== main) throw new Error('the segment preset changed the main look');
+    if (JSON.stringify(S.getState().ctx.tl.segs.filter((item) => item.id !== seg.id).map((item) => [item.id, item.look?.id])) !== JSON.stringify(other)) throw new Error('another appearance changed');
+    if (!$('.scope-state').textContent.includes('Own look')) throw new Error('missing scope state');
+    s.transport.seek(seg.t0 + seg.dur / 2);
+    await until(() => S.getState().engine.main.frame?.pre?.some((stack) => stack.some((layer) => layer.src === S.getState().ctx.tl.segs.find((item) => item.id === seg.id).look.layers[0])), 5000, 'the appearance to render on the GPU');
+    // The next export includes this appearance-specific treatment.
+  `);
+
+  await step('double-click edits one appearance in a bounded dialog, with nested effect pickers', `
+    const state = S.getState();
+    const segment = [...state.ctx.tl.segs].reverse().find((item) => state.ctx.tl.segs.some((other) => other.clipId === item.clipId && other.id !== item.id));
+    if (!segment) throw new Error('fixture must repeat a source clip');
+    const siblings = state.ctx.tl.segs.filter((item) => item.clipId === segment.clipId && item.id !== segment.id);
+    if (!siblings.length) throw new Error('fixture must repeat this source clip');
+    const otherLooks = JSON.stringify(state.ctx.tl.segs.filter((item) => item.id !== segment.id).map((item) => [item.id, item.look]));
+    const main = JSON.stringify(state.look);
+    const lane = $('#lane');
+    const r = lane.getBoundingClientRect();
+    lane.dispatchEvent(new MouseEvent('dblclick', { bubbles: true, clientX: r.left + (segment.t0 + segment.dur / 2) / state.ctx.L * r.width, clientY: r.top + r.height / 2 }));
+    await until(() => $('#pop .appearance-editor'), 5000, 'the appearance editor');
+    const fits = () => { const r = $('#pop').getBoundingClientRect(); return r.top >= 0 && r.left >= 0 && r.bottom <= innerHeight + 1 && r.right <= innerWidth + 1; };
+    await until(fits, 2000, 'the dialog to fit the window');
+    if (!$('#pop').textContent.includes('Only this appearance')) throw new Error('missing scope');
+    await tap(byText('#pop button', 'Browse looks'));
+    await tap($('#pop [data-segment-look-id="thermal"]'));
+    await until(() => S.getState().ctx.tl.segs.find((item) => item.id === segment.id)?.look?.id === 'thermal', 2000, 'the appearance preset');
+    if (JSON.stringify(S.getState().look) !== main) throw new Error('the dialog changed the main look');
+    if (JSON.stringify(S.getState().ctx.tl.segs.filter((item) => item.id !== segment.id).map((item) => [item.id, item.look])) !== otherLooks) throw new Error('the other appearance changed');
+    await tap(byText('#pop button', '+ Add effect'));
+    await until(() => $('#subpop.on'), 2000, 'the child effect picker');
+    await tap($$('#subpop button').find((button) => button.querySelector('b')?.textContent === 'Mosaic'));
+    if (!$('#pop.seg-menu.on') || $('#subpop.on')) throw new Error('the effect picker replaced the editor');
+    for (const name of ['Timing', 'Playback', 'Framing', 'Look & effects']) {
+      await tap(byText('#pop .seg-tabs button', name));
+      await until(fits, 2000, 'the ' + name + ' panel to fit');
+    }
+    const done = byText('#pop button', 'Done').getBoundingClientRect();
+    if (done.bottom > innerHeight || done.top < 0) throw new Error('Done is offscreen');
+    await tap(byText('#pop button', 'Done'));
+    await until(() => !$('#pop.on'), 2000, 'the editor to close');
   `);
 
   await step('exports a Spotify Canvas that passes every check', `
@@ -444,7 +572,7 @@ test('the studio works end to end in a real browser', { skip: missing.length ? `
   await step('a plain hard-cut edit exports footage that moves, not stills', `
     key('Escape');
     const W = window.__studio;
-    W.store.setState({ exportOpts: { ...S.getState().exportOpts, format: 'spotify', size: 'lite', autoSave: false } });
+    W.store.setState({ blocks: null, editBlock: null, exportOpts: { ...S.getState().exportOpts, format: 'spotify', size: 'lite', autoSave: false } });
     W.setLook({ id: 'plain', name: 'Plain', vibe: '', layers: [], camera: { p: { zoom: 1, drift: 0, shake: 0, sway: 0, speed: 1 } },
       finish: { p: { contrast: 1, saturation: 1, split: 0, fade: 0, vignette: 0, grain: 0 } },
       cut: { rhythm: 'bar', transitions: ['cut'], beats: 0, order: 'cycle', velocity: 'none' } });

@@ -1,4 +1,4 @@
-import { TRANSITIONS } from '../engine/shaders.ts';
+export { TRANSITION_POOLS as POOLS } from '../engine/transitionCatalog.ts';
 import { defaultEnv, SEQ_STEPS, ENV_POINTS } from '../engine/audio.ts';
 import type { RollOptions, TrackMeta } from '../engine/types.ts';
 
@@ -66,14 +66,6 @@ export const CLIP_MODES: [string, string][] = [
   ['custom', 'Custom'],
 ];
 
-export const POOLS: Record<string, string[]> = {
-  All: Object.keys(TRANSITIONS).filter((k) => k !== 'cut'),
-  Smooth: ['dissolve', 'luma', 'morph', 'flare', 'iris'],
-  Kinetic: ['whip', 'whipX', 'zoom', 'swirl', 'kaleido'],
-  Glitch: ['glitch', 'mosh', 'pixel', 'prism', 'slices'],
-  'Hard cuts': ['cut'],
-};
-
 export const ROLL_OPTS: [keyof RollOptions, string, string][] = [
   ['look', 'Look & layers', 'effects, settings, grade, camera'],
   ['edit', 'Edit', 'rhythm, transitions, direction, speed, intensity, Rebound, and tempo without a song'],
@@ -133,9 +125,14 @@ export function toast(msg: string, ms = 2400) {
 }
 
 export function openPop(anchor: HTMLElement, build: (p: HTMLElement) => void, cls = '') {
-  const p = document.getElementById('pop');
+  // Controls inside the appearance editor get a child popover; the editor stays mounted.
+  const child = anchor.closest('.seg-menu, #subpop') && document.getElementById('subpop');
+  const p = child || document.getElementById('pop');
   if (!p) return;
+  if (!child) document.getElementById('subpop')?.classList.remove('on');
   p.className = `pop on ${cls}`;
+  p.removeAttribute('role');
+  p.removeAttribute('aria-label');
   p.style.width = ''; // a menu that was placed beside the preview set its own
   p.onscroll = null;
   p.scrollTop = 0;
@@ -154,6 +151,8 @@ export function openPop(anchor: HTMLElement, build: (p: HTMLElement) => void, cl
 }
 
 export function closePop() {
+  const child = document.getElementById('subpop');
+  if (child?.classList.contains('on')) { child.className = 'pop'; return; }
   const p = document.getElementById('pop');
   if (p) p.className = 'pop';
 }
@@ -161,8 +160,12 @@ export function closePop() {
 if (typeof document !== 'undefined') {
   document.addEventListener('pointerdown', (e) => {
     const p = document.getElementById('pop');
-    if (p && !p.contains(e.target as Node) && !(e.target as HTMLElement)?.closest?.('[data-pop]')) {
-      closePop();
+    const child = document.getElementById('subpop');
+    if ((e.target as HTMLElement)?.closest?.('[data-pop]')) return;
+    if (child?.contains(e.target as Node)) return;
+    child?.classList.remove('on');
+    if (p && !p.contains(e.target as Node)) {
+      p.className = 'pop';
     }
   });
 }

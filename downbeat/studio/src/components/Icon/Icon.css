@@ -1,0 +1,9 @@
+/* Icon styles. */
+
+.ico { width: 14px; height: 14px; fill: currentColor; flex: none; }
+
+.btn .ico { width: 13px; height: 13px; }
+
+.hist .btn .ico { width: 15px; height: 15px; }
+
+.studio-stroke { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }

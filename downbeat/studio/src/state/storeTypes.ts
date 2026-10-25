@@ -6,6 +6,7 @@ import type {
   Look,
   ExportOptions,
   RollOptions,
+  RollStyle,
   Block,
   BlockPatch,
   SegmentOverride,
@@ -17,6 +18,7 @@ import type {
   ProjectSummary,
   ParamDef,
 } from '../engine/types.ts';
+import type { StoreApi } from 'zustand/vanilla';
 import type { Transport } from '../engine/audio.ts';
 import type { Engine } from '../engine/engine.ts';
 import type { VideoBank } from '../engine/composer.ts';
@@ -65,6 +67,8 @@ export interface StudioState {
   clipMode: string;
   clipLooks: Record<string, Look>;
   editClip: string | null;
+  /** The timeline appearance whose visual treatment the inspector edits. Selection alone never forks it. */
+  editBlock: string | null;
   evolveAmt: number;
   /** Evolve gives every cut its own mutation, not every clip. */
   evolveCuts: boolean;
@@ -73,6 +77,7 @@ export interface StudioState {
   /** Split the longest cuts until every clip in the edit gets at least one. */
   fitAll: boolean;
   rollOpts: RollOptions;
+  rollStyle: RollStyle;
   /** The edit's own blocks once one has been cut, split or set by hand; null while it follows the rhythm. */
   blocks: Block[] | null;
   /** A session saved before blocks: its dragged cuts and per-segment settings, turned into blocks once the song is in. */
@@ -132,6 +137,7 @@ export interface StudioState {
   ghosts: GhostItem[];
   modUI: { drawEnv: (position: number) => void; grid: HTMLElement | null } | null;
 
+  disposeStudio: () => void;
   initStudio: (viewCanvas: HTMLCanvasElement, bankContainer: HTMLElement, ambientCanvas?: HTMLCanvasElement) => Promise<void>;
   save: () => void;
   restore: () => any;
@@ -189,7 +195,13 @@ export interface StudioState {
   wholeSong: () => void;
   clipLookOf: (id: string, seg?: Segment) => Look;
   editLook: () => Look;
+  writableLook: () => Look;
+  editBlockLook: (id: string | null) => void;
+  resetBlockLook: () => void;
   drawTimeline: () => void;
   drawOverview: () => void;
   drawLane: () => void;
 }
+
+/** The imperative state boundary shared by controllers and the React provider. */
+export type StudioStore = StoreApi<StudioState>;

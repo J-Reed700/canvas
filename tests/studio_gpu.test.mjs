@@ -217,3 +217,43 @@ test('failed YUV plane allocations release every partial texture and can be retr
   engine.dropFrames();
   assert.equal(live.size, 0);
 });
+
+test('closing a preview frees its pipelines, media textures and GPU resources exactly once', () => {
+  const live = new Set();
+  const allocate = (kind) => { const resource = { kind }; live.add(resource); return resource; };
+  const release = (resource) => {
+    if (resource) assert.ok(live.delete(resource), `${resource.kind} must be owned and released once`);
+  };
+  const gl = {
+    isContextLost: () => false, getParameter: () => 4096,
+    deleteTexture: release, deleteFramebuffer: release, deleteProgram: release,
+    deleteShader: release, deleteBuffer: release, deleteVertexArray: release,
+  };
+  const gpu = Object.assign(Object.create(GPU.prototype), {
+    gl, hdr: false,
+    target: (w, h) => ({ tex: allocate('texture'), fb: allocate('framebuffer'), w, h }),
+    programs: new Map([['shader', { prog: allocate('program') }]]),
+    luts: new Map([[IDENTITY_LUT, { tex: allocate('LUT texture') }]]),
+    vert: allocate('vertex shader'), vertexArray: allocate('vertex array'), vertexBuffer: allocate('vertex buffer'),
+  });
+  gpu.black = gpu.target(1, 1);
+  const main = new Pipeline(gpu, 540, 960, { guard: true });
+  main._history('feedback');
+  main._chain('effect', [[270, 480]]);
+  const engine = Object.assign(Object.create(Engine.prototype), {
+    gpu, main,
+    thumbs: new Map([['look', new Pipeline(gpu, 90, 160)]]),
+    videoTex: new Map([['clip', { tex: allocate('video texture') }]]),
+    frameTex: new Map([['cut', { rt: gpu.target(540, 960), y: allocate('Y plane'), u: allocate('U plane'), v: allocate('V plane') }]]),
+    aux: { glyphs: { tex: allocate('glyph atlas') } },
+    statsT: gpu.target(36, 64), printT: gpu.target(64, 16), scopeT: gpu.target(128, 72),
+    lastOut: main.final,
+  });
+  assert.ok(live.size > 30, 'the fixture includes active pipelines, feedback and media resources');
+  engine.dispose();
+  assert.equal(live.size, 0);
+  assert.equal(engine.thumbs.size, 0);
+  assert.equal(engine.videoTex.size, 0);
+  assert.equal(engine.frameTex.size, 0);
+  assert.equal(engine.lastOut, null);
+});

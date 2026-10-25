@@ -17,7 +17,8 @@
     "perf:engine": "node tests/performance/engine.bench.mjs",
     "perf:check": "node --expose-gc --test tests/performance/retention.test.mjs && node tests/performance/engine.bench.mjs --check",
     "perf:studio": "npm run build && node tests/performance/studio.bench.mjs --check",
-    "quality": "node scripts/quality.mjs"
+    "quality": "node scripts/quality.mjs",
+    "lint:react": "oxlint downbeat/studio/src"
   },
   "dependencies": {
     "react": "^19.3.1",
@@ -33,6 +34,7 @@
     "@vitejs/plugin-react": "^6.1.2",
     "@vitest/coverage-v8": "^5.0.5",
     "happy-dom": "^21.0.4",
+    "oxlint": "^1.89.0",
     "typescript": "^7.0.2",
     "vite": "^8.3.5",
     "vitest": "^5.0.5"

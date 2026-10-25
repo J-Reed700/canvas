@@ -3,6 +3,7 @@
 // exports loop cleanly. Pixel sizes scale with uScale (= height / 1920).
 import { PRELUDE } from './shaders.ts';
 import { CLIP_SPEED_MIN, CLIP_SPEED_MAX } from './clipSpeed.ts';
+import { FILTER_MODULES } from './filterModules.ts';
 import type { CategoryId, CategoryMeta, ModSourceMeta, ModuleDef, ParamDef } from './types.ts';
 
 const P = (id: string, name: string, min: number, max: number, def: number, extra: Partial<ParamDef> = {}): ParamDef => ({ id, name, min, max, def, step: extra.step ?? (max - min) / 200, ...extra });
@@ -39,6 +40,7 @@ const ENV = `
 float beatEnv(float k) { float ph = fract(uBeat); return smoothstep(0.0, 0.06, ph) * exp(-ph * k); }`;
 
 export const MODULES: Record<string, ModuleDef> = {
+  ...FILTER_MODULES,
   // Space
   parallax: {
     name: '2.5D Parallax', cat: 'space', desc: 'Fakes depth from brightness and distance from the center, then circles the camera. Made for album art and stills',

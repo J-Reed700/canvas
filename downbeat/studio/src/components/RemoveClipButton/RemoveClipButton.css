@@ -1,0 +1,33 @@
+.media .clip .rm {
+  top: 4px;
+  right: 4px;
+  bottom: auto;
+  min-width: 19px;
+  height: 19px;
+  padding: 0 4px;
+  color: #d1d2d7;
+  background: rgba(18, 19, 22, .9);
+  border-color: rgba(255,255,255,.16);
+  border-radius: 4px;
+  font-size: 9px;
+  line-height: 17px;
+  backdrop-filter: none;
+}
+
+.media .clip .rm.armed {
+  color: #fff;
+  background: #8f3844;
+  border-color: #a94856;
+}
+
+.clip .rm { position: absolute; z-index: 2; right: 5px; bottom: 4px; min-width: 20px; height: 20px; padding: 0 5px; border-radius: 6px; background: rgba(10,10,14,0.72); border: 1px solid rgba(255,255,255,0.18); color: rgba(255,255,255,0.85); font: 700 10px/18px var(--font); opacity: 0; transition: opacity .12s; }
+
+.clip:hover .rm, .clip .rm:focus-visible, .clip .rm.armed { opacity: 1; }
+
+.clip .rm:hover { color: #fff; border-color: var(--bad); }
+
+.clip .rm.armed { background: var(--bad); border-color: var(--bad); color: #fff; }
+
+@media (hover: none) {
+  .clip .rm { opacity: 0.85; }
+}

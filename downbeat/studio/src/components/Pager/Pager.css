@@ -1,0 +1,19 @@
+/* Pager styles. */
+
+.pager { display: flex; align-items: center; justify-content: center; gap: 3px; margin-top: 8px; }
+
+.pager button { min-width: 26px; height: 26px; padding: 0 6px; border-radius: 8px; color: var(--text-2); font: 600 11.5px var(--mono); display: inline-flex; align-items: center; justify-content: center; }
+
+.pager button:hover:not(:disabled) { background: var(--raised-2); color: var(--text); }
+
+.pager button.on { background: var(--accent); color: var(--accent-ink); }
+
+.pager button:disabled { opacity: 0.3; cursor: default; }
+
+.pager-of { font: 500 11.5px var(--mono); color: var(--text-3); min-width: 54px; text-align: center; }
+
+.pager-of b { color: var(--text); }
+
+.pager-gap { color: var(--text-3); padding: 0 2px; }
+
+.lib-foot .pager { margin: 0; }

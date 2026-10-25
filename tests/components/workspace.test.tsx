@@ -1,10 +1,10 @@
 import React from 'react';
 import { afterEach, beforeEach, expect, test, vi } from 'vitest';
-import { fireEvent, render } from '@testing-library/react';
-import { App } from '../../downbeat/studio/src/App.tsx';
-import { useWorkspaceStore as W, DEFAULT_LAYOUT } from '../../downbeat/studio/src/state/workspaceStore.ts';
+import { fireEvent, within } from '@testing-library/react';
+import { App } from '../../downbeat/studio/src/components/App/App.tsx';
+import { workspaceStore as W, DEFAULT_LAYOUT } from '../../downbeat/studio/src/state/workspaceStore.ts';
 import { timecode } from '../../downbeat/studio/src/lib/playback.ts';
-import { resetStudio, S, screen, st, update } from './studio.tsx';
+import { render, resetStudio, S, screen, st, update } from './studio.tsx';
 
 beforeEach(() => {
   resetStudio({ tab: 'looks' });
@@ -21,7 +21,7 @@ test('the command menu searches, runs with Enter, and isolates editing shortcuts
   expect(document.activeElement).toBe(input);
   expect(document.querySelector<HTMLElement>('.app')!.inert).toBe(true);
   fireEvent.change(input, { target: { value: 'color' } });
-  expect(screen.getAllByRole('option')).toHaveLength(1);
+  expect(within(screen.getByRole('listbox', { name: 'Commands' })).getAllByRole('option')).toHaveLength(1);
   fireEvent.keyDown(input, { key: ' ' });
   expect(st().transport.playing).toBe(false);
   fireEvent.keyDown(input, { key: 'Enter' });

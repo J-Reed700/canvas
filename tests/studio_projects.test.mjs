@@ -5,9 +5,9 @@ import assert from 'node:assert/strict';
 import { installDom, stubFetch, tick } from './fakes.mjs';
 
 const dom = installDom();
-const { useStudioStore: S } = await import('../downbeat/studio/src/state/store.ts');
-const history = await import('../downbeat/studio/src/state/historyController.ts');
-const P = await import('../downbeat/studio/src/state/projectController.ts');
+const { studioStore: S } = await import('../downbeat/studio/src/state/store.ts');
+const history = { ...(await import('../downbeat/studio/src/state/store.ts')).studioRuntime.history, editFields: (await import('../downbeat/studio/src/state/historyController.ts')).editFields };
+const P = (await import('../downbeat/studio/src/state/store.ts')).studioRuntime.projects;
 const { LOOKS, cloneLook } = await import('../downbeat/studio/src/engine/looks.ts');
 const { toast } = await import('../downbeat/studio/src/lib/utils.ts');
 
@@ -119,7 +119,7 @@ test('undo, the session, projects and exports all save the same edit', () => {
   const edit = history.editState();
   assert.deepEqual(Object.keys(edit).sort(), [
     'bars', 'blocks', 'bpmManual', 'bpmOverride', 'clipFrame', 'clipLooks', 'clipMode', 'direction', 'evolveAmt', 'evolveCuts',
-    'exportOpts', 'fitAll', 'gridNudge', 'intensity', 'lockEdit', 'look', 'lookId', 'loopStart', 'rebound', 'seed', 'selected', 'trackId',
+    'exportOpts', 'fitAll', 'gridNudge', 'intensity', 'lockEdit', 'look', 'lookId', 'loopStart', 'rebound', 'rollStyle', 'seed', 'selected', 'trackId',
   ]);
   assert.deepEqual(JSON.parse(st().snapshot()), JSON.parse(JSON.stringify({ ...edit, editClip: 'b' })), 'undo also keeps which clip is being edited');
   history.save();

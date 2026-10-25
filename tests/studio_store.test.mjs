@@ -3,12 +3,13 @@ import assert from 'node:assert/strict';
 import { installDom, stubFetch, tick } from './fakes.mjs';
 
 const dom = installDom();
-const { useStudioStore: S } = await import('../downbeat/studio/src/state/store.ts');
-const history = await import('../downbeat/studio/src/state/historyController.ts');
-const media = await import('../downbeat/studio/src/state/mediaActions.ts');
+const { studioStore: S } = await import('../downbeat/studio/src/state/store.ts');
+const history = { ...(await import('../downbeat/studio/src/state/store.ts')).studioRuntime.history, editFields: (await import('../downbeat/studio/src/state/historyController.ts')).editFields };
+const media = { ...(await import('../downbeat/studio/src/state/store.ts')).studioRuntime.media, isLoaded: (await import('../downbeat/studio/src/state/mediaActions.ts')).isLoaded };
 const { isMediaLoading, pendingClipCount } = await import('../downbeat/studio/src/state/mediaLoading.ts');
 const { LOOKS, cloneLook } = await import('../downbeat/studio/src/engine/looks.ts');
 const { MODULES } = await import('../downbeat/studio/src/engine/modules.ts');
+const { compose } = await import('../downbeat/studio/src/engine/composer.ts');
 const { RHYTHMS } = await import('../downbeat/studio/src/engine/timeline.ts');
 const { TRANSITIONS } = await import('../downbeat/studio/src/engine/shaders.ts');
 const { toast } = await import('../downbeat/studio/src/lib/utils.ts');
@@ -65,6 +66,7 @@ function fresh(over = {}) {
     evolveCuts: false,
     clipLooks: {},
     editClip: null,
+    editBlock: null,
     blocks: null,
     legacyEdit: null,
     selectedBlock: null,
@@ -73,6 +75,7 @@ function fresh(over = {}) {
     palettes: {},
     mediaImport: null,
     rollOpts: { look: true, edit: true, perClip: true, clips: false, loop: false },
+    rollStyle: 'balanced',
     exportOpts: { size: 'master', withSong: false, format: 'spotify', promo: 0, autoSave: true },
     ...over,
   });
@@ -80,6 +83,82 @@ function fresh(over = {}) {
 }
 
 const withSong = (over = {}) => fresh({ features: structuredClone(SONG), trackId: 't1', ...over });
+
+test('selecting an appearance inherits its clip look and only the first edit forks it', () => {
+  const main = cloneLook(LOOKS[0]);
+  main.cut.rhythm = 'half';
+  const clip = cloneLook(LOOKS[1]);
+  fresh({ look: main, bars: 5, clipMode: 'custom', clipLooks: { a: clip } });
+  const occurrences = st().ctx.tl.segs.filter((seg) => seg.clipId === 'a');
+  const second = occurrences[1];
+  const clipBefore = JSON.stringify(clip);
+  st().selectBlock(second.id);
+  assert.equal(st().blocks, null, 'selection does not pin a look or create a save');
+  assert.equal(st().editBlock, second.id);
+  assert.equal(st().editLook().layers, clip.layers);
+  assert.equal(st().editLook(), st().editLook(), 'the inherited inspector snapshot is stable');
+  const own = st().writableLook();
+  own.layers.pop();
+  st().touch();
+  assert.equal(JSON.stringify(clip), clipBefore, 'the source clip keeps its look');
+  assert.notEqual(own, main);
+  assert.equal(st().ctx.tl.segs.find((seg) => seg.id === second.id).look, own);
+  assert.equal(st().ctx.tl.segs.find((seg) => seg.id === occurrences[0].id).look, undefined);
+  const fr = compose(st().ctx, (second.t0 + second.t1) / 2);
+  assert.deepEqual(fr.pre[0].map((layer) => layer.src), own.layers.filter((layer) => layer.on !== false));
+});
+
+test('complete segment looks persist independently through main-look changes and snapshots', () => {
+  const main = cloneLook(LOOKS[0]);
+  main.cut.rhythm = 'half';
+  fresh({ look: main, bars: 5 });
+  const seg = st().ctx.tl.segs[5];
+  const timing = st().ctx.tl.segs.map((seg) => [seg.id, seg.t0, seg.t1, seg.clipId]);
+  st().selectBlock(seg.id);
+  st().applyLook(LOOKS[4]);
+  const snapshot = st().snapshot();
+  assert.equal(st().look, main);
+  assert.equal(st().blocks.find((block) => block.id === seg.id).look.id, LOOKS[4].id);
+  st().editBlockLook(null);
+  st().applyLook(LOOKS[8]);
+  assert.equal(st().blocks.find((block) => block.id === seg.id).look.id, LOOKS[4].id);
+  assert.deepEqual(st().ctx.tl.segs.map((seg) => [seg.id, seg.t0, seg.t1, seg.clipId]), timing);
+  st().applySnapshot(snapshot);
+  assert.equal(st().ctx.tl.segs.find((item) => item.id === seg.id).look.id, LOOKS[4].id);
+  const restored = history.editFields(JSON.parse(snapshot), st().clips, []);
+  assert.equal(restored.blocks.find((block) => block.id === seg.id).look.id, LOOKS[4].id);
+});
+
+test('editing an old block override bakes its values once and resetting styling keeps its speed', () => {
+  fresh();
+  const seg = st().ctx.tl.segs[1];
+  st().setBlock(seg.id, { overrides: { camera: { speed: 1.5 }, layers: { 0: { m: 'glass', p: { scale: 4 } } } } });
+  st().selectBlock(seg.id);
+  const own = st().writableLook();
+  own.layers[0].p.scale = 6;
+  st().touch();
+  assert.equal(st().editLook().layers[0].p.scale, 6, 'the old override cannot mask the next edit');
+  assert.deepEqual(st().blocks.find((b) => b.id === seg.id).overrides, { camera: { speed: 1.5 } });
+  st().resetBlockLook();
+  assert.equal(st().ctx.tl.segs.find((item) => item.id === seg.id).look, undefined);
+  assert.equal(st().ctx.tl.segs.find((item) => item.id === seg.id).speed, 1.5);
+});
+
+test('undo and redo create and remove an appearance treatment as one edit', async (t) => {
+  await tick(400);
+  fresh();
+  history.resetHistory();
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const id = st().ctx.tl.segs[1].id;
+  st().selectBlock(id);
+  st().applyLook(LOOKS[4]);
+  t.mock.timers.tick(400);
+  assert.equal(st().ctx.tl.segs[1].look.id, LOOKS[4].id);
+  st().undo();
+  assert.equal(st().ctx.tl.segs[1].look, undefined);
+  st().redo();
+  assert.equal(st().ctx.tl.segs[1].look.id, LOOKS[4].id);
+});
 
 test('without a song a loop can be any whole number of bars up to ten minutes', () => {
   fresh();
@@ -604,7 +683,7 @@ test('snapshots carry the look and edit, and applying one rebuilds the timeline'
   assert.equal(st().ctx.L, 8);
   assert.deepEqual(Object.keys(JSON.parse(snap)).sort(), [
     'bars', 'blocks', 'bpmManual', 'bpmOverride', 'clipFrame', 'clipLooks', 'clipMode', 'direction', 'editClip', 'evolveAmt',
-    'evolveCuts', 'exportOpts', 'fitAll', 'gridNudge', 'intensity', 'lockEdit', 'look', 'lookId', 'loopStart', 'rebound', 'seed',
+    'evolveCuts', 'exportOpts', 'fitAll', 'gridNudge', 'intensity', 'lockEdit', 'look', 'lookId', 'loopStart', 'rebound', 'rollStyle', 'seed',
     'selected', 'trackId',
   ]);
 });

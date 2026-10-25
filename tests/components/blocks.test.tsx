@@ -1,11 +1,12 @@
 // Block editing on the timeline: the toolbar, the keys, the drag handles and the segment menu's actions.
 import React from 'react';
 import { describe, expect, test, vi } from 'vitest';
-import { act, fireEvent, render, within } from '@testing-library/react';
-import { App } from '../../downbeat/studio/src/App.tsx';
-import { TimelinePanel } from '../../downbeat/studio/src/components/TimelinePanel.tsx';
-import { beatName, stepBeat } from '../../downbeat/studio/src/components/segTiming.ts';
-import { S, pop, popButton, renderStudio, resetStudio, st, toastText, update } from './studio.tsx';
+import { act, fireEvent, within } from '@testing-library/react';
+import { App } from '../../downbeat/studio/src/components/App/App.tsx';
+import { TimelinePanel } from '../../downbeat/studio/src/components/TimelinePanel/TimelinePanel.tsx';
+import { SegmentTransitionPicker } from '../../downbeat/studio/src/components/SegmentTransitionPicker/SegmentTransitionPicker.tsx';
+import { beatName, stepBeat } from '../../downbeat/studio/src/components/SegmentMenu/segTiming.ts';
+import { render, S, pop, popButton, renderStudio, resetStudio, screen, st, toastText, update } from './studio.tsx';
 
 const lane = () => document.getElementById('lane') as HTMLCanvasElement;
 const tools = () => document.getElementById('blockTools') as HTMLElement;
@@ -25,7 +26,7 @@ function barEdit(over = {}) {
 }
 function laneEdit(over = {}) {
   barEdit(over);
-  renderStudio(<TimelinePanel />);
+  renderStudio(<><TimelinePanel /><SegmentTransitionPicker /></>);
   rect(lane(), 400);
   lane().setPointerCapture = () => {};
 }
@@ -123,7 +124,9 @@ describe('transition handles', () => {
   test('a hard cut has no length to set', () => {
     laneEdit();
     fireEvent.doubleClick(lane(), { clientX: 125, clientY: 30 });
-    fireEvent.click(popButton('Hard Cut'));
+    fireEvent.click(popButton('Timing'));
+    fireEvent.click(within(pop()).getByRole('button', { name: 'Choose transition' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Use Hard Cut' }));
     const length = Array.from(pop().querySelectorAll('.seg-f')).find((f) => f.querySelector('.seg-l span')?.textContent === 'Transition length') as HTMLElement;
     expect(length.querySelector('.seg-note')!.textContent).toBe('A hard cut has no length.');
     expect(st().ctx!.tl.segs[1].transDur).toBe(0);
@@ -153,7 +156,7 @@ describe('segment menu actions', () => {
     fireEvent.click(popButton('Delete'));
     expect(t0s()).toEqual([0, 2, 3, 4, 6]);
     expect(head(), 'onto the segment that took the time').toBe('Segment 2 of 5');
-    expect(pop().querySelector('.seg-foot span')!.textContent).toBe('This edit is cut by hand. The rhythm buttons and the dice start the cuts over.');
+    expect(pop().querySelector('.seg-foot span')!.textContent).toBe('Changes save automatically');
   });
 
   test('the menu opens beside the preview when there is room, and shows a live copy of it when there is not', () => {
@@ -183,7 +186,7 @@ describe('segment menu actions', () => {
       expect(pop().style.width, 'no side has room for it').toBe('');
       expect(peek().hidden).toBe(false);
       const copy = pop().querySelector('.seg-peek') as HTMLCanvasElement;
-      expect([copy.style.width, copy.style.height], 'in the shape of the preview, at most 300 by 200').toEqual(['300px', '169px']);
+      expect([copy.style.width, copy.style.height], 'a compact header preview in the shape of the output').toEqual(['96px', '54px']);
     } finally {
       Object.defineProperty(window, 'innerWidth', { value: width, configurable: true });
       view.remove();

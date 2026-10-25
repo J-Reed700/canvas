@@ -3,6 +3,7 @@
 // through edit: the footage, the camera and a framing move all carry on across the new cut, so nothing
 // changes on screen until one half is changed.
 import { editTime, footageUsed, frameAt, generateBlocks, moveAt, rng, segmentIndexAt } from './timeline.ts';
+import { cloneLook } from './looks.ts';
 import type { Block, BlockOverrides, BlockPatch, Segment, SegmentFrame, SegmentOverride, TimelinePlan, TimelinePlanOptions } from './types.ts';
 
 /** The shortest block an edit leaves, in beats. */
@@ -82,6 +83,7 @@ function halves(b: Block, seg: Segment, local: number, id: string): [Block, Bloc
     dir: b.dir,
     frame: fR,
     overrides: copyOverrides(b.overrides),
+    look: b.look ? cloneLook(b.look) : undefined,
   });
   return [left, right];
 }
@@ -152,7 +154,7 @@ export function patchBlock(blocks: Block[], id: string, patch: BlockPatch): Bloc
 
 /** What `patchBlock` can set that the look would otherwise decide. Clip and in-point aren't in it: once
  * the edit is in blocks they are each block's own. */
-export const OWN: (keyof BlockPatch)[] = ['trans', 'transBeats', 'vel', 'dir', 'frame', 'overrides'];
+export const OWN: (keyof BlockPatch)[] = ['trans', 'transBeats', 'vel', 'dir', 'frame', 'overrides', 'look'];
 
 /** Hands a block's transition, length, ramp, direction and framing back to the look. */
 export function autoBlock(blocks: Block[], id: string): Block[] {

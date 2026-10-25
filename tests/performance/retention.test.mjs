@@ -4,9 +4,9 @@ import assert from 'node:assert/strict';
 import { setImmediate } from 'node:timers/promises';
 import { installDom } from '../fakes.mjs';
 installDom();
-const { useStudioStore: store } = await import('../../downbeat/studio/src/state/store.ts');
+const { studioStore: store } = await import('../../downbeat/studio/src/state/store.ts');
 const { LOOKS, cloneLook } = await import('../../downbeat/studio/src/engine/looks.ts');
-const { resetHistory, flushSave } = await import('../../downbeat/studio/src/state/historyController.ts');
+const { resetHistory, flushSave } = (await import('../../downbeat/studio/src/state/store.ts')).studioRuntime.history;
 const { toast } = await import('../../downbeat/studio/src/lib/utils.ts');
 after(() => { resetHistory(); flushSave(); toast('', 0); });
 

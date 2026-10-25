@@ -1,0 +1,31 @@
+/* WorkspaceStatus styles. */
+
+.status-shortcut kbd { border: 1px solid #45464f; border-radius: 3px; padding: 0 4px; font: 9px/16px var(--font); color: #a0a1ae; margin-left: 12px; }
+
+.workspace-status { grid-area: status; display: flex; align-items: center; justify-content: space-between; gap: 20px; padding: 0 15px; background: #222328; border-top: 1px solid #34353b; color: #989aa6; font-size: 9px; white-space: nowrap; overflow: hidden; }
+
+.status-session, .status-format { display: flex; align-items: center; gap: 9px; }
+
+.status-dot { width: 5px; height: 5px; background: #88b6a2; border-radius: 50%; }
+
+.status-divider { width: 1px; height: 9px; background: #41424a; }
+
+.status-look { color: #737581; padding-left: 6px; }
+
+.status-shortcut { color: #9a9ba7; font-size: 9px; }
+
+.status-shortcut kbd { font-size: 8px; line-height: 13px; margin-left: 5px; }
+
+.status-shortcut:hover { color: var(--accent); }
+
+.status-format { font-variant-numeric: tabular-nums; }
+
+@media (max-width: 1100px) and (min-width: 761px) {
+  .status-shortcut, .status-look { display: none; }
+}
+
+@media (max-width: 760px) {
+  .status-shortcut, .status-look, .status-format .status-divider { display: none; }
+  .workspace-status { padding: 0 9px; font-size: 8px; gap: 10px; }
+  .status-format { gap: 6px; }
+}

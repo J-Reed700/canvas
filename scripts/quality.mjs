@@ -1,5 +1,5 @@
 import { spawnSync } from 'node:child_process';
-const steps = ['typecheck', 'test:coverage', 'test:python:coverage', 'build', 'test:e2e', 'perf:check'];
+const steps = ['lint:react', 'typecheck', 'test:coverage', 'test:python:coverage', 'build', 'test:e2e', 'perf:check'];
 for (const step of steps) {
   console.log(`\nQuality check: ${step}`);
   const result = spawnSync(process.platform === 'win32' ? 'npm.cmd' : 'npm', ['run', step], {

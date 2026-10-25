@@ -1,10 +1,12 @@
 import React from 'react';
 import { expect, test, vi } from 'vitest';
 import { fireEvent, waitFor } from '@testing-library/react';
-import { ColorGradeCard } from '../../downbeat/studio/src/components/ColorGradeCard.tsx';
+import { ColorGradeCard } from '../../downbeat/studio/src/components/ColorGradeCard/ColorGradeCard.tsx';
 import { IDENTITY_LUT } from '../../downbeat/studio/src/engine/lut.ts';
-import { snapshot, applySnapshot } from '../../downbeat/studio/src/state/historyController.ts';
+import { studioRuntime } from '../../downbeat/studio/src/state/store.ts';
 import { renderStudio, resetStudio, screen, st, update } from './studio.tsx';
+
+const { snapshot, applySnapshot } = studioRuntime.history;
 
 const cube = 'TITLE "Night grade"\nLUT_3D_SIZE 2\n0 0 0\n1 0 0\n0 1 0\n1 1 0\n0 0 1\n1 0 1\n0 1 1\n1 1 1';
 

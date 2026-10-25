@@ -1,0 +1,21 @@
+/* PanelDivider styles. */
+
+.panel-divider { position: relative; touch-action: none; background: #111214; cursor: col-resize; outline-offset: -1px; z-index: 4; }
+
+.panel-divider::after { content: ''; position: absolute; inset: 0 1px; background: transparent; transition: background 120ms; }
+
+.panel-divider:hover::after, .panel-divider:focus-visible::after, .panel-divider:active::after { background: #b9a4ff75; }
+
+.divider-library { grid-area: libdiv; }
+
+.divider-inspector { grid-area: inspdiv; }
+
+.divider-timeline { grid-area: tldiv; cursor: row-resize; }
+
+.divider-timeline::after { inset: 1px 0; }
+
+.workspace-focus :is(.media, .inspector, .timeline, .panel-divider) { display: none; }
+
+@media (max-width: 760px) {
+  .studio-workspace .panel-divider { display: none; }
+}

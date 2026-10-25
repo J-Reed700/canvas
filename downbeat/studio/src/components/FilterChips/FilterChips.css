@@ -1,0 +1,62 @@
+/* FilterChips styles. */
+
+.media .clip-find .exp-kinds {
+  display: flex;
+  flex-wrap: nowrap;
+  gap: 3px;
+  margin-top: 5px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.media .clip-find .exp-kinds::-webkit-scrollbar {
+  display: none;
+}
+
+.media .clip-find .exp-kinds button {
+  height: 20px;
+  padding: 0 6px;
+  color: var(--media-muted);
+  background: transparent;
+  border-color: transparent;
+  border-radius: 5px;
+  font-size: 9.5px;
+  font-weight: 570;
+}
+
+.media .clip-find .exp-kinds button small {
+  color: var(--media-faint);
+  font-size: 8px;
+}
+
+.media .clip-find .exp-kinds button:hover {
+  color: var(--media-text);
+  background: var(--media-raised);
+  border-color: var(--media-line);
+}
+
+.media .clip-find .exp-kinds button.on {
+  color: #ddd5ff;
+  background: #292532;
+  border-color: #4d455f;
+}
+
+.media .clip-find .exp-kinds button.on small {
+  color: #a89bcf;
+}
+
+.exp-kinds { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 7px; }
+
+.exp-kinds button { height: 22px; padding: 0 8px; border-radius: 99px; font-size: 11px; font-weight: 600; color: var(--text-2); background: var(--raised); border: 1px solid var(--line); white-space: nowrap; }
+
+.exp-kinds button small { font: 600 9.5px var(--mono); color: var(--text-3); margin-left: 2px; }
+
+.exp-kinds button:hover { color: var(--text); border-color: var(--line-2); }
+
+.exp-kinds button.on { color: var(--accent-ink); background: var(--accent); border-color: transparent; }
+
+.exp-kinds button.on small { color: rgba(12,18,0,0.6); }
+
+.lib-bar .exp-kinds { margin: 0; }
+
+.lib-bar .exp-kinds button { height: 28px; padding: 0 11px; font-size: 12px; }

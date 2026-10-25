@@ -300,6 +300,7 @@ export function resolve(blocks: Block[], opts: TimelinePlanOptions, rolled: Bloc
     };
     if (b.frame) seg.frame = b.frame;
     if (b.overrides) seg.overrides = b.overrides;
+    if (b.look) seg.look = b.look;
     if (k + 1 === n) seg.t1 = L;
     return seg;
   });

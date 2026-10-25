@@ -1,0 +1,39 @@
+/* InspectorScope styles. */
+
+.inspector-scope { flex: none; padding: 12px 13px 10px; border-bottom: 1px solid var(--line); background: #191a1e; }
+
+.scope-target { display: flex; align-items: center; gap: 9px; min-width: 0; }
+
+.scope-thumb { flex: none; width: 30px; height: 34px; border: 1px solid #43414c; border-radius: 5px; background: #24252b center/cover; }
+
+.scope-target-copy { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+
+.scope-target-copy strong { color: #f0edf6; font-size: 12px; font-weight: 600; }
+
+.scope-target-copy > span { color: #a7a4b2; font-size: 10.5px; line-height: 1.4; }
+
+.scope-state { flex: none; padding: 4px 6px; border-radius: 4px; background: #26272d; color: #aaa7b6; font-size: 9px; font-weight: 600; }
+
+.scope-state.is-own { color: #d0c2ff; background: #342d46; }
+
+.scope-choices { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 3px; margin-top: 11px; padding: 3px; border: 1px solid #34343d; border-radius: 7px; background: #121317; }
+
+.scope-choices button { min-width: 0; padding: 7px 2px; border: 1px solid transparent; border-radius: 4px; color: #aaa7b5; font-size: 10.5px; font-weight: 550; white-space: nowrap; }
+
+.scope-choices button:hover:not(:disabled) { color: #f0edf7; background: #25252e; }
+
+.scope-choices button[aria-pressed=true] { border-color: #74658e; color: #e1d6ff; background: #332d42; }
+
+.scope-choices button:disabled { opacity: .4; }
+
+.scope-foot { display: flex; align-items: baseline; justify-content: space-between; gap: 9px; margin-top: 8px; min-height: 15px; }
+
+.scope-foot > span { color: #aaa7b5; font-size: 10px; line-height: 1.45; }
+
+.scope-foot > button { flex: none; color: #c8b9f5; font-size: 10px; text-decoration: underline; text-underline-offset: 3px; }
+
+.inspector:has(.inspector-scope) #layer-effects-section > .stack-scope { display: none; }
+
+.inspector:has(.inspector-scope) .look-target { display: none; }
+
+@media (max-width: 760px) { .scope-choices button { min-height: 36px; } }

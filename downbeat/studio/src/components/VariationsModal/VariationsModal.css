@@ -1,0 +1,17 @@
+/* VariationsModal styles. */
+
+.vars { display: grid; grid-template-columns: repeat(6, 1fr); gap: 12px; }
+
+.vars[data-screen="landscape"] { grid-template-columns: repeat(auto-fill, minmax(min(100%, 240px), 1fr)); }
+
+.mut-ctrl { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; }
+
+.mut-ctrl input[type=range] { width: 160px; min-width: 90px; flex: 0 1 160px; accent-color: var(--accent); }
+
+@media (max-width: 1240px) {
+    .vars { grid-template-columns: repeat(3, 1fr); }
+  }
+
+@media (max-width: 700px) {
+    .vars { grid-template-columns: repeat(2, 1fr); gap: 8px; }
+  }

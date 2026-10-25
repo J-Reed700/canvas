@@ -1,6 +1,6 @@
 // Downbeat GPU engine: core GLSL (WebGL2 / GLSL ES 3.00).
 // Working space is linear light with HDR headroom; the Finish pass tone-maps and encodes sRGB.
-import type { TransitionDef } from './types.ts';
+import type { TransitionDef, TransitionType } from './types.ts';
 
 export const VERT: string = `#version 300 es
 in vec2 aPos;
@@ -210,13 +210,33 @@ uniform sampler2D uA; uniform sampler2D uB; uniform float uP;
 vec3 A(vec2 uv) { return texture(uA, mirrorUv(uv)).rgb; }
 vec3 B(vec2 uv) { return texture(uB, mirrorUv(uv)).rgb; }
 float ease(float x) { return x * x * (3.0 - 2.0 * x); }
-void main() { float p = clamp(uP, 0.0, 1.0); float e = ease(p); float bell = sin(p * PI); ${body} }`;
+void main() {
+  float p = clamp(uP, 0.0, 1.0);
+  if (p <= 0.0) { outColor = vec4(A(vUv), 1.0); return; }
+  if (p >= 1.0) { outColor = vec4(B(vUv), 1.0); return; }
+  float e = ease(p); float bell = sin(p * PI); ${body}
+}`;
+
+const transition = (name: string, type: TransitionType, description: string, body: string): TransitionDef =>
+  ({ name, type, description, glsl: T(body) });
+
+const wipe = (name: string, position: string, description: string, softness = 0.018) =>
+  transition(name, 'Wipes', description, `float d = ${position};
+    float m = 1.0 - smoothstep(e * ${1 + softness * 2} - ${softness * 2}, e * ${1 + softness * 2}, d);
+    outColor = vec4(mix(A(vUv), B(vUv), m), 1.0);`);
+
+const slide = (name: string, direction: string, description: string, cover = false) =>
+  transition(name, 'Slides', description, `vec2 dir = ${direction};
+    vec2 incoming = vUv + dir * (1.0 - e);
+    bool inside = all(greaterThanEqual(incoming, vec2(0.0))) && all(lessThanEqual(incoming, vec2(1.0)));
+    outColor = vec4(inside ? B(incoming) : A(${cover ? 'vUv' : 'vUv - dir * e'}), 1.0);`);
 
 export const TRANSITIONS: Record<string, TransitionDef> = {
-  cut: { name: 'Hard Cut', glsl: T(`outColor = vec4(p < 0.5 ? A(vUv) : B(vUv), 1.0);`) },
-  dissolve: { name: 'Light Dissolve', glsl: T(`outColor = vec4(mix(A(vUv), B(vUv), e) * (1.0 + 0.35 * bell), 1.0);`) },
+  cut: { name: 'Hard Cut', type: 'Cuts & fades', description: 'Switch instantly on the beat.', glsl: T(`outColor = vec4(p < 0.5 ? A(vUv) : B(vUv), 1.0);`) },
+  dissolve: { name: 'Light Dissolve', type: 'Cuts & fades', description: 'Blend clips with a gentle lift in brightness.', glsl: T(`outColor = vec4(mix(A(vUv), B(vUv), e) * (1.0 + 0.35 * bell), 1.0);`) },
   luma: {
     name: 'Luma Burn',
+    type: 'Light & color', description: 'Reveal the incoming image through a warm luminance burn.',
     glsl: T(`float l = luma(toSRGB(B(vUv)));
       float m = smoothstep(l - 0.18, l + 0.18, p * 1.36 - 0.18);
       vec3 c = mix(A(vUv), B(vUv), m);
@@ -225,6 +245,7 @@ export const TRANSITIONS: Record<string, TransitionDef> = {
   },
   zoom: {
     name: 'Zoom Punch',
+    type: 'Zoom & spin', description: 'Punch into the next clip with radial motion blur.',
     glsl: T(`vec2 p0 = vUv - 0.5; vec3 s = vec3(0.0);
       float amt = 0.22 * bell;
       for (int i = 0; i < 16; i++) {
@@ -237,6 +258,7 @@ export const TRANSITIONS: Record<string, TransitionDef> = {
   },
   whip: {
     name: 'Whip Pan',
+    type: 'Slides', description: 'Whip vertically with a streak of motion blur.',
     glsl: T(`vec3 s = vec3(0.0);
       for (int i = 0; i < 20; i++) {
         float k = (float(i) / 19.0 - 0.5) * 0.18 * bell;
@@ -248,6 +270,7 @@ export const TRANSITIONS: Record<string, TransitionDef> = {
   },
   whipX: {
     name: 'Whip Sideways',
+    type: 'Slides', description: 'Whip horizontally with a blurred camera move.',
     glsl: T(`vec3 s = vec3(0.0);
       for (int i = 0; i < 20; i++) {
         float k = (float(i) / 19.0 - 0.5) * 0.25 * bell;
@@ -258,6 +281,7 @@ export const TRANSITIONS: Record<string, TransitionDef> = {
   },
   glitch: {
     name: 'Block Glitch',
+    type: 'Glitch', description: 'Break the cut into displaced blocks and RGB fringes.',
     glsl: T(`vec2 cell = floor(vUv * vec2(8.0, 22.0) * (1.0 + floor(p * 4.0)));
       float r = hash12(cell + floor(p * 9.0) * 13.1 + uSeed);
       float off = (r - 0.5) * 0.25 * bell * step(0.55, hash12(cell * 1.7 + floor(p * 7.0)));
@@ -270,6 +294,7 @@ export const TRANSITIONS: Record<string, TransitionDef> = {
   },
   mosh: {
     name: 'Datamosh',
+    type: 'Glitch', description: 'Smear image detail into motion-like compression blocks.',
     glsl: T(`vec2 bs = vec2(1.0 / 24.0, 1.0 / 42.0);
       vec2 blk = (floor(vUv / bs) + 0.5) * bs;
       float lx = luma(B(blk + vec2(bs.x, 0.0))) - luma(B(blk - vec2(bs.x, 0.0)));
@@ -281,21 +306,24 @@ export const TRANSITIONS: Record<string, TransitionDef> = {
   },
   ripple: {
     name: 'Shock Ripple',
+    type: 'Distortion', description: 'Reveal the next clip behind an expanding circular wave.',
     glsl: T(`vec2 q = toP(vUv); float d = length(q);
-      float R = p * 0.85;   // reveal radius: half the frame is B on the beat, all of it by p = 1
+      float R = p * (length(vec2(aspect(), 1.0)) * 0.5 + 0.12);
       float wave = sin(d * 38.0 - p * 30.0) * exp(-abs(d - R) * 6.0) * 0.045 * bell;
       vec2 uv = toUv(q + normalize(q + 1e-5) * wave);
       outColor = vec4(mix(A(uv), B(uv), 1.0 - smoothstep(R - 0.12, R, d)), 1.0);`),
   },
   iris: {
     name: 'Iris Bloom',
-    glsl: T(`float d = length(toP(vUv)); float r = e * 0.64;
+    type: 'Shapes', description: 'Open a circular iris with a softly glowing edge.',
+    glsl: T(`float d = length(toP(vUv)); float r = e * (length(vec2(aspect(), 1.0)) * 0.5 + 0.06);
       float m = 1.0 - smoothstep(r - 0.06, r, d);
       float z = (d - r) / 0.025; float ring = exp(-z * z) * bell;
       outColor = vec4(mix(A(vUv), B(vUv), m) + vec3(1.0, 0.85, 0.7) * ring * 1.5, 1.0);`),
   },
   pixel: {
     name: 'Pixel Melt',
+    type: 'Glitch', description: 'Melt into coarse pixels before resolving into the next clip.',
     glsl: T(`float n = mix(140.0, 9.0, bell);
       vec2 g = vec2(n * aspect(), n);
       vec2 uv = bell > 0.05 ? (floor(vUv * g) + 0.5) / g : vUv;
@@ -303,6 +331,7 @@ export const TRANSITIONS: Record<string, TransitionDef> = {
   },
   swirl: {
     name: 'Vortex',
+    type: 'Zoom & spin', description: 'Twist both clips around the center of the frame.',
     glsl: T(`vec2 q = toP(vUv); float d = length(q);
       float a = bell * 5.0 * (1.0 - smoothstep(0.0, 0.9, d));
       vec2 uv = toUv(rot(a) * q);
@@ -310,6 +339,7 @@ export const TRANSITIONS: Record<string, TransitionDef> = {
   },
   prism: {
     name: 'Prism Split',
+    type: 'Light & color', description: 'Separate red, green and blue into staggered color trails.',
     glsl: T(`float sh = 0.06 * bell;
       vec3 a = vec3(A(vUv + vec2(sh, 0.0)).r, A(vUv).g, A(vUv - vec2(sh, 0.0)).b);
       vec3 b = vec3(B(vUv - vec2(sh, 0.0)).r, B(vUv).g, B(vUv + vec2(sh, 0.0)).b);
@@ -318,6 +348,7 @@ export const TRANSITIONS: Record<string, TransitionDef> = {
   },
   flare: {
     name: 'Light Leak',
+    type: 'Light & color', description: 'Wash the cut in a traveling amber light leak.',
     glsl: T(`vec2 q = toP(vUv);
       float leak = exp(-pow(length(q - vec2(-0.6 + p * 1.2, 0.3 - p * 0.5)) * 1.6, 2.0));
       vec3 c = mix(A(vUv), B(vUv), e);
@@ -326,6 +357,7 @@ export const TRANSITIONS: Record<string, TransitionDef> = {
   },
   slices: {
     name: 'Shutter Slices',
+    type: 'Glitch', description: 'Slide alternating horizontal strips in opposite directions.',
     glsl: T(`float n = 9.0; float row = floor(vUv.y * n);
       float lp = clamp((p - row / n * 0.4) / 0.6, 0.0, 1.0);
       float dir = mod(row, 2.0) < 1.0 ? 1.0 : -1.0;
@@ -334,6 +366,7 @@ export const TRANSITIONS: Record<string, TransitionDef> = {
   },
   kaleido: {
     name: 'Kaleido Fold',
+    type: 'Zoom & spin', description: 'Fold the picture into a rotating six-part kaleidoscope.',
     glsl: T(`vec2 q = toP(vUv); float r = length(q); float a = atan(q.y, q.x);
       float seg = TAU / 6.0; float fa = abs(mod(a + p * 2.0, seg) - seg * 0.5);
       vec2 k = toUv(vec2(cos(fa), sin(fa)) * r);
@@ -342,10 +375,170 @@ export const TRANSITIONS: Record<string, TransitionDef> = {
   },
   morph: {
     name: 'Flow Morph',
+    type: 'Distortion', description: 'Flow between clips with a soft organic displacement.',
     glsl: T(`vec2 q = vUv * vec2(aspect(), 1.0) * 3.0;
       vec2 f = vec2(fbm3(vec3(q, uSeed)), fbm3(vec3(q + 7.3, uSeed))) - 0.5;
       vec3 a = A(vUv + f * 0.35 * e);
       vec3 b = B(vUv - f * 0.35 * (1.0 - e));
       outColor = vec4(mix(a, b, e), 1.0);`),
   },
+  crossfade: transition('Cross Dissolve', 'Cuts & fades', 'An even, clean blend between two clips.',
+    `outColor = vec4(mix(A(vUv), B(vUv), e), 1.0);`),
+  dipBlack: transition('Dip to Black', 'Cuts & fades', 'Fade out to black, then bring in the next clip.',
+    `vec3 c = p < 0.5 ? A(vUv) * (1.0 - ease(p * 2.0)) : B(vUv) * ease(p * 2.0 - 1.0);
+     outColor = vec4(c, 1.0);`),
+  dipWhite: transition('Dip to White', 'Cuts & fades', 'Pass through a clean white frame on the beat.',
+    `vec3 c = p < 0.5 ? mix(A(vUv), vec3(1.0), ease(p * 2.0)) : mix(vec3(1.0), B(vUv), ease(p * 2.0 - 1.0));
+     outColor = vec4(c, 1.0);`),
+  blurDissolve: transition('Blur Dissolve', 'Cuts & fades', 'Soften both images into a dreamy crossfade.',
+    `vec3 c = vec3(0.0);
+     for (int i = 0; i < 12; i++) {
+       float a = float(i) * TAU / 12.0; vec2 offset = vec2(cos(a) / aspect(), sin(a)) * 0.025 * bell;
+       c += mix(A(vUv + offset), B(vUv + offset), e);
+     }
+     outColor = vec4(c / 12.0, 1.0);`),
+  filmDissolve: transition('Film Dissolve', 'Cuts & fades', 'Blend through a fine, softly feathered film grain.',
+    `float grain = hash12(floor(vUv * uRes) + uSeed);
+     float m = smoothstep(grain - 0.25, grain + 0.25, e * 1.5 - 0.25);
+     outColor = vec4(mix(A(vUv), B(vUv), m), 1.0);`),
+  fadeThroughGray: transition('Silver Fade', 'Cuts & fades', 'Fade through a neutral silver tone for a muted cut.',
+    `vec3 c = p < 0.5 ? mix(A(vUv), vec3(0.18), ease(p * 2.0)) : mix(vec3(0.18), B(vUv), ease(p * 2.0 - 1.0));
+     outColor = vec4(c, 1.0);`),
+
+  wipeLeft: wipe('Wipe Left', '1.0 - vUv.x', 'Reveal the next clip from right to left.'),
+  wipeRight: wipe('Wipe Right', 'vUv.x', 'Reveal the next clip from left to right.'),
+  wipeUp: wipe('Wipe Up', 'vUv.y', 'Sweep the incoming image upward.'),
+  wipeDown: wipe('Wipe Down', '1.0 - vUv.y', 'Sweep the incoming image downward.'),
+  diagonalWipe: wipe('Diagonal Wipe', '(vUv.x + 1.0 - vUv.y) * 0.5', 'Sweep diagonally from the upper-left corner.'),
+  diagonalReverse: wipe('Reverse Diagonal', '(2.0 - vUv.x - vUv.y) * 0.5', 'Sweep diagonally from the upper-right corner.'),
+  clockWipe: wipe('Clock Wipe', 'fract(atan(toP(vUv).x, toP(vUv).y + 0.000001) / TAU + 1.0)', 'Rotate a radial reveal clockwise around the center.'),
+  softWipe: wipe('Feathered Wipe', 'vUv.x', 'A wide, soft-edged horizontal reveal.', 0.18),
+
+  pushLeft: slide('Push Left', 'vec2(-1.0, 0.0)', 'Push the outgoing clip off the left edge.'),
+  pushRight: slide('Push Right', 'vec2(1.0, 0.0)', 'Push the outgoing clip off the right edge.'),
+  pushUp: slide('Push Up', 'vec2(0.0, 1.0)', 'Push the outgoing clip up and out of frame.'),
+  pushDown: slide('Push Down', 'vec2(0.0, -1.0)', 'Push the outgoing clip down and out of frame.'),
+  coverLeft: slide('Cover Left', 'vec2(-1.0, 0.0)', 'Slide the incoming clip left over a stationary image.', true),
+  coverUp: slide('Cover Up', 'vec2(0.0, 1.0)', 'Slide the incoming clip upward over a stationary image.', true),
+
+  zoomOut: transition('Zoom Pull', 'Zoom & spin', 'Pull back from the outgoing image into the next shot.',
+    `vec2 q = vUv - 0.5;
+     outColor = vec4(mix(A(q * (1.0 + e * 1.4) + 0.5), B(q / (1.0 + (1.0 - e) * 0.7) + 0.5), e), 1.0);`),
+  crossZoom: transition('Cross Zoom', 'Zoom & spin', 'Rush both images toward the center with radial streaks.',
+    `vec3 c = vec3(0.0);
+     for (int i = 0; i < 16; i++) {
+       float t = float(i) / 15.0; vec2 uv = (vUv - 0.5) * (1.0 - t * 0.5 * bell) + 0.5;
+       c += mix(A(uv), B(uv), e);
+     }
+     outColor = vec4(c / 16.0, 1.0);`),
+  spinLeft: transition('Spin Left', 'Zoom & spin', 'Rotate counterclockwise through a quick zoom.',
+    `vec2 q = toP(vUv) / (1.0 + 0.45 * bell);
+     vec2 a = toUv(rot(-e * PI) * q); vec2 b = toUv(rot((1.0 - e) * PI) * q);
+     outColor = vec4(mix(A(a), B(b), e), 1.0);`),
+  spinRight: transition('Spin Right', 'Zoom & spin', 'Rotate clockwise through a quick zoom.',
+    `vec2 q = toP(vUv) / (1.0 + 0.45 * bell);
+     vec2 a = toUv(rot(e * PI) * q); vec2 b = toUv(rot((e - 1.0) * PI) * q);
+     outColor = vec4(mix(A(a), B(b), e), 1.0);`),
+  barrelZoom: transition('Barrel Zoom', 'Zoom & spin', 'Bend the edges outward with a wide-angle zoom pulse.',
+    `vec2 q = toP(vUv); vec2 uv = toUv(q * (1.0 + dot(q, q) * 1.1 * bell) / (1.0 + 0.3 * bell));
+     outColor = vec4(mix(A(uv), B(uv), e), 1.0);`),
+
+  flash: transition('Flash Frame', 'Light & color', 'Hit the beat with a brief bright camera flash.',
+    `vec3 c = mix(A(vUv), B(vUv), e);
+     outColor = vec4(mix(c, vec3(2.0), pow(bell, 8.0) * 0.9), 1.0);`),
+  exposureFade: transition('Exposure Bloom', 'Light & color', 'Overexpose the highlights into a luminous dissolve.',
+    `vec3 c = mix(A(vUv), B(vUv), e);
+     outColor = vec4(c * (1.0 + 2.5 * bell) + vec3(0.15) * pow(bell, 3.0), 1.0);`),
+  chromaBloom: transition('Chroma Bloom', 'Light & color', 'Expand colored halos around highlights as the clips blend.',
+    `vec2 q = vUv - 0.5; float s = 0.09 * bell;
+     vec3 a = vec3(A(q * (1.0 + s) + 0.5).r, A(vUv).g, A(q * (1.0 - s) + 0.5).b);
+     vec3 b = vec3(B(q * (1.0 - s) + 0.5).r, B(vUv).g, B(q * (1.0 + s) + 0.5).b);
+     outColor = vec4(mix(a, b, e) * (1.0 + 0.3 * bell), 1.0);`),
+  rgbSlide: transition('RGB Slide', 'Light & color', 'Slide separated color channels across the cut.',
+    `float s = bell * 0.12;
+     vec3 a = vec3(A(vUv + vec2(s, 0.0)).r, A(vUv).g, A(vUv - vec2(s, 0.0)).b);
+     vec3 b = vec3(B(vUv - vec2(s, 0.0)).r, B(vUv).g, B(vUv + vec2(s, 0.0)).b);
+     outColor = vec4(mix(a, b, smoothstep(0.25, 0.75, p)), 1.0);`),
+  lightSweep: transition('Light Sweep', 'Light & color', 'Carry the reveal behind a bright diagonal ribbon of light.',
+    `float d = (vUv.x + vUv.y) * 0.5; float edge = e * 1.3 - 0.15;
+     float m = 1.0 - smoothstep(edge - 0.06, edge + 0.06, d);
+     vec3 c = mix(A(vUv), B(vUv), m) + vec3(0.65, 0.8, 1.0) * exp(-pow((d - edge) * 20.0, 2.0)) * bell;
+     outColor = vec4(c, 1.0);`),
+
+  waveHorizontal: transition('Horizontal Wave', 'Distortion', 'Bend the image in traveling horizontal waves.',
+    `vec2 uv = vUv + vec2(sin(vUv.y * TAU * 3.0 + p * TAU) * 0.08 * bell, 0.0);
+     outColor = vec4(mix(A(uv), B(uv), e), 1.0);`),
+  waveVertical: transition('Vertical Wave', 'Distortion', 'Bend the image in traveling vertical waves.',
+    `vec2 uv = vUv + vec2(0.0, sin(vUv.x * TAU * 3.0 + p * TAU) * 0.08 * bell);
+     outColor = vec4(mix(A(uv), B(uv), e), 1.0);`),
+  liquid: transition('Liquid Melt', 'Distortion', 'Let the incoming image drip down in flowing ribbons.',
+    `float x = vUv.x * 8.0; float n = noise3(vec3(x, 0.0, uSeed));
+     float edge = e * 1.6 - n * 0.4 - 0.1;
+     vec2 uv = vUv + vec2(sin(x + p * 5.0), cos(x * 1.3)) * bell * 0.025;
+     float m = 1.0 - smoothstep(edge - 0.05, edge + 0.05, 1.0 - vUv.y);
+     outColor = vec4(mix(A(uv), B(uv), m), 1.0);`),
+  pinch: transition('Center Pinch', 'Distortion', 'Draw the frame inward through a pinched center.',
+    `vec2 q = toP(vUv); float r = length(q);
+     vec2 uv = toUv(q * (1.0 + 0.65 * bell * exp(-r * 3.0)));
+     outColor = vec4(mix(A(uv), B(uv), e), 1.0);`),
+  bulge: transition('Lens Bulge', 'Distortion', 'Inflate the center with a soft fisheye pulse.',
+    `vec2 q = toP(vUv); float r = length(q);
+     vec2 uv = toUv(q / (1.0 + 1.2 * bell * exp(-r * 3.0)));
+     outColor = vec4(mix(A(uv), B(uv), e), 1.0);`),
+  turbulence: transition('Turbulent Wash', 'Distortion', 'Stir both clips through broad, rolling noise currents.',
+    `vec2 q = toP(vUv) * 4.0;
+     vec2 flow = vec2(fbm3(vec3(q, p * 2.0 + uSeed)), fbm3(vec3(q + 8.0, p * 2.0 + uSeed))) - 0.5;
+     outColor = vec4(mix(A(vUv + flow * bell * 0.4), B(vUv - flow * bell * 0.4), e), 1.0);`),
+
+  scanline: transition('Scanline Tear', 'Glitch', 'Tear horizontal scanlines into the next image.',
+    `float row = floor(vUv.y * 100.0); float r = hash12(vec2(row, floor(p * 12.0) + uSeed));
+     vec2 uv = vUv + vec2((r - 0.5) * 0.22 * bell, 0.0);
+     vec3 c = mix(A(uv), B(uv), step(r, e));
+     outColor = vec4(c * (1.0 - 0.25 * bell * mod(row, 2.0)), 1.0);`),
+  channelGlitch: transition('Channel Glitch', 'Glitch', 'Swap RGB channels in independently jumping bands.',
+    `float row = floor(vUv.y * 14.0); float r = hash12(vec2(row + uSeed, floor(p * 8.0)));
+     vec2 off = vec2((r - 0.5) * 0.3 * bell, 0.0);
+     vec3 a = vec3(A(vUv + off).r, A(vUv - off).g, A(vUv + off * 2.0).b);
+     vec3 b = vec3(B(vUv - off).r, B(vUv + off).g, B(vUv - off * 2.0).b);
+     outColor = vec4(mix(a, b, vec3(step(r, e), step(fract(r + 0.33), e), step(fract(r + 0.66), e))), 1.0);`),
+  blockShuffle: transition('Block Shuffle', 'Glitch', 'Scatter tiled fragments before the next image locks in.',
+    `vec2 cell = floor(vUv * vec2(12.0, 8.0)); vec2 shift = (hash22(cell + uSeed) - 0.5) * bell * 0.8;
+     vec2 uv = vUv + shift;
+     outColor = vec4(mix(A(uv), B(uv), step(hash12(cell + 3.0), e)), 1.0);`),
+  staticDissolve: transition('Analog Static', 'Glitch', 'Tune through flickering television noise and signal loss.',
+    `float n = hash12(floor(vUv * uRes) + floor(p * 24.0) * 17.0 + uSeed);
+     vec2 uv = vUv + vec2((n - 0.5) * 0.03 * bell, 0.0);
+     vec3 c = mix(A(uv), B(uv), e);
+     outColor = vec4(mix(c, vec3(n), bell * 0.65), 1.0);`),
+
+  diamond: transition('Diamond Reveal', 'Shapes', 'Open the next clip inside an expanding diamond.',
+    `vec2 q = abs(vUv - 0.5); float d = q.x + q.y;
+     float m = 1.0 - smoothstep(e * 1.04 - 0.04, e * 1.04, d);
+     outColor = vec4(mix(A(vUv), B(vUv), m), 1.0);`),
+  boxReveal: transition('Box Reveal', 'Shapes', 'Grow a centered rectangle to fill the frame.',
+    `vec2 q = abs(vUv - 0.5) * 2.0; float d = max(q.x, q.y);
+     float m = 1.0 - smoothstep(e * 1.04 - 0.04, e * 1.04, d);
+     outColor = vec4(mix(A(vUv), B(vUv), m), 1.0);`),
+  blinds: transition('Horizontal Blinds', 'Shapes', 'Open parallel horizontal slats across the frame.',
+    `float d = fract(vUv.y * 10.0);
+     float m = 1.0 - smoothstep(e * 1.06 - 0.06, e * 1.06, d);
+     outColor = vec4(mix(A(vUv), B(vUv), m), 1.0);`),
+  checkerboard: transition('Checkerboard', 'Shapes', 'Reveal alternating squares in a staggered checker pattern.',
+    `vec2 cell = floor(vUv * vec2(12.0, 8.0)); float parity = mod(cell.x + cell.y, 2.0);
+     float local = clamp(p * 1.6 - parity * 0.6, 0.0, 1.0);
+     vec2 q = abs(fract(vUv * vec2(12.0, 8.0)) - 0.5) * 2.0;
+     float m = 1.0 - smoothstep(local * 1.06 - 0.06, local * 1.06, max(q.x, q.y));
+     outColor = vec4(mix(A(vUv), B(vUv), m), 1.0);`),
+  venetian: transition('Vertical Blinds', 'Shapes', 'Open parallel vertical slats across the frame.',
+    `float d = fract(vUv.x * 12.0);
+     float m = 1.0 - smoothstep(e * 1.06 - 0.06, e * 1.06, d);
+     outColor = vec4(mix(A(vUv), B(vUv), m), 1.0);`),
+  splitHorizontal: transition('Horizontal Split', 'Shapes', 'Part the image from the center toward the top and bottom.',
+    `float d = abs(vUv.y - 0.5) * 2.0;
+     float m = 1.0 - smoothstep(e * 1.04 - 0.04, e * 1.04, d);
+     outColor = vec4(mix(A(vUv), B(vUv), m), 1.0);`),
+  splitVertical: transition('Vertical Split', 'Shapes', 'Part the image from the center toward the left and right.',
+    `float d = abs(vUv.x - 0.5) * 2.0;
+     float m = 1.0 - smoothstep(e * 1.04 - 0.04, e * 1.04, d);
+     outColor = vec4(mix(A(vUv), B(vUv), m), 1.0);`),
 };

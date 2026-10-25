@@ -80,6 +80,7 @@ test('clip speed matches tempo in the browser, keeps cuts, and exports moving fo
     await tap(byText('#pane-edit .clip-speed button', '1×'));
     S.getState().transport.seek(0.5);
     await tap($('#blockTools .tl-edit'));
+    await tap(byText('#pop .seg-tabs button', 'Playback'));
     const id = S.getState().selectedBlock;
     const bpm = S.getState().bpm();
     const input = $('#pop input[aria-label="Original clip BPM"]');
@@ -106,6 +107,7 @@ test('clip speed matches tempo in the browser, keeps cuts, and exports moving fo
   await browser.send('Emulation.setDeviceMetricsOverride', { width: 390, height: 844, deviceScaleFactor: 1, mobile: false });
   await browser.run(PAGE + `
     await tap($('#blockTools .tl-edit'));
+    await tap(byText('#pop .seg-tabs button', 'Playback'));
     $('.seg-speed').scrollIntoView({ block: 'center' });
     const box = $('#pop').getBoundingClientRect();
     if (box.left < 0 || box.right > innerWidth || box.height > innerHeight) throw new Error('speed menu leaves the narrow viewport');

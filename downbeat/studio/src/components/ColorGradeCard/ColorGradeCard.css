@@ -1,0 +1,167 @@
+/* ColorGradeCard styles. */
+
+.inspector .grade-file {
+  gap: 9px;
+  padding: 4px 0 9px;
+}
+
+.grade-mark {
+  display: grid;
+  width: 34px;
+  height: 34px;
+  flex: none;
+  place-items: center;
+  border: 1px solid #45464d;
+  border-radius: 6px;
+  background: #202126;
+  color: #b9a4ff;
+  font: 750 9px var(--mono);
+  letter-spacing: 0.04em;
+}
+
+.grade-file-copy {
+  min-width: 0;
+  flex: 1;
+}
+
+.inspector .grade-file-copy small {
+  display: block;
+  padding: 0;
+  color: #777982;
+  font-size: 8px;
+  font-weight: 700;
+  letter-spacing: 0.09em;
+  line-height: 1;
+  text-transform: uppercase;
+}
+
+.inspector .grade-file-copy b {
+  margin-top: 4px;
+  color: #e8e9ed;
+  font-size: 11px;
+  font-weight: 650;
+}
+
+.grade-file-copy > span {
+  display: block;
+  margin-top: 2px;
+  overflow: hidden;
+  color: #94969f;
+  font-size: 9px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.grade-status {
+  flex: none;
+  padding: 3px 5px;
+  border: 1px solid #383940;
+  border-radius: 4px;
+  color: #777982;
+  font: 650 8px var(--mono);
+  text-transform: uppercase;
+}
+
+.grade-status.on {
+  border-color: #6f638f;
+  background: rgba(185, 164, 255, 0.1);
+  color: #d8ceff;
+}
+
+.inspector .grade-actions {
+  margin-bottom: 7px;
+}
+
+.inspector .grade-actions .btn {
+  flex: 1;
+  justify-content: center;
+}
+
+.inspector .grade-remove {
+  color: #b5b7be;
+}
+
+.inspector .grade-error {
+  padding: 7px 8px;
+  border: 1px solid rgba(255, 111, 136, 0.34);
+  border-radius: 5px;
+  background: rgba(255, 90, 110, 0.06);
+  color: #ff9fb3;
+}
+
+.inspector .grade-guidance {
+  padding-top: 2px;
+  color: #777982;
+  font-size: 9.5px;
+  line-height: 1.45;
+}
+
+.inspector .scope-toolbar {
+  align-items: flex-start;
+  flex-direction: column;
+  margin-top: 10px;
+  padding-top: 10px;
+  border-color: #303136;
+}
+
+.scope-toolbar > div:first-child {
+  display: flex;
+  width: 100%;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.scope-toolbar b {
+  color: #e8e9ed;
+  font-size: 10px;
+}
+
+.scope-toolbar small {
+  color: #777982;
+  font: 550 8px var(--mono);
+}
+
+.inspector .scope-toolbar .seg {
+  display: grid;
+  width: 100%;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.inspector .scope-toolbar .seg button {
+  min-width: 0;
+  padding: 0 4px;
+  font-size: 9px;
+}
+
+.inspector .scope-frame .video-scope {
+  width: 100%;
+  margin: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+
+.inspector .grade-guidance { line-height: 1.6; }
+
+.grade-file { display: flex; align-items: center; gap: 10px; padding: 5px 0 9px; min-width: 0; }
+
+.grade-icon { display: grid; place-items: center; flex-shrink: 0; width: 36px; height: 36px; border: 1px solid rgba(120,220,192,.3); border-radius: 10px; color: #78dcc0; font-size: 24px; background: linear-gradient(145deg, rgba(120,220,192,.15), rgba(112,159,255,.08)); }
+
+.grade-file > div { min-width: 0; }
+
+.grade-file b { display: block; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 12px; color: var(--text); }
+
+.grade-file small { display: block; padding-top: 4px; color: var(--text-3); font-size: 10px; }
+
+.grade-actions { gap: 8px; margin-bottom: 8px; }
+
+.grade-error { margin: 6px 0; color: #ff9fb3; font-size: 11px; line-height: 1.5; }
+
+.scope-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 6px; margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--line); color: var(--text-2); font-size: 11px; }
+
+.scope-toolbar .seg button { padding: 5px 7px; font-size: 10px; }
+
+.video-scope { display: block; width: 100%; height: auto; border: 1px solid var(--line); border-radius: 7px; margin-top: 9px; background: #0b0d11; }
+
+.scope-note { font-size: 9px; text-align: right; padding-top: 4px; }

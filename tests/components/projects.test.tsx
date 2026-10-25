@@ -1,10 +1,11 @@
 import React from 'react';
 import { describe, expect, test, vi } from 'vitest';
-import { act, fireEvent, render, waitFor, within } from '@testing-library/react';
-import { ProjectButton, ProjectsModal } from '../../downbeat/studio/src/components/Projects.tsx';
-import { ExportsLibrary } from '../../downbeat/studio/src/components/Exports.tsx';
-import { App } from '../../downbeat/studio/src/App.tsx';
-import { LOOKS, S, SONG, TRACKS, posted, renderStudio, resetStudio, screen, serve, st, toastText, update, withSong } from './studio.tsx';
+import { act, fireEvent, waitFor, within } from '@testing-library/react';
+import { ProjectButton } from '../../downbeat/studio/src/components/ProjectButton/ProjectButton.tsx';
+import { ProjectsModal } from '../../downbeat/studio/src/components/ProjectsModal/ProjectsModal.tsx';
+import { ExportsLibrary } from '../../downbeat/studio/src/components/ExportsLibrary/ExportsLibrary.tsx';
+import { App } from '../../downbeat/studio/src/components/App/App.tsx';
+import { render, LOOKS, S, SONG, TRACKS, posted, renderStudio, resetStudio, screen, serve, st, toastText, update, withSong } from './studio.tsx';
 
 const NOW = Math.floor(Date.now() / 1000);
 const PROJECTS = [

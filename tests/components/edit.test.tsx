@@ -1,7 +1,7 @@
 import React from 'react';
 import { describe, expect, test, vi } from 'vitest';
 import { fireEvent, within } from '@testing-library/react';
-import { EditPane } from '../../downbeat/studio/src/components/EditPane.tsx';
+import { EditPane } from '../../downbeat/studio/src/components/EditPane/EditPane.tsx';
 import { RHYTHMS, DIRECTIONS, VELOCITY } from '../../downbeat/studio/src/engine/timeline.ts';
 import { TRANSITIONS } from '../../downbeat/studio/src/engine/shaders.ts';
 import { POOLS } from '../../downbeat/studio/src/lib/utils.ts';
@@ -175,25 +175,33 @@ describe('cuts and transitions', () => {
     expect(within(field('Cut rhythm')).getByText(RHYTHMS.beat.name).className).toBe('on');
   });
 
-  test('a transition pool replaces the transitions; the grid toggles them one at a time', () => {
+  test('the transition browser edits pools, toggles selections and isolates a transition', () => {
     resetStudio();
     renderStudio(<EditPane />);
-    const f = field('Transitions');
-    fireEvent.click(within(f).getByText('Glitch'));
+    fireEvent.click(screen.getByRole('button', { name: 'Browse transitions' }));
+    const browser = within(screen.getByRole('dialog', { name: 'Transition library' }));
+    const preset = browser.getByRole('combobox', { name: 'Transition selection preset' });
+    fireEvent.change(preset, { target: { value: 'Glitch' } });
     expect(st().look!.cut.transitions).toEqual(POOLS.Glitch);
-    expect(within(field('Transitions')).getByText('Glitch').className).toContain('on');
-    const grid = f.querySelector('.tgrid') as HTMLElement;
-    expect(within(grid).getAllByRole('button')).toHaveLength(Object.keys(TRANSITIONS).length);
-    fireEvent.click(within(grid).getByText(TRANSITIONS.dissolve.name));
+    expect((preset as HTMLSelectElement).value).toBe('Glitch');
+    expect(browser.getAllByRole('checkbox', { name: /^Include / })).toHaveLength(8);
+    const search = browser.getByRole('searchbox', { name: 'Search transitions' });
+    fireEvent.change(search, { target: { value: TRANSITIONS.dissolve.name } });
+    fireEvent.click(browser.getByRole('checkbox', { name: `Include ${TRANSITIONS.dissolve.name}` }));
     expect(st().look!.cut.transitions).toContain('dissolve');
-    expect(within(field('Transitions')).getByText('Glitch').className, 'no longer exactly the pool').not.toContain('on');
-    fireEvent.click(within(grid).getByText(TRANSITIONS.dissolve.name));
+    expect((preset as HTMLSelectElement).value).toBe('');
+    fireEvent.click(browser.getByRole('checkbox', { name: `Include ${TRANSITIONS.dissolve.name}` }));
     expect(st().look!.cut.transitions).not.toContain('dissolve');
-    fireEvent.doubleClick(within(grid).getByText(TRANSITIONS.zoom.name));
+    fireEvent.change(search, { target: { value: TRANSITIONS.zoom.name } });
+    fireEvent.click(browser.getByRole('button', { name: `Use only ${TRANSITIONS.zoom.name}` }));
     expect(st().look!.cut.transitions).toEqual(['zoom']);
-    fireEvent.click(within(grid).getByText(TRANSITIONS.zoom.name));
+    expect((browser.getByRole('checkbox', { name: `Include ${TRANSITIONS.zoom.name}` }) as HTMLInputElement).disabled).toBe(true);
+    fireEvent.click(browser.getByRole('checkbox', { name: `Include ${TRANSITIONS.zoom.name}` }));
     expect(st().look!.cut.transitions, 'the last transition stays').toEqual(['zoom']);
     expect(st().ctx!.tl.segs.slice(1).every((s) => s.trans === 'zoom')).toBe(true);
+    fireEvent.click(browser.getByRole('button', { name: 'Done' }));
+    expect(screen.queryByRole('dialog', { name: 'Transition library' })).toBeNull();
+    expect(within(field('Transitions')).getByText('1 transition selected')).toBeTruthy();
   });
 
   test('transition length, order, direction and speed ramp buttons edit the cut', () => {

@@ -1,0 +1,55 @@
+/* EditPane styles. */
+
+.inspector .edit-pane > div { padding: 12px !important; }
+
+.edit-scope-note { margin: 0 2px 12px; color: #b7afc6; font-size: 10px; letter-spacing: .055em; }
+
+.edit-family { margin-bottom: 10px; border: 1px solid #35353e; border-radius: 7px; background: #1b1c21; }
+
+.edit-family > summary { padding: 12px; color: #e8e4ee; font-size: 12px; font-weight: 550; list-style-position: inside; }
+
+.edit-family > summary::marker { color: #b9a4ff; font-size: 10px; }
+
+.edit-family-body { padding: 0 12px 4px; border-top: 1px solid #303039; }
+
+.edit-family-body .field { margin: 0; padding: 13px 0; border-bottom: 1px solid #303039; }
+
+.edit-family-body .field:last-child { border-bottom: 0; }
+
+.edit-family-body .field > label.check { margin-bottom: 9px; color: #c6c0d0; font-size: 11px; }
+
+.edit-family-body .seg { flex-wrap: wrap; }
+
+.edit-family-body .seg button { flex: 1 0 auto; min-height: 27px; padding: 5px 7px; }
+
+.inspector .edit-family .note { font-size: 10.5px; line-height: 1.6; color: #aaa4b6; }
+
+.block-look > .row { align-items: flex-start; margin-bottom: 7px; }
+
+.block-look > .row .note { flex: 1; }
+
+.block-look details { margin-top: 5px; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; background: rgba(255,255,255,0.015); }
+
+.block-look summary { padding: 7px 9px; cursor: pointer; color: var(--text-2); font-size: 11.5px; font-weight: 600; }
+
+.block-look details[open] summary { border-bottom: 1px solid var(--line); color: var(--text); }
+
+.block-look .block-prm { grid-template-columns: 105px minmax(70px, 1fr) 42px; padding: 6px 9px; }
+
+.block-look .block-prm + .block-prm { border-top: 1px solid rgba(255,255,255,0.035); }
+
+.block-look .block-prm label { display: flex; align-items: center; gap: 5px; }
+
+.block-look .block-prm label input { accent-color: var(--accent); }
+
+.block-look .block-prm > input:disabled { opacity: 0.3; }
+
+.block-look .block-prm > select { min-width: 0; padding: 4px 6px; border: 1px solid var(--line-2); border-radius: 6px; background: var(--raised); color: var(--text); font: inherit; }
+
+.block-look .block-prm > select:disabled { opacity: 0.3; }
+
+.viewer-loop #barsSeg { padding: 0; background: transparent; border: 0; }
+
+.viewer-loop #barsSeg button { height: 20px; min-width: 24px; padding: 0 6px; font-size: 10px; }
+
+.viewer-loop #barsSeg button.on { color: var(--accent); background: #b9a4ff10; box-shadow: none; }

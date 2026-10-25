@@ -1,8 +1,9 @@
 import React from 'react';
 import { describe, expect, test, vi } from 'vitest';
 import { fireEvent, within } from '@testing-library/react';
-import { LayersPane } from '../../downbeat/studio/src/components/LayersPane.tsx';
-import { ParamRow } from '../../downbeat/studio/src/components/ParamRow.tsx';
+import { LayersPane } from '../../downbeat/studio/src/components/LayersPane/LayersPane.tsx';
+import { EditPane } from '../../downbeat/studio/src/components/EditPane/EditPane.tsx';
+import { ParamRow } from '../../downbeat/studio/src/components/ParamRow/ParamRow.tsx';
 import { MODULES, CAMERA, CATEGORIES } from '../../downbeat/studio/src/engine/modules.ts';
 import { STAGE } from '../../downbeat/studio/src/engine/looks.ts';
 import { LOOKS, cloneLook, pop, popButton, popButtons, renderStudio, resetStudio, screen, st, toastText, update, withSong, S } from './studio.tsx';
@@ -148,7 +149,7 @@ describe('folding cards', () => {
     const effects = document.getElementById('layer-effects-section') as HTMLElement;
     const color = document.getElementById('layer-color-section') as HTMLElement;
     expect(effects.hidden).toBe(false);
-    expect(color.hidden).toBe(false);
+    expect(color.hidden).toBe(true);
 
     fireEvent.click(within(nav).getByRole('button', { name: 'Color' }));
     expect(effects.hidden).toBe(true);
@@ -180,7 +181,7 @@ describe('folding cards', () => {
 
     fireEvent.click(fold);
     expect(bloom.classList.contains('collapsed')).toBe(false);
-    expect(cardFor('Master').classList.contains('collapsed')).toBe(false);
+    expect(cardFor('Master').classList.contains('collapsed')).toBe(true);
   });
 });
 
@@ -243,7 +244,7 @@ describe('master card', () => {
     expect(Array.from(strip.querySelectorAll('button')).map((b) => b.textContent)).toEqual(['Main', '1', '2', '3']);
     fireEvent.click(within(strip).getByText('2'));
     expect(st().editClip).toBe('b');
-    expect(titleOf(cards()[0])).toBe(`Clip 2 · ${LOOKS[0].name}`);
+    expect(document.querySelector('.stack-scope')!.textContent).toContain("Clip 2's own stack");
     expect(cardFor('Camera')).toBeUndefined();
     expect(cardFor('Finish')).toBeUndefined();
     expect(screen.getByText(/shared by every clip. Edit them on Main/)).toBeTruthy();
@@ -312,9 +313,9 @@ describe('parameter rows', () => {
 
   test('clip speed retimes the edit', () => {
     resetStudio();
-    renderStudio(<LayersPane />);
+    renderStudio(<EditPane />);
     const before = st().ctx;
-    fireEvent.change(sliderIn(rowFor('Clip speed', cardFor('Camera'))), { target: { value: '1.5' } });
+    fireEvent.change(screen.getByLabelText('Default clip speed'), { target: { value: '1.5' } });
     expect(st().look!.camera.p.speed).toBe(1.5);
     expect(st().ctx).not.toBe(before);
     expect(st().ctx!.tl.segs[0].speed).toBe(1.5);

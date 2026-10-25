@@ -46,6 +46,8 @@ export class GPU {
   vert: WebGLShader;
   black: RenderTarget;
   private luts = new Map<CubeLut, { tex: WebGLTexture; target: number }>();
+  private vertexArray: WebGLVertexArrayObject | null;
+  private vertexBuffer: WebGLBuffer | null;
 
   constructor(canvas: HTMLCanvasElement) {
     const gl = canvas.getContext('webgl2', {
@@ -59,8 +61,10 @@ export class GPU {
     gl.getExtension('OES_texture_float_linear');
     this.programs = new Map();
     const vao = gl.createVertexArray();
+    this.vertexArray = vao;
     gl.bindVertexArray(vao);
     const buf = gl.createBuffer();
+    this.vertexBuffer = buf;
     gl.bindBuffer(gl.ARRAY_BUFFER, buf);
     gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 3, -1, -1, 3]), gl.STATIC_DRAW);
     gl.enableVertexAttribArray(0);
@@ -158,6 +162,17 @@ export class GPU {
     if (!t) return;
     this.gl.deleteTexture(t.tex);
     this.gl.deleteFramebuffer(t.fb);
+  }
+
+  dispose(): void {
+    this.free(this.black);
+    for (const { tex } of this.luts.values()) this.gl.deleteTexture(tex);
+    for (const { prog } of this.programs.values()) this.gl.deleteProgram(prog);
+    this.luts.clear();
+    this.programs.clear();
+    this.gl.deleteShader(this.vert);
+    this.gl.deleteBuffer(this.vertexBuffer);
+    this.gl.deleteVertexArray(this.vertexArray);
   }
 
   /** LUTs are shared by preview/export/thumbnail pipelines and bounded to eight GPU textures. */
@@ -573,6 +588,21 @@ export class Engine {
   }
 
   get gl(): WebGL2RenderingContext { return this.gpu.gl; }
+
+  dispose(): void {
+    this.main.dispose();
+    for (const key of this.thumbs.keys()) this.dropThumb(key);
+    for (const key of this.videoTex.keys()) this.dropVideo(key);
+    this.dropFrames();
+    this.gpu.free(this.statsT);
+    this.gpu.free(this.printT);
+    this.gpu.free(this.scopeT);
+    const glyphs = this.aux.glyphs;
+    if (glyphs) this.gl.deleteTexture('tex' in glyphs ? glyphs.tex : glyphs);
+    this.lastOut = null;
+    this.aux = {};
+    this.gpu.dispose();
+  }
 
   resize(w: number, h: number): void {
     this.gpu.assertSize(w, h);

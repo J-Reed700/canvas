@@ -126,6 +126,17 @@ export class Transport {
     this.listeners.forEach((fn) => fn());
   }
 
+  dispose(): void {
+    this.pause();
+    this.gain?.disconnect();
+    void this.ctx?.close().catch(() => {});
+    this.ctx = null;
+    this.gain = null;
+    this.buffer = null;
+    this.trackId = null;
+    this.offset = 0;
+  }
+
   toggle(): void { this.playing ? this.pause() : this.play(); }
 
   elapsed(): number {

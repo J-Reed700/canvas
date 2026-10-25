@@ -104,3 +104,40 @@ test('look parameter reuse is limited to one frame so in-place edits remain imme
   assert.equal(edited.camera.p_zoom, 1.5);
   assert.equal(edited.finish.p_exposure, 0.6);
 });
+
+test('two appearances of one source render separate stacks and camera settings across their transition', () => {
+  const look = cloneLook(LOOKS[0]);
+  const own = cloneLook(LOOKS.find((look) => look.id === 'thermal'));
+  own.camera.mods = {};
+  own.camera.p.zoom = 1.8;
+  own.finish.mods = {};
+  own.finish.p.exposure = 0.5;
+  const opts = { L: 4, beatDur: 0.5, seed: 4, clips: [{ id: 'a', duration: 60 }], rhythm: 'bar', transitions: ['dissolve'], transBeats: 1 };
+  const rolled = planTimeline(opts);
+  const tl = resolve(rolled.blocks.map((block, i) => i === 1 ? { ...block, look: own } : block), opts);
+  const ctx = { ...opts, tl, look, clipDur: () => 60, sampler: makeSampler({ ...opts, loopStart: 0 }) };
+  const first = compose(ctx, 1);
+  const second = compose(ctx, 3);
+  assert.equal(first.layers[0].src, look.layers[0]);
+  assert.equal(second.pre[0][0].src, own.layers[0]);
+  assert.equal(second.camera.p_zoom, 1.8);
+  assert.equal(second.finish.p_exposure, 0.5);
+  const transition = compose(ctx, 2);
+  assert.ok(transition.trans);
+  assert.equal(transition.pre[0][0].src, look.layers[0]);
+  assert.equal(transition.pre[1][0].src, own.layers[0]);
+  assert.equal(own.layers[0], tl.segs[1].look.layers[0]);
+});
+
+test('a single styled appearance keeps separate feedback histories on both sides of its loop seam', () => {
+  const look = cloneLook(LOOKS[0]);
+  const own = cloneLook(LOOKS.find((look) => look.id === 'vhs'));
+  const opts = { L: 4, beatDur: 0.5, seed: 4, clips: [{ id: 'a', duration: 60 }], rhythm: 'bar2', transitions: ['dissolve'], transBeats: 1 };
+  const rolled = planTimeline(opts);
+  assert.equal(rolled.segs.length, 1);
+  const tl = resolve(rolled.blocks.map((block) => ({ ...block, look: own })), opts);
+  const ctx = { ...opts, tl, look, clipDur: () => 60, sampler: makeSampler({ ...opts, loopStart: 0 }) };
+  const frame = compose(ctx, 0);
+  assert.equal(frame.pre.length, 2);
+  assert.notEqual(frame.pre[0][0].key, frame.pre[1][0].key);
+});

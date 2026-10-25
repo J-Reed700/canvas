@@ -1,0 +1,26 @@
+/* Modal styles. */
+
+.modal-bg { position: fixed; inset: 0; z-index: 40; background: rgba(0,0,0,0.55); backdrop-filter: blur(6px); display: none; align-items: center; justify-content: center; }
+
+.modal-bg.on { display: flex; }
+
+.modal { position: relative; width: min(1080px, calc(100vw - 24px)); max-height: calc(100dvh - 24px); overflow: auto; background: rgba(18,18,24,0.92); border: 1px solid var(--line-2); border-radius: 20px; box-shadow: 0 40px 120px -20px rgba(0,0,0,0.9); padding: 22px; }
+
+.modal-x { position: absolute; top: 18px; right: 18px; }
+
+.modal h2 { font-size: 20px; letter-spacing: -0.02em; font-weight: 700; }
+
+.modal .sub { color: var(--text-2); margin-top: 4px; }
+
+.modal-h { display: flex; align-items: flex-start; justify-content: space-between; flex-wrap: wrap; gap: 12px 16px; margin-bottom: 18px; padding-right: 44px; }
+
+@media (max-width: 700px) {
+    .modal { padding: 16px; border-radius: 16px; }
+    .modal-x { top: 12px; right: 12px; }
+  }
+
+.modal-bg { background: #08090bb3; backdrop-filter: blur(5px); }
+
+.modal { background: #202126; border-radius: 10px; border-color: #464751; box-shadow: 0 24px 100px #0009; }
+
+.modal h2 { font-size: 18px; font-weight: 600; }

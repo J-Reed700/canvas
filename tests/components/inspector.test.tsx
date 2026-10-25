@@ -1,14 +1,77 @@
 import React from 'react';
 import { describe, expect, test } from 'vitest';
 import { fireEvent, within } from '@testing-library/react';
-import { InspectorPanel } from '../../downbeat/studio/src/components/InspectorPanel.tsx';
-import { LooksPane } from '../../downbeat/studio/src/components/LooksPane.tsx';
+import { InspectorPanel } from '../../downbeat/studio/src/components/InspectorPanel/InspectorPanel.tsx';
+import { LooksPane } from '../../downbeat/studio/src/components/LooksPane/LooksPane.tsx';
+import { TopBar } from '../../downbeat/studio/src/components/TopBar/TopBar.tsx';
 import { LOOKS, cloneLook, renderStudio, resetStudio, screen, st, toastText, update } from './studio.tsx';
 
 const lookCard = (id: string) => document.querySelector(`[data-look-id="${id}"]`) as HTMLElement;
 const tabs = () => document.getElementById('tabs') as HTMLElement;
 
 describe('inspector tabs', () => {
+  test('the persistent scope targets one repeated appearance and preserves it when the main look changes', () => {
+    const main = cloneLook(LOOKS[0]);
+    main.cut.rhythm = 'half';
+    resetStudio({ look: main, bars: 5, tab: 'looks' });
+    const occurrences = st().ctx!.tl.segs.filter((seg) => seg.clipId === 'a');
+    update(() => st().selectBlock(occurrences[1].id));
+    renderStudio(<InspectorPanel />);
+    const scopes = screen.getByRole('group', { name: 'Apply effects to' });
+    expect(within(scopes).getByText('This appearance').getAttribute('aria-pressed')).toBe('true');
+    expect(st().blocks).toBeNull();
+    fireEvent.click(lookCard('vhs'));
+    expect(st().blocks!.find((b) => b.id === occurrences[1].id)!.look!.id).toBe('vhs');
+    expect(st().look).toBe(main);
+    expect(st().ctx!.tl.segs.find((seg) => seg.id === occurrences[0].id)!.look).toBeUndefined();
+    expect(screen.getByText('Use source look')).toBeTruthy();
+    fireEvent.click(within(scopes).getByText('Whole edit'));
+    fireEvent.click(lookCard('thermal'));
+    expect(st().look!.id).toBe('thermal');
+    expect(st().blocks!.find((b) => b.id === occurrences[1].id)!.look!.id).toBe('vhs');
+    fireEvent.click(within(scopes).getByText('This appearance'));
+    fireEvent.click(screen.getByText('Use source look'));
+    expect(st().ctx!.tl.segs.find((seg) => seg.id === occurrences[1].id)!.look).toBeUndefined();
+  });
+
+  test('a layer slider forks the selected appearance without changing the inherited layer', () => {
+    resetStudio({ tab: 'layers' });
+    const block = st().ctx!.tl.segs[1];
+    const before = JSON.stringify(st().look);
+    update(() => st().selectBlock(block.id));
+    renderStudio(<InspectorPanel />);
+    const card = Array.from(document.querySelectorAll('.card')).find((card) => card.querySelector('.ct')?.firstChild?.textContent === 'Liquid Glass')!;
+    const slider = card.querySelector('input[type=range]')!;
+    fireEvent.change(slider, { target: { value: '0.8' } });
+    expect(st().blocks!.find((b) => b.id === block.id)!.look).toBeTruthy();
+    expect(JSON.stringify(st().look)).toBe(before);
+    expect(screen.getByText('Own look')).toBeTruthy();
+  });
+
+  test('color, camera and animation families edit the same appearance without touching the main look', () => {
+    resetStudio({ tab: 'layers' });
+    const id = st().ctx!.tl.segs[1].id;
+    const before = JSON.stringify(st().look);
+    update(() => st().selectBlock(id));
+    renderStudio(<InspectorPanel />);
+    const nav = screen.getByRole('navigation', { name: 'Layer inspector sections' });
+    const change = (label: string, value: string) => {
+      const row = Array.from(document.querySelectorAll('.prm')).find((row) => row.querySelector('label')?.textContent === label)!;
+      fireEvent.change(row.querySelector('input[type=range]')!, { target: { value } });
+    };
+    fireEvent.click(within(nav).getByText('Color'));
+    change('Exposure', '1');
+    fireEvent.click(within(nav).getByText('Motion'));
+    change('Zoom', '1.6');
+    fireEvent.click(within(nav).getByText('Animate'));
+    fireEvent.click(screen.getByTitle('Step 6 (16th note 6 of the bar)'));
+    const own = st().blocks!.find((block) => block.id === id)!.look!;
+    expect(own.finish.p.exposure).toBe(1);
+    expect(own.camera.p.zoom).toBe(1.6);
+    expect(own.seq).toBeTruthy();
+    expect(JSON.stringify(st().look)).toBe(before);
+  });
+
   test('the tabs switch panes and show how many looks and layers there are', () => {
     resetStudio({ tab: 'looks' });
     renderStudio(<InspectorPanel />);
@@ -58,6 +121,7 @@ describe('looks grid', () => {
     expect(document.querySelectorAll('.look')).toHaveLength(LOOKS.length + 1);
     expect(Array.from(document.querySelectorAll('.look-group')).map((g) => g.textContent)).toEqual([
       'Your looks', 'Studio looks', 'Album art & stills', 'Classic stacks',
+      'Natural', 'Monochrome', 'Film', 'Soft', 'Light & shadow', 'Illustrated',
     ]);
     expect(lookCard('mine-1').querySelector('b')!.textContent).toBe('★ Night drive');
     expect(lookCard(LOOKS[0].id).className).toContain('on');
@@ -131,5 +195,34 @@ describe('looks grid', () => {
     expect(artIds).toHaveLength(LOOKS.filter((look) => look.group === 'art').length);
     expect(artIds.every((id) => id?.startsWith('art-'))).toBe(true);
     expect(st().lookJobs.map((job) => job.id)).toEqual(artIds.map((id) => `look:${id}`));
+  });
+
+  test('new collections expose their presets and Surprise respects the random style setting', () => {
+    resetStudio({ tab: 'looks' });
+    renderStudio(<LooksPane />);
+    for (const [name, style] of [['Natural', 'natural'], ['Monochrome', 'monochrome'], ['Film', 'film'], ['Soft', 'soft'], ['Light & shadow', 'light'], ['Illustrated', 'illustrated']]) {
+      fireEvent.click(screen.getByRole('button', { name: new RegExp(`^${name}`) }));
+      const ids = Array.from(document.querySelectorAll<HTMLElement>('[data-look-id]')).map((card) => card.dataset.lookId);
+      expect(ids).toHaveLength(5);
+      expect(ids.every((id) => id?.startsWith(`${style}-`))).toBe(true);
+    }
+    fireEvent.change(screen.getByRole('combobox', { name: 'Randomize style' }), { target: { value: 'film' } });
+    expect(st().rollStyle).toBe('film');
+    fireEvent.click(screen.getByText(/Surprise me/));
+    expect(st().look!.style).toBe('film');
+    expect(st().look!.layers.length).toBeLessThanOrEqual(3);
+  });
+
+  test('the Remix menu and Looks gallery share their style choice', () => {
+    resetStudio({ tab: 'looks', rollStyle: 'film' });
+    renderStudio(<><TopBar /><LooksPane /></>);
+    fireEvent.click(document.getElementById('btnRollOpts')!);
+    const menu = screen.getByRole('combobox', { name: 'Remix style' }) as HTMLSelectElement;
+    expect(menu.value).toBe('film');
+    fireEvent.change(menu, { target: { value: 'soft' } });
+    expect((screen.getByRole('combobox', { name: 'Randomize style' }) as HTMLSelectElement).value).toBe('soft');
+    fireEvent.click(document.getElementById('btnRoll')!);
+    expect(st().look!.style).toBe('soft');
+    expect(st().look!.layers.length).toBeLessThanOrEqual(3);
   });
 });

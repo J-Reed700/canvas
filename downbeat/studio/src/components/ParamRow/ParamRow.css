@@ -1,0 +1,37 @@
+/* ParamRow styles. */
+
+.inspector .prm.modded .modbtn::after {
+  box-shadow: none;
+}
+
+.inspector .modbtn {
+  width: 20px;
+  height: 20px;
+  border-radius: 5px;
+}
+
+.prm.modded .ghost { display: block; }
+
+.prm.modded .fill { background: var(--mc); }
+
+.modbtn { width: 22px; height: 22px; border-radius: 7px; border: 1px dashed var(--line-2); display: flex; align-items: center; justify-content: center; }
+
+.modbtn::after { content: ""; width: 6px; height: 6px; border-radius: 50%; background: var(--text-3); }
+
+.modbtn:hover { border-color: var(--text-2); }
+
+.prm.modded .modbtn { border: 1px solid var(--mc); background: color-mix(in srgb, var(--mc) 18%, transparent); }
+
+.prm.modded .modbtn::after { background: var(--mc); box-shadow: 0 0 8px var(--mc); }
+
+.modbtn.na { visibility: hidden; }
+
+.pop .amt { padding: 8px 9px 6px; display: grid; grid-template-columns: 1fr 42px; gap: 8px; align-items: center; }
+
+.pop .mod-shape { margin-top: 4px; padding-top: 2px; border-top: 1px solid var(--line); }
+
+.pop .mod-control.amt { grid-template-columns: 70px minmax(90px, 1fr) 52px; }
+
+.pop .mod-shape > .muted { padding: 7px 9px 9px; max-width: 310px; font-size: 10px; line-height: 1.4; }
+
+.mod-dot, .modbtn { border-radius: 4px; }

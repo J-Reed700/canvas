@@ -1,9 +1,9 @@
 import React from 'react';
 import { describe, expect, test } from 'vitest';
 import { fireEvent, waitFor } from '@testing-library/react';
-import { Welcome } from '../../downbeat/studio/src/components/Folders.tsx';
-import { MediaPanel } from '../../downbeat/studio/src/components/MediaPanel.tsx';
-import { App } from '../../downbeat/studio/src/App.tsx';
+import { Welcome } from '../../downbeat/studio/src/components/Welcome/Welcome.tsx';
+import { MediaPanel } from '../../downbeat/studio/src/components/MediaPanel/MediaPanel.tsx';
+import { App } from '../../downbeat/studio/src/components/App/App.tsx';
 import { S, SONG, posted, renderStudio, resetStudio, screen, serve, st, toastText, update } from './studio.tsx';
 
 const FOLDER = '/Users/me/Movies/Canvas';
@@ -117,7 +117,7 @@ describe('adding a folder later', () => {
   });
 
   test('clips from a folder that is taken away leave the sequence', async () => {
-    const { removeFolder } = await import('../../downbeat/studio/src/state/mediaActions.ts');
+    const { removeFolder } = (await import('../../downbeat/studio/src/state/store.ts')).studioRuntime.media;
     serve({ 'POST /api/library/folders': () => ({ ...LIB, clips: [st().clips[0]], tracks: [], folders: [], added: null }) });
     resetStudio();
     await removeFolder(FOLDER);

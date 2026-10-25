@@ -242,12 +242,37 @@ clip's blocks, dims the rest, and the header says which clip is highlighted.
 | Drag a cut line | cut lane, cursor shows ↔ | Moves that cut, snapped to the Snap setting (the beat at first). Hold Shift to put it anywhere. The rhythm shows Custom |
 | Drag the edge of the violet shading | cut lane, cursor shows ⇹ | Sets how long that one transition lasts, in quarter beats. Hold Shift for any length |
 | Option-drag | a block | Slips the clip: same timing, different moment of the footage |
-| Double-click, right-click, or long-press on a touch screen | a block | Opens the segment menu. Enter, the ✎ Edit segment button above the timeline and the ✎ Edit chip on the selected block open it too. It has Split, Repeat, Put a clip in and Delete for that block, then Timing (see [Moving a cut off the bar lines](#moving-a-cut-off-the-bar-lines)), then the clip, in-point (click a frame in the filmstrip or drag the slider), direction, speed ramp, the transition into that block and its length, and its framing (see [Framing one segment](#framing-one-segment)). A violet dot marks what you've set, and Back to auto clears it. ‹ › or ← → move to the next block, and ▶ Play the cut plays the transition into it. When the menu is taller than the window it scrolls, with "More below" at its bottom edge, and its title row stays at the top |
+| Double-click, right-click, or long-press on a touch screen | a block | Opens the appearance editor for that one timeline block. **Look & effects** contains its independent preset and filters. **Timing** groups cuts, transitions and segment actions; **Playback** groups the source, in-point, direction and speed; **Framing** contains crop and moves. The header identifies which appearance of the source is selected. Changes save automatically; Done closes the editor. ‹ › moves to the next appearance |
 | Click a rhythm button | top right | Re-cuts the loop and starts the cuts over, dropping any you moved, split or added |
+
+### Editing one appearance
+
+Double-click the timeline block you want to change. The editor opens on **Look & effects**, scoped to
+only that appearance. Adjust a filter immediately, or use **Browse looks** to replace its treatment.
+Your first change creates a private copy; the other appearances of the same source keep their looks.
+**Use source look** removes that visual override while preserving the appearance's timing and speed.
+Effect and modulation pickers open above the editor and keep it in place. Timing, Playback and Framing
+are separate tabs, with navigation and Done always outside the scrolling controls.
 
 ### Cutting blocks by hand
 
-Select a block, then open **Edit → Block look** to give that cut its own macros, camera, Finish or effect
+Select a block to edit that appearance in the right-hand inspector. **This appearance** gives it its own
+look, effect stack, color, camera and modulation; **All uses** edits the source clip's effects across
+its appearances; **Whole edit** edits the shared look. Selecting alone keeps the inherited look. The
+first adjustment or preset choice creates an independent treatment, marked **FX** on the block.
+**Use source look** clears that treatment while preserving any speed set for the segment. A new main
+look keeps independent segment treatments and their timing. Splitting a segment copies its treatment
+to both halves, which can then be edited independently. These treatments save with projects and undo.
+
+The **Layers** panel groups controls into **Effects**, **Color**, **Motion** and **Animate**. Effects
+puts Add effect and Random layer together, followed by Shuffle and Clear, then the ordered stack.
+Global intensity and automatic per-clip look generation live in the folded **Master** section. Color
+groups exposure and color, split tone, film and texture, LUTs and scopes. Motion contains the camera;
+Animate contains LFOs, macros, the envelope and sequencer. Save as look and Revert stay together at
+the bottom. Edit groups whole-edit controls into Loop & timing, Rhythm & transitions, Playback &
+speed, and Generate & preserve.
+
+For sparse overrides, open **Edit → Advanced segment values → Block look** to give that cut its own macros, camera, Finish or effect
 parameters. Check the setting you want to override, then adjust it. Unchecked settings keep following the
 look. **Use look for all** clears the block's look overrides. Splitting a block preserves its treatment on
 both halves. Layer overrides apply to the matching effect at that stack position; changing the effect does
@@ -325,14 +350,25 @@ pick in-points.
 ## 7. Looks
 
 A look is a saved recipe: the layer stack, camera, Finish grade, cut settings and its own modulators. The Looks
-tab has 44 built in, plus any you save. Every card plays a live preview on your own footage.
+tab has 74 built in, plus any you save. Every card plays a live preview on your own footage.
 
 | Group | How many | What's in it |
 |---|---|---|
 | Your looks (★) | yours | Saved with ★ Save as look |
-| Studio looks | 18 | Restrained designs: Liquid Chrome, Hyperspace, Super 8 Memory… |
+| Studio looks | 18 | Original designs: Liquid Chrome, Hyperspace, Super 8 Memory… |
 | Album art & stills | 8 | For a single image: 2.5D parallax, cover visualizer, sparkle, tape |
 | Classic stacks | 18 | Busier 3 or 4 layer stacks from the classic studio |
+| Natural | 5 | Neutral Documentary, Warm Portrait, Cool Editorial, Pastel Daylight, Warm Lifestyle |
+| Monochrome | 5 | Silver Screen, Matte Monochrome, Noir Contrast, Selenium Print, Documentary B&W |
+| Film | 5 | 16mm Daylight, 35mm Cinema, Faded Print, Expired Film, Disposable Flash |
+| Soft | 5 | Black Mist, Soft Portrait, Pearl Glow, Dream Focus, Quiet Bokeh |
+| Light & shadow | 5 | Window Light, Venetian Blinds, Dappled Sun, Golden Window, Split Color Gels |
+| Illustrated | 5 | Pencil Study, Charcoal Paper, Ink Wash, Watercolor, Watercolor Postcard |
+
+The six new collections use one to three effects, neutral base grading and no beat-driven camera zoom.
+They include static treatments as well as gentle looping movement. Photographic Print offers creative film
+styles rather than calibrated emulations of specific commercial film stocks. Every new effect is also
+available individually under Add effect in Layers.
 
 Clicking a look replaces your layers, camera and Finish. It also replaces your cut settings, unless "Keep my
 edit" is ticked in the Edit tab. While you're editing one clip's own stack, clicking a look applies it to that
@@ -363,8 +399,8 @@ Per clip chooses whether clips share one look or get their own: Same look, Evolv
 (see [section 10](#10-per-clip-fx)). Roll FX per clip gives every clip, clip 1 included, a random stack of
 its own. Same look on all drops the per-clip looks, and Reset clip N puts one clip back on the main look.
 
-While you're editing a single clip's stack, this card's title changes to "Clip N · look name" with "plays only
-on the #N blocks" underneath.
+The inspector's target above the tabs identifies the source clip or timeline appearance being edited.
+Master remains a folded group for global intensity and automatic clip looks.
 
 ### Color palette
 
@@ -399,7 +435,7 @@ The line above the tools says where the stack below it runs, for example "every 
 
 | Tool | Does |
 |---|---|
-| + Add effect | Opens a menu of all 52 effects, grouped by category |
+| + Add effect | Opens a menu of all 64 effects, grouped by category |
 | 🎲 Random | Adds an effect you don't have yet, slotted in at its usual place in the stack |
 | ⇅ Shuffle | Shuffles the order. Order matters, since each layer works on the output of the one above it |
 | Clear | Removes every layer. Revert or ⌘Z brings them back |
@@ -516,7 +552,7 @@ the layer tools says so. Reset clip N or Same look on all brings the main look b
 | Loop length | The 1, 2, 4 and 8 bar presets, Whole song (from the first downbeat to the last full bar), or any length typed into the boxes: a number of bars, or a time such as 2:30, 150 or 2.5m, which rounds to the nearest bar. A loop can't run past the end of the song, and without a song the limit is 10 minutes. The note underneath says whether the length fits a Spotify Canvas (3 to 8 seconds). Lengths are whole bars so beat-synced effects stay in phase when the loop restarts |
 | Loop | Repeat plays the edit from the start again, with a transition at the seam. Rebound plans the cuts over the first half of the loop and plays them backward in the second half, so the footage turns round in the middle and runs back into its first frame at the seam. The music and the effects keep going forward. Switching starts hand cuts over |
 | Cut rhythm | Where cuts fall. Same as the buttons on the timeline. "Show every clip at least once", on by default, splits the longest cuts in two (on the beat, then on half and quarter beats) until every clip in the edit has a cut. With it off, the note underneath says how many clips are left out |
-| Transitions | Which transitions the edit can use. Pools: All, Smooth, Kinetic, Glitch, Hard cuts. Click one to toggle it; double-click to use only that one |
+| Transitions | Browse a searchable, paginated table of 64 transitions grouped by type. Check transitions to build a pool, use **Only** to isolate one, or choose a selection preset. **Selected only** reviews the pool. The edit always keeps at least one transition |
 | Transition length | Cut (instant), ¼, ½, 1 or 2 beats, for every cut that hasn't been given its own. A single cut's length is set in the segment menu or by dragging the edge of its pink shading on the timeline |
 | Transition order | Cycle through the list in order, or Shuffle (never the same one twice in a row) |
 | Clip direction | Forward, Reverse, Alternate (every other cut reversed), Ping-pong, Random |
@@ -530,11 +566,26 @@ the layer tools says so. Reset clip N or Same look on all brings the main look b
 
 | Tool | Key | What it does |
 |---|---|---|
-| Remix | D | Randomizes the canvas. By default that's the look (a 4 to 6 layer stack), the edit (rhythm, transitions, transition length and order, speed ramp, direction, clip speed, seed, FX intensity from 85 to 175%, a Rebound loop about one roll in five, and with no song the tempo, picked so a loop of 8 seconds or less stays between 3 and 8) and the per-clip mode. Tick Clip order or Song section under ▾ to roll those as well |
+| Remix | D | Randomizes the canvas within Randomize style. The six new families use more pronounced versions of their curated stacks, including stronger color, diffusion or shadow patterns, with restrained cuts, forward playback and normal FX intensity. Experimental keeps the original four to six layer stacks, kinetic cuts, speed changes and occasional Rebound. With no song the tempo can change while keeping a Canvas loop between 3 and 8 seconds. Tick Clip order or Song section under ▾ to roll those as well |
 | Undo last roll | Shift+D | Goes back one roll at a time, up to 40 |
-| Surprise me | R | A random look, usually two layers: one main effect plus a light or color layer, sometimes one more or one fewer. Like clicking a look, it resets your cuts unless Keep my edit is ticked |
-| Variations | M | Six mutations of the current look, playing live. Subtle/Wild sets how far they drift, ⟳ Mutate again (or M again) deals six more, and clicking one keeps it without touching your edit |
+| Surprise me | R | Generates a look within Randomize style. The six new families vary their curated recipes; Experimental combines individual effects. Like clicking a look, it resets your cuts unless Keep my edit is ticked |
+| Variations | M | Six mutations of the current look, playing live. The new families preserve their effects, medium, process and animation routes while varying continuous settings. Experimental can also swap and add effects. Subtle/Wild sets how far they drift; ⟳ Mutate again deals six more. Clicking one keeps it without touching your edit |
 | ↶ Undo, ↷ Redo | ⌘Z, ⇧⌘Z | The arrows in the top bar. Undoes any change to the work: looks, layers, sliders, modulation, palette tints, cuts, clip order and framing, the song and its tempo and beat grid, and the screen and export settings. View toggles (Player UI, Safe zones, Sound, Loop/Listener, the open tab) aren't undone. Each button is greyed out when there's nothing to step to |
+
+Randomize style is shared by the Looks gallery and the ▾ beside Remix. Balanced, the default, gives
+Natural, Monochrome, Film, Soft, Light & shadow, Illustrated and Experimental equal representation, independent
+of their preset counts. Consecutive Balanced Remixes avoid the previous family; within a chosen new family,
+Remix avoids the previous preset recipe. Pick a family to stay within it. A full Remix and Roll FX per clip use one family
+throughout the sequence, including generated per-clip looks. Look per clip also stays within a new family's
+style. The setting is saved with the session, project and undo snapshot.
+
+When Look & layers or Per-clip FX is enabled, Remix replaces appearances' old visual treatments too, so
+an owned segment look cannot hide the new result. With Edit off, its cuts, source in-points, speed overrides,
+transitions and framing stay in place. Undo last roll recovers the previous treatments. Manually choosing
+a main look continues to respect appearances with their own looks.
+
+New registered effects participate in Experimental's effect pool automatically. New built-in looks join
+their named family's random pool through their style; user-saved looks are available to Look per clip.
 
 The studio also keeps your session (clips, look, edit, your looks, toggles) in the browser and restores it
 the next time you open it. To keep an edit for good, save it as a project.
@@ -826,6 +877,25 @@ changes.
 | Acid Solarize | A pastel pink tint on the highlights that pulses every bar, 2 beats, beat or kick. Unlike Solarize, it never inverts |
 | Film Stock | Bleach Bypass, Cyberpunk, Golden Hour, Sepia Noir, Cross Process, Teal & Orange |
 
+### Photographic, optical and illustrated filters
+
+These twelve effects are available individually in Layers and in the six new preset collections.
+
+| Effect | Category | Does |
+|---|---|---|
+| Editorial Color | Color | Neutral, warm skin, cool editorial and pastel grades with matte-black control |
+| Monochrome Print | Color | Silver, matte, noir and selenium prints with red/blue tonal filtering |
+| Photographic Print | Color | Creative 16mm, 35mm, faded, expired and disposable-flash color |
+| Film Dust & Scratches | Stylize | Fine dust, vertical scratches and subtle exposure breathing |
+| Film Gate Weave | Space | Small mechanical frame movement, rotation and exposure breathing |
+| Optical Diffusion | Light | Black mist, soft portrait and pearl diffusion with highlight threshold and spread |
+| Selective Defocus | Light | Spot, band or full-frame blur with highlight-weighted bokeh and optional breathing |
+| Window & Leaf Shadows | Light | Window panes, Venetian blinds and leaf shadows with optional looping movement |
+| Color Gel Lighting | Light | A color wash, side light, split gel or soft spotlight |
+| Paper Texture | Stylize | Still paper tooth, fibers and warm or cool paper tint |
+| Pencil, Charcoal & Ink | Stylize | Graphite hatching, soft charcoal or outlined ink washes |
+| Watercolor Wash | Stylize | Edge-preserving color washes, pigment pooling and granulation |
+
 ## 18. Rhythms, transitions and speed ramps
 
 ### Cut rhythms
@@ -847,8 +917,19 @@ changes.
 
 ### Transitions
 
-Hard Cut, Light Dissolve, Luma Burn, Zoom Punch, Whip Pan, Whip Sideways, Block Glitch, Datamosh, Shock
-Ripple, Iris Bloom, Pixel Melt, Vortex, Prism Split, Light Leak, Shutter Slices, Kaleido Fold and Flow Morph.
+The shared transition library contains 64 transitions in eight types: **Cuts & fades**, **Wipes**,
+**Slides**, **Zoom & spin**, **Light & color**, **Distortion**, **Glitch** and **Shapes**. Each row describes
+the effect. Search names, types or descriptions; choose a type to narrow the table, then use the page
+controls to explore it.
+
+In **Edit → Transitions**, **Browse** opens the library with checkboxes for the edit's transition pool.
+Selections apply immediately and stay selected across pages and searches. Use **Only** to isolate one,
+**Selected only** to review the pool, or a selection preset (All, Smooth, Kinetic, Glitch, Wipes, Shapes or
+Hard cuts) to replace it. At least one transition stays selected. **Done** returns to the inspector.
+
+For an individual cut, open its appearance editor and choose **Timing → Transition in → Browse**.
+The same library applies one transition to that appearance and returns to the editor. Escape or clicking
+the library backdrop returns without changing the cut. The appearance editor stays open underneath.
 The loop seam favors the softer ones so the restart is harder to spot.
 
 ### Matching a clip's movement to the BPM
