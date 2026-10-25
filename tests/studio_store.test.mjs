@@ -10,9 +10,10 @@ const { isMediaLoading, pendingClipCount } = await import('../downbeat/studio/sr
 const { LOOKS, cloneLook } = await import('../downbeat/studio/src/engine/looks.ts');
 const { MODULES } = await import('../downbeat/studio/src/engine/modules.ts');
 const { compose } = await import('../downbeat/studio/src/engine/composer.ts');
-const { RHYTHMS } = await import('../downbeat/studio/src/engine/timeline.ts');
+const { RHYTHMS, footageUsed } = await import('../downbeat/studio/src/engine/timeline.ts');
 const { TRANSITIONS } = await import('../downbeat/studio/src/engine/shaders.ts');
 const { toast } = await import('../downbeat/studio/src/lib/utils.ts');
+const { remixTarget } = await import('../downbeat/studio/src/state/rollController.ts');
 const { defaultEnv, defaultSeq, defaultLfos } = await import('../downbeat/studio/src/engine/audio.ts');
 
 // The last toast's hide timer would keep Node running for up to four seconds.
@@ -83,6 +84,11 @@ function fresh(over = {}) {
 }
 
 const withSong = (over = {}) => fresh({ features: structuredClone(SONG), trackId: 't1', ...over });
+
+/** Empties the roll history, which tests after a roll expect to start empty. */
+function drainRolls() {
+  for (let i = 0; i < 50 && lastToast() !== 'Nothing to undo'; i++) st().undoRoll();
+}
 
 test('selecting an appearance inherits its clip look and only the first edit forks it', () => {
   const main = cloneLook(LOOKS[0]);
@@ -254,13 +260,16 @@ test('every edit to a look bumps the version, so panels that read the look redra
     rollAll: () => st().rollAll(),
     undoRoll: () => st().undoRoll(),
     rollClips: () => st().rollClips(),
+    remix: () => st().remix(),
+    rollSegment: () => st().rollSegment(st().ctx.tl.segs[1].id),
+    rollClip: () => st().rollClip('b'),
   };
   for (const [name, run] of Object.entries(actions)) {
     withSong();
     const v = st().version;
     run();
     assert.ok(st().version > v, `${name} did not bump the version`);
-  }
+  }  drainRolls();
 });
 
 test('setLook works on a copy, and keeps the edit only when the edit is locked', () => {
@@ -955,6 +964,173 @@ test('rolling needs clips, and per-clip rolls give every clip its own valid stac
   st().surprise();
   assert.match(lastToast(), /^Surprise: /);
   assert.equal(st().lookId, st().look.id);
+});
+
+test('Remix follows the inspector target: one appearance, all uses of one clip, or the whole edit', () => {
+  fresh();
+  assert.deepEqual(remixTarget(st()), { kind: 'all' });
+  const seg = st().ctx.tl.segs[1];
+  st().selectBlock(seg.id);
+  assert.deepEqual(remixTarget(st()), { kind: 'segment', id: seg.id, segNo: 2, clipId: seg.clipId, clipNo: st().selected.indexOf(seg.clipId) + 1 });
+  st().editClipLook('c');
+  assert.deepEqual(remixTarget(st()), { kind: 'clip', clipId: 'c', clipNo: 3 });
+  // a target that has left the edit falls back to the whole edit
+  assert.deepEqual(remixTarget({ ...st(), editClip: 'gone' }), { kind: 'all' });
+  assert.deepEqual(remixTarget({ ...st(), editBlock: 'gone', editClip: null }), { kind: 'all' });
+  st().selectBlock(null);
+  const v = st().version;
+  st().remix();
+  assert.ok(st().version > v);
+  assert.match(lastToast(), /^Rolled /, 'with nothing targeted, Remix rolls everything');
+  drainRolls();
+});
+
+test('a segment remix rolls only that segment: its own look, transition and moment, with every cut kept', () => {
+  const main = cloneLook(LOOKS[0]);
+  main.cut.rhythm = 'half';
+  fresh({ look: main, bars: 5 });
+  const timing = st().ctx.tl.segs.map((x) => [x.id, x.t0, x.t1, x.clipId]);
+  const rolled = structuredClone(st().ctx.tl.blocks);
+  const target = st().ctx.tl.segs[3];
+  st().selectBlock(target.id);
+  const mainBefore = JSON.stringify(st().look);
+  const before = st().snapshot();
+  st().remix();
+
+  const block = st().blocks.find((b) => b.id === target.id);
+  assert.ok(block.look, 'the segment owns its rolled look');
+  for (const x of block.look.layers) assert.ok(MODULES[x.m], x.m);
+  assert.ok(TRANSITIONS[block.trans] && block.trans !== target.trans, `a new transition in: ${block.trans}`);
+  const seg = st().ctx.tl.segs.find((x) => x.id === target.id);
+  assert.ok(seg.in >= 0 && seg.in + footageUsed(seg, seg.dur) * seg.speed <= st().clipDur.get(seg.clipId), 'its moment fits in the clip, ramp included');
+  assert.equal(seg.look, block.look);
+  assert.equal(JSON.stringify(st().look), mainBefore, 'the main look is untouched');
+  assert.deepEqual(st().clipLooks, {});
+  assert.equal(st().clipMode, 'one');
+  assert.deepEqual(st().ctx.tl.segs.map((x) => [x.id, x.t0, x.t1, x.clipId]), timing, 'every cut stays on its beat');
+  assert.deepEqual(st().blocks.filter((b) => b.id !== target.id), rolled.filter((b) => b.id !== target.id), 'the other segments are untouched');
+  assert.equal(st().editBlock, target.id, 'D again rolls the same segment');
+  assert.match(lastToast(), new RegExp(`^Remixed segment 4 · .+ · \\d+ layers · .+ in$`));
+
+  const first = JSON.stringify(block);
+  st().remix();
+  assert.notEqual(JSON.stringify(st().blocks.find((b) => b.id === target.id)), first, 'another roll');
+  st().undoRoll();
+  assert.equal(JSON.stringify(st().blocks.find((b) => b.id === target.id)), first, 'Shift+D steps back one segment roll');
+  st().undoRoll();
+  assert.equal(st().snapshot(), before);
+  st().undoRoll();
+  assert.equal(lastToast(), 'Nothing to undo');
+});
+
+test('segment remixes always leave the clip enough footage, whatever ramp they roll', () => {
+  // one-beat segments from short clips: Wave and Bar ramp run ahead of constant speed on a segment that ends mid-ramp
+  const look = cloneLook(LOOKS[0]);
+  look.cut.rhythm = 'beat';
+  fresh({ look, clips: CLIPS.map((c) => ({ ...c, duration: 1.5 })), selected: ['a', 'b'], rollStyle: 'experimental', rollOpts: { look: false, edit: true, perClip: false, clips: false, loop: false } });
+  const ramps = new Set();
+  for (let i = 0; i < 160; i++) {
+    const target = st().ctx.tl.segs[i % st().ctx.tl.segs.length];
+    st().rollSegment(target.id);
+    const seg = st().ctx.tl.segs.find((x) => x.id === target.id);
+    ramps.add(seg.vel);
+    assert.ok(seg.in >= 0 && seg.in + footageUsed(seg, seg.dur) * seg.speed <= st().clipDur.get(seg.clipId) + 1e-9, `${seg.vel} from ${seg.in}`);
+  }
+  assert.ok(ramps.size > 2, [...ramps].join());
+  drainRolls();
+});
+
+test('a segment remix keeps to the roll options and leaves the footage speed alone', () => {
+  fresh({ rollOpts: { look: true, edit: false, perClip: true, clips: true, loop: true } });
+  const seg = st().ctx.tl.segs[1];
+  st().setBlock(seg.id, { trans: 'zoom', dir: 'reverse', overrides: { camera: { speed: 1.5 }, layers: { 0: { m: 'glass', p: { scale: 4 } } } } });
+  st().selectBlock(seg.id);
+  const selected = [...st().selected];
+  const own = () => st().blocks.find((b) => b.id === seg.id);
+  st().remix();
+  assert.ok(own().look);
+  assert.deepEqual([own().trans, own().dir], ['zoom', 'reverse'], 'Edit off leaves its transition and direction');
+  assert.deepEqual(own().overrides, { camera: { speed: 1.5 } }, 'the rolled look replaces the old styling but not the speed');
+  assert.equal(st().ctx.tl.segs[1].speed, 1.5);
+  assert.deepEqual(st().selected, selected, 'clip order and the song section are whole-edit options');
+  assert.match(lastToast(), /^Remixed segment 2 · .+ layers$/);
+
+  S.setState({ rollOpts: { look: false, edit: true, perClip: false, clips: false, loop: false } });
+  const look = JSON.stringify(own().look);
+  st().remix();
+  assert.equal(JSON.stringify(own().look), look, 'Look off keeps its look');
+  assert.notEqual(own().trans, 'zoom');
+  assert.equal(st().ctx.tl.segs[1].speed, 1.5);
+  assert.doesNotMatch(lastToast(), /layers/);
+
+  S.setState({ rollOpts: { look: false, edit: false, perClip: true, clips: true, loop: true } });
+  const blocks = st().blocks;
+  const v = st().version;
+  st().remix();
+  assert.equal(lastToast(), 'Turn on Look & layers or Edit in the Remix menu to remix one segment');
+  assert.equal(st().blocks, blocks);
+  assert.equal(st().version, v);
+  drainRolls();
+});
+
+test('a clip remix gives every appearance of that clip a new look and leaves the other clips alone', () => {
+  const main = cloneLook(LOOKS[0]);
+  main.cut.rhythm = 'half';
+  const third = cloneLook(LOOKS[2]);
+  fresh({ look: main, bars: 5, clipMode: 'custom', clipLooks: { c: third } });
+  const ofA = st().ctx.tl.segs.filter((x) => x.clipId === 'a');
+  const ofB = st().ctx.tl.segs.find((x) => x.clipId === 'b');
+  st().selectBlock(ofA[1].id);
+  st().applyLook(LOOKS[4]);
+  st().selectBlock(ofB.id);
+  st().applyLook(LOOKS[5]);
+  st().editClipLook('a');
+  const mainBefore = JSON.stringify(st().look);
+  st().remix();
+
+  const rolled = st().clipLooks.a;
+  for (const x of rolled.layers) assert.ok(MODULES[x.m], x.m);
+  assert.notDeepEqual(rolled, main);
+  assert.equal(st().clipLooks.c, third, 'the other clips keep their looks');
+  assert.equal(JSON.stringify(st().look), mainBefore, 'the main look is untouched');
+  for (const seg of st().ctx.tl.segs.filter((x) => x.clipId === 'a')) {
+    assert.equal(seg.look, undefined, 'every appearance shows the rolled clip look, including one that had its own');
+    assert.equal(st().clipLookOf('a', seg), rolled);
+  }
+  assert.equal(st().ctx.tl.segs.find((x) => x.id === ofB.id).look.id, LOOKS[5].id, "another clip's segment keeps its own look");
+  assert.equal(st().editClip, 'a', 'D again rolls the same clip');
+  assert.match(lastToast(), new RegExp(`^Remixed clip 1 · .+ · \\d+ layers · all ${ofA.length} appearances$`));
+  st().undoRoll();
+  assert.equal(st().clipLooks.a.id, main.id);
+  assert.equal(st().ctx.tl.segs.find((x) => x.id === ofA[1].id).look.id, LOOKS[4].id);
+  drainRolls();
+});
+
+test('a clip remix from other per-clip modes keeps what the other clips show, and needs Look & layers', () => {
+  // the same look on every clip: a stale per-clip look must not come back
+  fresh({ clipLooks: { a: cloneLook(LOOKS[3]) } });
+  st().rollClip('b');
+  assert.equal(st().clipMode, 'custom');
+  assert.deepEqual(Object.keys(st().clipLooks), ['b'], 'only the remixed clip stands apart');
+  assert.equal(st().clipLookOf('a'), st().look);
+  assert.match(lastToast(), /^Remixed clip 2 · .+ · (its 1 appearance|all \d+ appearances)$/);
+
+  fresh({ clipMode: 'evolve', evolveAmt: 0.5 });
+  const shown = st().clipLookOf('c');
+  assert.notEqual(shown, st().look);
+  st().rollClip('b');
+  assert.equal(st().clipMode, 'custom');
+  assert.deepEqual(st().clipLooks.c, shown, 'Evolve keeps what the third clip showed');
+  assert.equal(st().clipLooks.a, undefined, 'the first clip kept the main look');
+
+  fresh({ rollOpts: { look: false, edit: true, perClip: true, clips: false, loop: false } });
+  const v = st().version;
+  st().rollClip('b');
+  assert.equal(lastToast(), 'Turn on Look & layers in the Remix menu to remix one clip');
+  assert.equal(st().version, v);
+  st().rollClip('gone');
+  assert.equal(st().version, v, 'a clip outside the edit is ignored');
+  drainRolls();
 });
 
 test('clip toggles and reordering update the selection and clear a hand-cut edit', () => {

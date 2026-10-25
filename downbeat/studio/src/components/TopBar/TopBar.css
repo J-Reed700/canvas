@@ -1,6 +1,10 @@
 /* TopBar styles. */
 
 .roll-style-control { flex-wrap: wrap; gap: 8px; }
+.roll-target { padding: 1px 5px; border-radius: 4px; background: #3a3448; color: #dcd2fb; font-size: 10.5px; font-weight: 600; white-space: nowrap; }
+
+.pop .roll-hint { margin: 0 9px 4px; color: var(--text-3); font-size: 10.5px; line-height: 1.45; max-width: 250px; }
+
 .roll-style-control select { width: 100%; padding: 6px; border: 1px solid var(--line); border-radius: 5px; background: var(--raised); color: var(--text); font: inherit; }
 
 header.top { grid-area: top; display: flex; align-items: center; gap: 16px; padding: 0 8px 0 16px; }

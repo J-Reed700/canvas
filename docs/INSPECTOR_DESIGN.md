@@ -22,6 +22,11 @@ segment'. When scope is Whole edit or All uses, the Edit tab displays the whole-
 before. Double-click, right-click, Enter, or the toolbar's Edit segment button select the block and open its
 Edit tab directly.
 
+Remix follows the same scope as Looks, Surprise and ← →: This appearance rerolls only that segment (its own look,
+plus its transition, in-point, direction and speed ramp when Edit is ticked), All uses rerolls the clip's look on
+every appearance, and Whole edit remixes everything. The top bar's Remix button names its target (Seg 3, Clip 2),
+its menu keeps Everything one click away, and Esc returns the target to the whole edit.
+
 Research informing these decisions:
 
 - [Apple: inspectors](https://support.apple.com/en-mide/guide/final-cut-pro/ver15f87af2/mac): the right-side

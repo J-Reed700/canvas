@@ -35,7 +35,7 @@ The full guide to every panel and control is in [docs/STUDIO_GUIDE.md](docs/STUD
 - Moves any slider with the music. A slider can follow one of eight bands of the song (kick, snare, hats, bass, energy, brightness, vocals, presence), a clock synced to the tempo, two LFOs, a 16-step sequencer, an envelope you draw, or one of two macro knobs.
 - Animates still images and cover art with a fake-depth parallax effect. One look adds a spectrum visualizer on top.
 - Frames each clip on its subject. You can drag the preview to reframe, or pick a different moment of a clip for one segment.
-- Makes random versions to start from. Remix (`D`) changes the look, a 4 to 6 layer effect stack, the edit and the per-clip effects in one go. Variations (`M`) shows six altered copies of the current look.
+- Makes random versions to start from. Remix (`D`) changes the look, a 4 to 6 layer effect stack, the edit and the per-clip effects in one go. Select a segment on the timeline first, or choose All uses for a clip in the inspector, and Remix rerolls only that segment or that clip. Variations (`M`) shows six altered copies of the current look.
 - Pulls a five-color palette from your cover art and applies it to a look.
 - Previews the video in the export's shape while the song plays. Optional player overlays and platform guides help check composition. Resizable panels, viewer focus, command search and frame stepping keep editing fast.
 - Exports through the same renderer as the preview, so the file matches what you saw frame for frame. Each export is checked with ffprobe, and video loops also get a loop-seam check, a flash count and a check that every clip actually plays rather than freezing on one frame.
@@ -388,7 +388,7 @@ This section gives an overview. [docs/STUDIO_GUIDE.md](docs/STUDIO_GUIDE.md) cov
 
 ### The screen
 
-The Library holds the track, tempo and beat grid, level meters, clips and past exports. The center holds the viewer and transport, with a wide timeline below the Library and viewer. Drag the panel dividers to resize the workspace, or use Shift+F for viewer focus. The top bar holds the project, command search (⌘K / Ctrl+K), Undo and Redo, shortcuts, Remix and Export. The arrow next to Remix chooses what a roll changes. The footer shows the current format and output dimensions.
+The Library holds the track, tempo and beat grid, level meters, clips and past exports. The center holds the viewer and transport, with a wide timeline below the Library and viewer. Drag the panel dividers to resize the workspace, or use Shift+F for viewer focus. The top bar holds the project, command search (⌘K / Ctrl+K), Undo and Redo, shortcuts, Remix and Export. The arrow next to Remix chooses what to remix (the selected segment, its clip, or everything) and what a roll changes. The footer shows the current format and output dimensions.
 
 The Inspector has three tabs. Looks is a searchable gallery of 44 looks with collection filters. Layers holds the effect stack, Camera, Finish, color palette and modulators; its Effects and Color sections narrow the controls you see. Edit sets the cut rhythm, transitions, clip direction, speed ramps and loop length. The transport shows frame timecode, and comma / period step one frame at a time.
 
@@ -456,7 +456,7 @@ Loop mode plays only the slice of the song under the Canvas, over and over. List
 | `Space` | Play or pause | `E` | Export |
 | `Left` / `Right` | Previous or next look | `[` / `]` | Previous or next loop suggestion |
 | `M` | Look variations | `1` to `4` | Loop length: 1, 2, 4 or 8 bars |
-| `D` | Roll a new look and edit | `Shift+D` | Undo the last roll |
+| `D` | Roll a new look and edit, or only the selected segment or clip | `Shift+D` | Undo the last roll |
 | `Cmd+Z` / `Shift+Cmd+Z` | Undo / redo, the same as the ↶ ↷ buttons (`Ctrl` on Windows and Linux, and `Ctrl+Y` also redoes) | `T` | Tap tempo |
 | `R` | Random look | `L` | Switch between Loop and Listener mode |
 | `H` | Show or hide the Spotify player overlay | `S` | Show or hide the safe zones (phone screen only) |

@@ -90,7 +90,8 @@ export function useStudioShortcuts() {
     } else if (k === 'r' || k === 'R') {
       s.surprise();
     } else if (k === 'd') {
-      s.rollAll();
+      // the inspector's target: the selected segment, all uses of a clip, or the whole edit
+      s.remix();
     } else if (k === 'D') {
       s.undoRoll();
     } else if (k === 't' || k === 'T') {

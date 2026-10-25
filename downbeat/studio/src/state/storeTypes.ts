@@ -161,7 +161,14 @@ export interface StudioState {
   setClipMode: (k: string) => void;
   editClipLook: (id: string | null) => void;
   rollClips: () => void;
+  /** Rolls everything the roll options allow, whatever the inspector targets. */
   rollAll: () => void;
+  /** Rolls one segment's own look and, with Edit on, its transition, in-point, direction and speed ramp. */
+  rollSegment: (id: string) => void;
+  /** Rolls one clip's own look, on every appearance of it. */
+  rollClip: (clipId: string) => void;
+  /** D and the Remix button: rolls the inspector's target (one appearance, all uses of a clip, or the whole edit). */
+  remix: () => void;
   undoRoll: () => void;
   selectBlock: (id: string | null) => void;
   splitAtPlayhead: () => void;

@@ -1,9 +1,11 @@
 import './CommandMenu.css';
 import { useStudioElements, useStudioStore, useWorkspaceStore, useStudioApi, useWorkspaceApi, useStudioRuntime } from '../../state/StudioContext.tsx';
 import React, { useEffect, useRef, useState, useSyncExternalStore } from 'react';
+import { useShallow } from 'zustand/react/shallow';
 import { closePop } from '../../lib/utils.ts';
 import { Icon } from '../Icon/Icon.tsx';
 import { ICONS } from '../Icon/icons.ts';
+import { remixTarget } from '../../state/rollController.ts';
 
 interface Command { id: string; name: string; group: string; hint?: string; words?: string; run: () => void; disabled?: boolean }
 
@@ -18,6 +20,7 @@ export const CommandMenu: React.FC = () => {
   const exporting = useStudioStore((s) => s.exporting);
   const selectedCount = useStudioStore((s) => s.selected.length);
   const safe = useStudioStore((s) => s.safe);
+  const target = useStudioStore(useShallow(remixTarget));
   const [query, setQuery] = useState('');
   const [index, setIndex] = useState(0);
   const input = useRef<HTMLInputElement>(null);
@@ -50,6 +53,9 @@ export const CommandMenu: React.FC = () => {
     { id: 'undo', name: 'Undo edit', group: 'Edit', hint: '⌘ Z', run: () => studio().undo(), disabled: !history.undo },
     { id: 'redo', name: 'Redo edit', group: 'Edit', hint: '⇧ ⌘ Z', run: () => studio().redo(), disabled: !history.redo },
     { id: 'variations', name: 'Explore look variations', group: 'Edit', hint: 'M', run: () => store.setState({ varOpen: true }) },
+    ...(target.kind === 'segment' ? [{ id: 'remix-segment', name: `Remix segment ${target.segNo} only`, group: 'Edit', hint: 'D', words: 'roll random dice one targeted appearance', run: () => studio().rollSegment(target.id) }] : []),
+    ...(target.kind !== 'all' ? [{ id: 'remix-clip', name: `Remix clip ${target.clipNo} on every appearance`, group: 'Edit', hint: target.kind === 'clip' ? 'D' : undefined, words: 'roll random dice one targeted all uses', run: () => studio().rollClip(target.clipId) }] : []),
+    { id: 'remix', name: 'Remix everything', group: 'Edit', hint: target.kind === 'all' ? 'D' : undefined, words: 'roll random dice shuffle', run: () => studio().rollAll(), disabled: !selectedCount },
     { id: 'guides', name: safe ? 'Hide safe zones' : 'Show safe zones', group: 'View', hint: 'S', words: 'platform guides', run: () => { store.setState((s) => ({ safe: !s.safe })); studio().save(); } },
     { id: 'shortcuts', name: 'Keyboard shortcuts', group: 'View', hint: '?', words: 'help controls', run: () => store.setState({ helpOpen: true }) },
   ];

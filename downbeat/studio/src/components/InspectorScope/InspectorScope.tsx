@@ -18,6 +18,7 @@ export const InspectorScope: React.FC = () => {
     editClipLook: state.editClipLook,
     editBlockLook: state.editBlockLook,
     resetBlockLook: state.resetBlockLook,
+    remix: state.remix,
     setTab: state.setTab,
   })));
   const seg = s.ctx?.tl.segs.find((seg) => seg.id === (s.editBlock || s.selectedBlock));
@@ -47,7 +48,18 @@ export const InspectorScope: React.FC = () => {
       </div>
       <div className="scope-foot" aria-live="polite">
         <span>{scope === 'segment' ? owned ? 'Only this appearance has these effects.' : 'Your first change affects only this appearance.' : scope === 'clip' ? `Editing all ${appearances.length} appearances of clip ${clipNo}.` : 'Segments with their own looks keep their effects.'}</span>
-        {scope === 'segment' && owned && <button type="button" disabled={s.exporting} onClick={s.resetBlockLook}>Use source look</button>}
+        {scope !== 'main' && (
+          <div className="scope-acts">
+            <button
+              type="button"
+              disabled={s.exporting}
+              aria-label={scope === 'segment' ? 'Remix this appearance' : 'Remix all uses'}
+              title={scope === 'segment' ? 'Roll a new look for this appearance only, and with Edit on in the Remix menu its transition, moment, direction and speed ramp (D)' : `Roll a new look for clip ${clipNo}, on every appearance of it (D)`}
+              onClick={s.remix}
+            >Remix</button>
+            {scope === 'segment' && owned && <button type="button" disabled={s.exporting} onClick={s.resetBlockLook}>Use source look</button>}
+          </div>
+        )}
       </div>
     </div>
   );

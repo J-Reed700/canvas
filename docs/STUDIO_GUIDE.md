@@ -75,7 +75,9 @@ Preview and export use the same renderer, so an export matches the preview frame
 The button next to the Downbeat name is the open project and whether it's saved; click it for
 [Projects](#13-projects). On the right, Commands (⌘K, or Ctrl+K) searches workspace actions, ↶ and ↷ undo
 and redo your last change, ? lists shortcuts, Remix (D) randomizes the canvas, and Export (E) opens the
-export sheet. The arrow beside Remix chooses what a roll changes and offers Undo last roll.
+export sheet. With a segment selected, or All uses chosen in the inspector, Remix shows a tag such as
+**Seg 3** or **Clip 2** and rolls only that. The arrow beside Remix chooses what to remix and what a
+roll changes, and offers Undo last roll.
 
 Drag the dividers to resize the Library, Inspector and timeline. Double-click a divider to reset it; a
 focused divider also accepts arrow keys, Shift+arrow for larger steps, and Home to reset. Sizes stay in
@@ -284,6 +286,8 @@ first adjustment or preset choice creates an independent treatment, marked **FX*
 **Use source look** clears that treatment while preserving any speed set for the segment. A new main
 look keeps independent segment treatments and their timing. Splitting a segment copies its treatment
 to both halves, which can then be edited independently. These treatments save with projects and undo.
+Remix (D) follows the same scope, so it can reroll one segment or one clip and leave the rest alone: see
+[Remixing one segment or one clip](#remixing-one-segment-or-one-clip).
 
 The **Layers** panel groups controls into **Effects**, **Color**, **Motion** and **Animate**. Effects
 puts Add effect and Random layer together, followed by Shuffle and Clear, then the ordered stack.
@@ -584,8 +588,8 @@ the layer tools says so. Reset clip N or Same look on all brings the main look b
 
 | Tool | Key | What it does |
 |---|---|---|
-| Remix | D | Randomizes the canvas within Randomize style. The six new families use more pronounced versions of their curated stacks, including stronger color, diffusion or shadow patterns, with restrained cuts, forward playback and normal FX intensity. Experimental keeps the original four to six layer stacks, kinetic cuts, speed changes and occasional Rebound. With no song the tempo can change while keeping a Canvas loop between 3 and 8 seconds. Tick Clip order or Song section under ▾ to roll those as well |
-| Undo last roll | Shift+D | Goes back one roll at a time, up to 40 |
+| Remix | D | Randomizes what the inspector targets: the whole edit, or only the selected segment or one clip (see [below](#remixing-one-segment-or-one-clip)). On the whole edit it randomizes the canvas within Randomize style. The six new families use more pronounced versions of their curated stacks, including stronger color, diffusion or shadow patterns, with restrained cuts, forward playback and normal FX intensity. Experimental keeps the original four to six layer stacks, kinetic cuts, speed changes and occasional Rebound. With no song the tempo can change while keeping a Canvas loop between 3 and 8 seconds. Tick Clip order or Song section under ▾ to roll those as well |
+| Undo last roll | Shift+D | Goes back one roll at a time, up to 40, whatever each roll changed |
 | Surprise me | R | Generates a look within Randomize style. The six new families vary their curated recipes; Experimental combines individual effects. Like clicking a look, it resets your cuts unless Keep my edit is ticked |
 | Variations | M | Six mutations of the current look, playing live. The new families preserve their effects, medium, process and animation routes while varying continuous settings. Experimental can also swap and add effects. Subtle/Wild sets how far they drift; ⟳ Mutate again deals six more. Clicking one keeps it without touching your edit |
 | ↶ Undo, ↷ Redo | ⌘Z, ⇧⌘Z | The arrows in the top bar. Undoes any change to the work: looks, layers, sliders, modulation, palette tints, cuts, clip order and framing, the song and its tempo and beat grid, and the screen and export settings. View toggles (Player UI, Safe zones, Sound, Loop/Listener, the open tab) aren't undone. Each button is greyed out when there's nothing to step to |
@@ -601,6 +605,24 @@ When Look & layers or Per-clip FX is enabled, Remix replaces appearances' old vi
 an owned segment look cannot hide the new result. With Edit off, its cuts, source in-points, speed overrides,
 transitions and framing stay in place. Undo last roll recovers the previous treatments. Manually choosing
 a main look continues to respect appearances with their own looks.
+
+### Remixing one segment or one clip
+
+Remix follows the inspector's scope, the same as clicking a look or pressing R:
+
+| Scope | Remix button | What D rolls |
+|---|---|---|
+| Whole edit | Remix | Everything ticked under ▾, as above |
+| This appearance (a block selected on the timeline) | Remix **Seg 3** | That segment's own look. With Edit ticked, also its transition in, the moment of the clip it plays, its direction and its speed ramp (a family other than Experimental keeps to Light Dissolve, Luma Burn or a hard cut, and leaves direction and ramp alone). Its cuts, its speed and every other segment stay as they are |
+| All uses | Remix **Clip 2** | A new look for that clip, shown on every appearance of it, including one that had its own look. The other clips keep the looks they show now, and the main look is untouched |
+
+Press D again to roll the same target again. Esc clears the selection, so the next D rolls the whole edit.
+The ▾ menu lists the choices for the current target (for example **Segment 3 only**, **Clip 2, every
+appearance** and **Everything**), so a full Remix is one click away without leaving the segment. The
+inspector's scope card has a Remix link for This appearance and All uses, and ⌘K finds the same commands.
+Clip order, Song section and Per-clip FX belong to the whole edit, so a segment uses only Look & layers
+and Edit, and a clip uses only Look & layers. With those off, Remix says what to turn on instead of
+rolling nothing. Shift+D and ⌘Z undo a targeted roll like any other.
 
 New registered effects participate in Experimental's effect pool automatically. New built-in looks join
 their named family's random pool through their style; user-saved looks are available to Look per clip.
@@ -775,7 +797,7 @@ it stopped if it did, and a download link for each file.
 | ⌘K | Search workspace commands (Ctrl+K on Windows and Linux) |
 | Shift+F | Focus viewer / restore the workspace |
 | ← → | Previous / next look, or previous / next segment while editing one in the Edit tab |
-| D, Shift+D | Remix, undo roll |
+| D, Shift+D | Remix the inspector's target (the whole edit, the selected segment, or one clip), undo roll |
 | R | Surprise me |
 | M | Variations, and six more when they're open |
 | E | Export |

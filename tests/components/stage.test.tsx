@@ -275,6 +275,65 @@ describe('top bar', () => {
     expect(pop().className).toBe('pop');
   });
 
+  test('with a segment selected, Remix names it and rolls only it; the menu can still roll its clip or everything', () => {
+    resetStudio();
+    renderStudio(<TopBar />);
+    const btn = document.getElementById('btnRoll') as HTMLButtonElement;
+    expect(btn.getAttribute('aria-label')).toBe('Remix everything');
+    expect(btn.querySelector('.roll-target')).toBeNull();
+    fireEvent.click(document.getElementById('btnRollOpts')!);
+    expect(popButtons().slice(0, 1)).toEqual(['EverythingD']);
+    expect(pop().textContent).toContain('Select a segment on the timeline');
+
+    const seg = st().ctx!.tl.segs[1];
+    update(() => st().selectBlock(seg.id));
+    expect(btn.getAttribute('aria-label')).toBe('Remix segment 2');
+    expect(btn.querySelector('.roll-target')!.textContent).toBe('Seg 2');
+    const look = JSON.stringify(st().look);
+    fireEvent.click(btn);
+    expect(JSON.stringify(st().look), 'the main look stays').toBe(look);
+    expect(st().blocks!.find((b) => b.id === seg.id)!.look).toBeTruthy();
+    expect(toastText()).toMatch(/^Remixed segment 2 · /);
+
+    fireEvent.click(document.getElementById('btnRollOpts')!);
+    const clipNo = st().selected.indexOf(seg.clipId) + 1;
+    expect(popButtons().slice(0, 3)).toEqual(['Segment 2 onlyD', `Clip ${clipNo}, every appearance`, 'Everything']);
+    expect(pop().textContent).toContain('One segment takes Look & layers and Edit.');
+    fireEvent.click(popButton(`Clip ${clipNo}, every appearance`));
+    expect(st().clipLooks[seg.clipId]).toBeTruthy();
+    expect(toastText()).toMatch(new RegExp(`^Remixed clip ${clipNo} · `));
+
+    fireEvent.click(document.getElementById('btnRollOpts')!);
+    fireEvent.click(popButton('Everything'));
+    expect(JSON.stringify(st().look)).not.toBe(look);
+    expect(toastText()).toMatch(/^Rolled /);
+    expect(btn.getAttribute('aria-label'), 'a full roll targets the whole edit again').toBe('Remix everything');
+    for (let i = 0; i < 3; i++) {
+      fireEvent.click(document.getElementById('btnRollOpts')!);
+      fireEvent.click(popButton(/Undo last roll/));
+    }
+    expect(JSON.stringify(st().look)).toBe(look);
+  });
+
+  test('with All uses chosen, Remix rolls that clip on every appearance', () => {
+    resetStudio();
+    renderStudio(<TopBar />);
+    update(() => st().editClipLook('b'));
+    const btn = document.getElementById('btnRoll') as HTMLButtonElement;
+    expect(btn.getAttribute('aria-label')).toBe('Remix clip 2');
+    expect(btn.querySelector('.roll-target')!.textContent).toBe('Clip 2');
+    const look = JSON.stringify(st().look);
+    fireEvent.click(btn);
+    expect(JSON.stringify(st().look)).toBe(look);
+    expect(st().clipLooks.b.id).toMatch(/^chaos-/);
+    expect(toastText()).toMatch(/^Remixed clip 2 · /);
+    fireEvent.click(document.getElementById('btnRollOpts')!);
+    expect(popButtons().slice(0, 2)).toEqual(['Clip 2, every appearanceD', 'Everything']);
+    expect(pop().textContent).toContain('One clip takes Look & layers.');
+    fireEvent.click(popButton(/Undo last roll/));
+    expect(st().clipLooks.b.id).toBe(LOOKS[0].id);
+  });
+
   test('Undo and Redo step back and forward through edits, and are off with nothing to step to', () => {
     vi.useFakeTimers();
     resetStudio();
