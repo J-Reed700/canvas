@@ -7,8 +7,16 @@ permissions:
   contents: read
 jobs:
   regression:
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        # Windows has its own file locking, paths, process handling and ANGLE backend, so it runs the same gate.
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: ${{ matrix.os == 'windows-latest' && 45 || 20 }}
+    defaults:
+      run:
+        shell: bash
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
@@ -19,15 +27,20 @@ jobs:
         with:
           python-version: '3.14'
       - name: Install native media tools
-        run: sudo apt-get update && sudo apt-get install -y ffmpeg
+        run: |
+          if [ "$RUNNER_OS" = Windows ]; then
+            choco install ffmpeg -y --no-progress
+          else
+            sudo apt-get update && sudo apt-get install -y ffmpeg
+          fi
       - run: python -m venv .venv
-      - run: .venv/bin/python -m pip install -e '.[dev]'
+      - run: ${{ runner.os == 'Windows' && '.venv/Scripts/python.exe' || '.venv/bin/python' }} -m pip install -e '.[dev]'
       - run: npm ci
       - name: Types, coverage, build, real browser exports and CPU budgets
         run: npm run quality
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         if: always()
         with:
-          name: studio-quality-evidence
+          name: studio-quality-evidence-${{ runner.os }}
           path: artifacts/
           if-no-files-found: ignore

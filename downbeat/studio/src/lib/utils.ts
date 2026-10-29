@@ -236,14 +236,17 @@ export async function detectSubject(clipId: string): Promise<SubjectAnalysis | n
 
 export const songTitle = (t: TrackMeta): string => t.name.replace(/\.[^.]+$/, '');
 
+/** The last folder or file name in a path, with / or Windows' \ between the parts. */
+export const lastPart = (p: string): string => p.split(/[\\/]/).filter(Boolean).pop() || '';
+
 /** Where a song was found, as shown in the track picker. */
 export function sourceLabel(source = ''): string {
   if (source === 'added') return 'Added in the studio';
-  return source.split('/').filter(Boolean).pop() || source;
+  return lastPart(source) || source;
 }
 
-/** A path with the home folder written as ~. */
-export const homeShort = (p: string) => p.replace(/^\/(Users|home)\/[^/]+/, '~');
+/** A path with the home folder written as ~: /Users/me, /home/me or, on Windows, C:\Users\me. */
+export const homeShort = (p: string) => p.replace(/^(\/(Users|home)\/[^/]+|[A-Za-z]:\\Users\\[^\\]+)/, '~');
 
 /** Songs in the same folder as this one, newest first: the set a "this look on every song" batch renders. */
 export function siblingTracks(tracks: TrackMeta[], id: string, max = 12): TrackMeta[] {

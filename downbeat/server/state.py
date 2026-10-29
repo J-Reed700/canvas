@@ -16,7 +16,7 @@ from .._cache import FileResultCache, file_version
 from .library import Library, Track, is_audio_name, track_id
 from .payloads import clip_payload, clip_payloads
 from .projects import ProjectStore
-from .storage import write_json
+from .storage import remove_file, write_json
 from ..media.proxy import ProxyManager
 from ..media.source import IMAGE_EXTS, Source, probe
 
@@ -298,7 +298,7 @@ class StudioState:
         except OSError:
             proxy = None
         if proxy and os.path.isfile(proxy):
-            os.remove(proxy)
+            remove_file(proxy)
         path = os.path.abspath(src.path)
         if os.path.dirname(path) == os.path.abspath(os.path.join(OUT_DIR, "uploads")):
             doomed = [path]
@@ -307,7 +307,7 @@ class StudioState:
                 doomed += [p for p in glob.glob(glob.escape(stem) + ".*") if os.path.splitext(p)[1].lower() in IMAGE_EXTS]
             for p in doomed:
                 if os.path.isfile(p):
-                    os.remove(p)
+                    remove_file(p)
             return True
         with _HIDDEN_LOCK:
             hidden = _hidden_clips()
@@ -365,12 +365,19 @@ class StudioState:
         if os.path.splitext(name)[1].lower() not in (".mp4", ".mov") or not os.path.isfile(path):
             raise FileNotFoundError(name)
         targets = self._export_files(path)
-        for p in targets:
-            os.remove(p)
+        self._remove_all(targets)
         self.projects.delete_export_edit(name)
         with self.lock:
             self.renders = [r for r in self.renders if r.get("filename") != name]
         return [os.path.basename(p) for p in targets]
+
+    @staticmethod
+    def _remove_all(targets: list[str]) -> None:
+        """Delete an export's files, the export itself last: if one is in use and can't go, the export
+        stays listed, and deleting it again finishes the job."""
+        for p in targets[1:] + targets[:1]:
+            if os.path.isfile(p):
+                remove_file(p)
 
     @staticmethod
     def _export_files(path: str) -> list[str]:
@@ -387,8 +394,7 @@ class StudioState:
         if os.path.splitext(name)[1].lower() not in (".mp4", ".mov"):
             return []
         targets = self._export_files(os.path.join(OUT_DIR, name))
-        for p in targets:
-            os.remove(p)
+        self._remove_all(targets)
         self.projects.delete_export_edit(name)
         with self.lock:
             self.renders = [r for r in self.renders if r.get("filename") != name]

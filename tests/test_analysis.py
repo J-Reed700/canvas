@@ -90,6 +90,18 @@ class TestAudioAnalysis(TempDirCase):
 class TestBeatGridAndFraming(TempDirCase):
     """Beat grid and loop length from a click track; subject framing and palettes from clips."""
 
+    def test_a_song_longer_than_three_minutes_is_analyzed_to_its_end_in_bounded_batches(self) -> None:
+        path = self._click_track(bpm=125.0, seconds=200.0, offset=0.37)
+        with mock.patch.object(np.fft, "rfft", wraps=np.fft.rfft) as fft:
+            f = track_features(path)
+        self.assertLessEqual(max(call.args[0].shape[0] for call in fft.call_args_list), audio.FFT_ROWS,
+                             "FFT working memory doesn't grow with the song")
+        self.assertAlmostEqual(f["duration"], 200.0, places=2)
+        self.assertAlmostEqual(audio.analyze_track(path).duration, 200.0, places=2)
+        self.assertAlmostEqual(f["bpm"], 125.0, delta=0.15)
+        self.assertGreater(f["beats"][-1], 200.0 - 2 * 60 / 125, "the beat grid reaches the end of the song")
+        self.assertLessEqual(abs(len(f["curves"]["kick"]) - 200 * 30), 1)
+
     def test_beat_grid_locks_onto_tempo_and_phase(self) -> None:
         path = self._click_track(bpm=125.0, seconds=40.0, offset=0.37)
         f = track_features(path)
@@ -189,6 +201,17 @@ class TestBeatGridAndFraming(TempDirCase):
         pal_still = framing.extract_palette(still_path, k=5)
         self.assertEqual(len(pal_still["colors"]), 5)
         self.assertTrue(pal_still["css_gradient"].startswith("linear-gradient(180deg, #"))
+
+        # An image the video reader can't open is decoded directly, even from a folder whose name
+        # cv2.imread can't open on Windows.
+        accented = self.path("José 音楽", "cover.png")
+        with open(accented, "wb") as f:
+            f.write(cv2.imencode(".png", frame)[1].tobytes())
+        with mock.patch.object(framing, "_sample_pairs", return_value=[]):
+            pal_accented = framing.extract_palette(accented, k=5)
+            pal_missing = framing.extract_palette(self.path("José 音楽", "missing.png"), k=5)
+        self.assertAlmostEqual(pal_accented["primary_hue"], pal_still["primary_hue"], delta=0.05)
+        self.assertNotAlmostEqual(pal_missing["primary_hue"], pal_still["primary_hue"], delta=0.05)
 
 
 if __name__ == "__main__":

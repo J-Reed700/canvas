@@ -400,6 +400,39 @@ test('opening one clip for editing gives it its own copy and applies looks to th
   assert.equal(st().editClip, null);
 });
 
+test('opening a generated clip look preserves its effects and every other clip look', () => {
+  for (const clipMode of ['cycle', 'evolve']) {
+    fresh({ clipMode });
+    const before = st().selected.map((id) => cloneLook(st().clipLookOf(id)));
+    st().editClipLook('b');
+    assert.equal(st().clipMode, 'custom');
+    assert.deepEqual(st().selected.map((id) => st().clipLookOf(id)), before, `${clipMode}: opening a clip must not change the composition`);
+    assert.deepEqual(st().editLook(), before[1], 'the inspector opens the look that was on the clip');
+    st().applyLook(LOOKS[7]);
+    assert.deepEqual(st().clipLookOf('a'), before[0]);
+    assert.deepEqual(st().clipLookOf('c'), before[2], 'choosing a new look leaves the other clip alone');
+  }
+});
+
+test('look shortcuts stay on the clip being edited and preserve the main look and cuts', () => {
+  fresh({ blocks: [{ id: 'g0', at: 0, clipId: 'a', in: 0, seed: 1 }] });
+  st().editClipLook('b');
+  st().applyLook(LOOKS[4]);
+  const main = cloneLook(st().look);
+  const blocks = st().blocks;
+  st().stepLook(1);
+  assert.equal(st().clipLooks.b.id, LOOKS[5].id, 'arrows step from the clip look');
+  assert.equal(lastToast(), `Clip 2 → ${LOOKS[5].name}`);
+  assert.deepEqual(st().look, main);
+  assert.equal(st().blocks, blocks);
+  st().surprise();
+  assert.notEqual(st().clipLooks.b.id, LOOKS[5].id, 'Surprise replaces the clip look');
+  assert.deepEqual(st().look, main);
+  assert.equal(st().blocks, blocks);
+  assert.equal(st().editClip, 'b');
+  assert.match(lastToast(), /Clip 2/);
+});
+
 test("an older session's per-cut settings and dragged cuts open as blocks, looking the way they did", () => {
   fresh();
   const plain = st().ctx.tl.segs;
@@ -604,6 +637,28 @@ test('opening a saved song edit at zero keeps its loop length and hand cuts', as
   assert.equal(st().loopStart, 0);
   assert.equal(st().bars, 2);
   assert.equal(st().blocks, blocks);
+});
+
+test('moving the loop while a song is being analyzed keeps the move', async () => {
+  fresh({ trackId: 't1', loopStart: 0, bars: 2 });
+  let release;
+  const slow = new Promise((r) => { release = r; });
+  stubFetch({ 'GET /api/features/t1': async () => { await slow; return { ...SONG, loops: [{ start: 33.5 }], loop_bars: 4 }; } });
+  st().transport.decode = async () => FAKE_BUFFER;
+  const opening = st().selectTrack('t1', { initial: true });
+  await tick();
+  S.setState({ loopStart: 9.5, bars: 4 });
+  release();
+  await opening;
+  assert.equal(st().loopStart, 9.5);
+  assert.equal(st().bars, 4);
+
+  // A tempo change snaps the loop to the new grid from where it is now, not from where it was.
+  stubFetch({ 'GET /api/features/t1': async () => { await slow; return { ...SONG, downbeats: [1.5, 17.5, 41.5] }; } });
+  const regrid = st().selectTrack('t1', { keepLoop: true });
+  S.setState({ loopStart: 40 });
+  await regrid;
+  assert.equal(st().loopStart, 41.5);
 });
 
 test('tap tempo needs four taps, sets the tempo without a song and starts over after a pause', (t) => {

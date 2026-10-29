@@ -1,10 +1,10 @@
 // A real studio, real media/proxies, real GPU preview and real export, entirely in a temporary home.
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir, cpus, platform, arch } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
-import { ROOT, missing, freePort, makeClip, openBrowser, python, sleep } from '../browserHarness.mjs';
+import { ROOT, missing, freePort, makeClip, openBrowser, python, sleep, removeDir, homeEnv, stopProcess } from '../browserHarness.mjs';
 
 assert.equal(missing.length, 0, `Performance qualification requires ${missing.join(', ')}`);
 const soakSeconds = Number(process.env.DOWNBEAT_SOAK_SECONDS || 60);
@@ -21,7 +21,7 @@ try {
     'import sys', 'from downbeat.server import state, app', 'state.OUT_DIR = app.OUT_DIR = sys.argv[1]',
     'state.STATE = app.STATE = state.StudioState()', 'app.serve_studio(port=int(sys.argv[2]), open_browser=False)',
   ].join('\n');
-  server = spawn(python, ['-c', launcher, out, String(port)], { cwd: ROOT, env: { ...process.env, HOME: home }, stdio: ['ignore', 'ignore', 'pipe'] });
+  server = spawn(python, ['-c', launcher, out, String(port)], { cwd: ROOT, env: homeEnv(home), stdio: ['ignore', 'ignore', 'pipe'] });
   let errors = '';
   server.stderr.on('data', (data) => { errors += data; });
   for (let i = 0; ; i++) {
@@ -152,7 +152,7 @@ try {
     assert.ok(!(exported.checks || []).some((check) => check.level === 'fail'), 'The measured export failed its media QA');
   }
 } finally {
-  browser?.ws.close(); browser?.proc.kill(); server?.kill();
-  await sleep(300);
-  rmSync(temporary, { recursive: true, force: true });
+  await browser?.close();
+  await stopProcess(server);
+  await removeDir(temporary);
 }

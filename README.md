@@ -716,7 +716,7 @@ flowchart LR
 ```
 
 - `compose(ctx, t)` turns the look, the timeline and the audio at time `t` into a description of one frame. The live preview, the look thumbnails and the exporter all call it, so they can't drift apart.
-- Audio analysis runs an FFT with a 30 fps hop to get the band envelopes and a kick-weighted onset curve. The tempo comes from a search over 70 to 180 BPM, refined to 0.02 BPM, and the kicks set the beat phase and the downbeats.
+- Audio analysis runs an FFT with a 30 fps hop to get the band envelopes and a kick-weighted onset curve. The tempo comes from a search over 70 to 180 BPM, refined to 0.02 BPM, and the kicks set the beat phase and the downbeats. Songs up to 20 minutes are analyzed whole; a longer file, such as a DJ mix, is analyzed from its start.
 - Each clip is transcoded once to constant 30 fps H.264 with a keyframe every 8 frames, so the exporter can seek to any frame exactly.
 - Loops are a whole number of bars. The loop point is treated as a cut centered on the first downbeat, noise patterns cross-fade over one loop, and feedback effects run for a full loop before recording starts.
 - The browser encodes H.264 with WebCodecs and streams it to the server, where ffmpeg puts it in an MP4 without re-encoding. Browsers without WebCodecs send raw frames to ffmpeg instead.
@@ -794,7 +794,7 @@ npm run dev                              # Vite dev server with hot reload; star
 npm run build                            # production build into downbeat/studio/dist (./run.sh does this when sources change)
 ```
 
-On Windows, the Python is `.venv\Scripts\python.exe`, and `make test` and `make e2e` work from PowerShell if you have make. `make e2e` skips itself when Chrome or ffmpeg isn't installed. The Python tests generate their own media with ffmpeg, so they need no sample files.
+On Windows, the Python is `.venv\Scripts\python.exe`, and `make test` and `make e2e` work from PowerShell if you have make. CI runs the whole gate on Windows as well as Linux. `make e2e` skips itself when Chrome or ffmpeg isn't installed; it finds Chrome or Edge in the usual places, or set `CHROME_PATH`, and `DOWNBEAT_PYTHON` picks a Python other than the one in `.venv`. The Python tests generate their own media with ffmpeg, so they need no sample files.
 
 The stress test isn't part of `make test`. It runs against a studio you already started, with your own clips, in a Chrome window of its own with its own profile, so the session in your browser is left alone. It adds clips, changes transitions, start points and framing, drags and scrolls on the preview, rolls the dice, splits and undoes. Every few edits it stops for 6 s to check three things: the clip on screen keeps getting new pictures, its video's clock keeps moving, and what reaches the screen keeps changing. When the preview freezes and stays frozen for 15 s with no edits, it prints the state of every video and the requests still waiting, and exits with code 1. With `--upload <folder>` it also uploads the videos in that folder, the way dropping them on the studio does, so they become clips in that studio's library. Options are at the top of the file. Run it with the screen awake: Chrome stops drawing a window it thinks is hidden.
 

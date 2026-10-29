@@ -18,7 +18,7 @@ import threading
 
 from ..media import file_id
 from ..media.encoder import ffmpeg_path
-from .storage import read_json, write_json
+from .storage import read_json, remove_file, replace_file, write_json
 
 AUDIO_EXTS = (".wav", ".mp3", ".m4a", ".aac", ".flac", ".aif", ".aiff", ".ogg", ".opus")
 VIDEO_EXTS = (".mp4", ".mov", ".m4v", ".webm", ".mkv")
@@ -147,9 +147,11 @@ class Library:
             self._save([p for p in self.folders() if p != folder])
 
     def suggestions(self) -> list[str]:
-        """Common Mac music folders that exist and aren't being scanned yet."""
+        """The home Music folder, if it exists and isn't being scanned yet."""
         chosen = set(self.folders())
-        return [p for p in (os.path.expanduser("~/Music"),) if os.path.isdir(p) and p not in chosen]
+        # Normalized the way add_folder stores it; "~/Music" expands to C:\Users\me/Music on Windows.
+        music = os.path.abspath(os.path.expanduser(os.path.join("~", "Music")))
+        return [p for p in (music,) if os.path.isdir(p) and p not in chosen]
 
     def scan(self) -> tuple[dict[str, Track], list[str]]:
         """Every song keyed by id, and the paths of the videos to list as clips. A file reachable from two
@@ -184,13 +186,13 @@ def playable_path(track: Track, cache_dir: str, keep: int = 20) -> str:
                 capture_output=True,
                 timeout=300,
             )
-            os.replace(tmp, dest)
+            replace_file(tmp, dest)  # the studio may be playing the previous copy
         finally:
             if os.path.exists(tmp):
                 os.remove(tmp)
         cached = sorted((os.path.join(cache_dir, f) for f in os.listdir(cache_dir) if f.endswith(".wav")), key=os.path.getmtime)
         for old in cached[:-keep]:
-            os.remove(old)
+            remove_file(old)
     else:
         os.utime(dest)
     return dest

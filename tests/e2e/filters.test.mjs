@@ -2,11 +2,11 @@
 // and loop closure. The standalone Vite page needs neither a media library nor the Python server.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createServer } from 'vite';
-import { ROOT, chromePath, freePort, openBrowser } from '../browserHarness.mjs';
+import { ROOT, chromePath, freePort, openBrowser, removeDir } from '../browserHarness.mjs';
 
 test('photographic and drawn looks render distinctly, turn fully off, and close their loops on a real GPU', {
   skip: !chromePath ? 'needs Chrome or Chromium' : false,
@@ -31,14 +31,9 @@ test('photographic and drawn looks render distinctly, turn fully off, and close 
   });
   let browser;
   t.after(async () => {
-    browser?.ws.close();
-    if (browser && browser.proc.exitCode === null) {
-      const exited = new Promise((resolve) => browser.proc.once('exit', resolve));
-      browser.proc.kill();
-      await exited;
-    }
+    await browser?.close();
     await server.close();
-    rmSync(tmp, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+    await removeDir(tmp);
   });
   await server.listen();
   browser = await openBrowser(join(tmp, 'chrome'));

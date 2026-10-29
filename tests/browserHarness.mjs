@@ -1,23 +1,38 @@
 // Shared real-browser harness for regression tests and reproducible performance runs.
 import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
-import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { accessSync, constants, existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:net';
-import { dirname, join } from 'node:path';
+import { delimiter, dirname, extname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
+const WINDOWS = process.platform === 'win32';
+const RESULT_SLICE = 512 * 1024;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+/** The program's path on PATH, like `which`, which Windows doesn't have; there a bare name gets a PATHEXT ending. */
 const which = (name) => {
-  const r = spawnSync('which', [name], { encoding: 'utf8' });
-  return r.status === 0 ? r.stdout.trim() : null;
+  const endings = WINDOWS && !extname(name) ? (process.env.PATHEXT || '.EXE;.CMD;.BAT').split(';') : [''];
+  for (const dir of (process.env.PATH || '').split(delimiter).filter(Boolean)) {
+    for (const ending of endings) {
+      const p = join(dir, name + ending);
+      try {
+        accessSync(p, WINDOWS ? constants.F_OK : constants.X_OK);
+        return p;
+      } catch {}
+    }
+  }
+  return null;
 };
 
 function findChrome() {
+  const windowsRoots = [process.env.PROGRAMFILES, process.env['PROGRAMFILES(X86)'], process.env.LOCALAPPDATA].filter(Boolean);
   const paths = [
     process.env.CHROME_PATH,
     '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
     '/Applications/Chromium.app/Contents/MacOS/Chromium',
+    ...windowsRoots.map((root) => join(root, 'Google', 'Chrome', 'Application', 'chrome.exe')),
+    ...windowsRoots.map((root) => join(root, 'Microsoft', 'Edge', 'Application', 'msedge.exe')),
   ];
   for (const p of paths) if (p && existsSync(p)) return p;
   for (const name of ['google-chrome', 'google-chrome-stable', 'chromium', 'chromium-browser']) {
@@ -28,7 +43,42 @@ function findChrome() {
 }
 
 const chromePath = findChrome();
-const python = existsSync(join(ROOT, '.venv/bin/python')) ? join(ROOT, '.venv/bin/python') : 'python3';
+// The checkout's virtual environment, as scripts/python.mjs finds it.
+const venvPython = join(ROOT, WINDOWS ? '.venv/Scripts/python.exe' : '.venv/bin/python');
+const python = process.env.DOWNBEAT_PYTHON || (existsSync(venvPython) ? venvPython : WINDOWS ? 'python' : 'python3');
+
+/** Deletes a test's temp folder. On Windows its files can stay locked for several seconds after the browser and
+ *  encoders that used them exit (antivirus and the search indexer look at new files), so it keeps trying, and
+ *  in the end leaves the folder with a warning rather than failing a test whose checks passed. */
+async function removeDir(path) {
+  const deadline = Date.now() + 30_000;
+  for (;;) {
+    try {
+      rmSync(path, { recursive: true, force: true });
+      return;
+    } catch (error) {
+      if (!WINDOWS || !['EPERM', 'EBUSY', 'ENOTEMPTY'].includes(error.code)) throw error;
+      if (Date.now() > deadline) {
+        console.warn(`Left ${path} behind: ${error.code}`);
+        return;
+      }
+      await sleep(250);
+    }
+  }
+}
+
+/** Ends a process and waits for it. On Windows that takes the processes it started too: killing the server
+ *  alone leaves its ffmpeg children running, still holding files in the test's folder. */
+async function stopProcess(proc) {
+  if (!proc || proc.exitCode !== null || proc.signalCode !== null) return;
+  const exited = new Promise((r) => proc.once('exit', r));
+  if (WINDOWS) spawnSync('taskkill', ['/pid', String(proc.pid), '/T', '/F'], { stdio: 'ignore' });
+  else proc.kill();
+  await Promise.race([exited, sleep(10_000)]);
+}
+
+/** The environment for a server whose home folder is `home` (Windows looks for ~ in USERPROFILE). */
+const homeEnv = (home) => ({ ...process.env, HOME: home, USERPROFILE: home });
 const missing = [
   !chromePath && 'Chrome or Chromium (set CHROME_PATH)',
   !which('ffmpeg') && 'ffmpeg',
@@ -97,6 +147,7 @@ async function openBrowser(userDir) {
     let id = 0;
     const pending = new Map();
     const problems = [];
+    let detached = '';
     ws.onmessage = (ev) => {
       const m = JSON.parse(ev.data);
       if (m.id && pending.has(m.id)) {
@@ -107,9 +158,17 @@ async function openBrowser(userDir) {
       }
       if (m.method === 'Runtime.exceptionThrown') problems.push(`exception: ${m.params.exceptionDetails?.exception?.description || m.params.exceptionDetails?.text}`);
       if (m.method === 'Runtime.consoleAPICalled' && m.params.type === 'error') problems.push(`console.error: ${m.params.args.map((a) => a.value ?? a.description).join(' ')}`);
+      if (m.method === 'Inspector.targetCrashed') detached = 'the page crashed';
+      if (m.method === 'Inspector.detached') detached ||= `the page was detached (${m.params.reason})`;
     };
-    ws.onclose = () => {
-      for (const request of pending.values()) { clearTimeout(request.timer); request.reject(new Error(`Chrome closed during ${request.method}`)); }
+    ws.onclose = (ev) => {
+      const why = detached ? `Chrome closed the page because ${detached}, during`
+        : proc.exitCode === null && ev.code === 1006 ? 'The DevTools connection dropped (a message over 4 MiB does that) during'
+          : `Chrome closed (exit ${proc.exitCode ?? 'still running'}) during`;
+      for (const request of pending.values()) {
+        clearTimeout(request.timer);
+        request.reject(new Error(`${why} ${request.method}${launchError ? `. Its last output:\n${launchError}` : ''}`));
+      }
       pending.clear();
     };
     const send = (method, params = {}) => new Promise((resolve, reject) => {
@@ -121,14 +180,37 @@ async function openBrowser(userDir) {
     });
     await send('Page.enable');
     await send('Runtime.enable');
-    /** Runs an async function body in the page and returns its JSON result; page errors become test failures. */
-    const run = async (body) => {
-      const r = await send('Runtime.evaluate', { expression: `(async () => { ${body} })()`, awaitPromise: true, returnByValue: true });
+    await send('Inspector.enable');
+    const evaluate = async (expression, awaitPromise = false) => {
+      const r = await send('Runtime.evaluate', { expression, awaitPromise, returnByValue: true });
       if (r.result?.exceptionDetails) throw new Error(r.result.exceptionDetails.exception?.description || r.result.exceptionDetails.text);
       return r.result?.result?.value;
     };
-    return { proc, ws, send, run, problems };
+    /** Runs an async function body in the page and returns its JSON result; page errors become test failures.
+     *  The result is fetched in slices: Node's WebSocket drops a compressed message over 4 MiB, and Chrome
+     *  compresses, so a result with a few images in it would otherwise cut the connection. */
+    const run = async (body) => {
+      const first = await evaluate(`(async () => {
+        const value = await (async () => { ${body} })();
+        const json = value === undefined ? '' : JSON.stringify(value);
+        if (json.length <= ${RESULT_SLICE}) return json;
+        globalThis.__harnessResult = json;
+        return { length: json.length };
+      })()`, true);
+      if (typeof first === 'string') return first ? JSON.parse(first) : undefined;
+      let json = '';
+      // 512K characters stay under the limit even if every one is sent as a \uXXXX escape.
+      for (let at = 0; at < first.length; at += RESULT_SLICE) json += await evaluate(`globalThis.__harnessResult.slice(${at}, ${at + RESULT_SLICE})`);
+      await evaluate('delete globalThis.__harnessResult');
+      return JSON.parse(json);
+    };
+    /** Closes the page connection and waits for Chrome to exit, so its profile folder can be deleted. */
+    const close = async () => {
+      ws.close();
+      await stopProcess(proc);
+    };
+    return { proc, ws, send, run, problems, close };
   } catch (error) { ws?.close(); proc.kill(); throw error; }
 }
 
-export { ROOT, sleep, which, chromePath, python, missing, freePort, writeSong, makeClip, openBrowser };
+export { ROOT, sleep, which, chromePath, python, missing, freePort, writeSong, makeClip, openBrowser, removeDir, homeEnv, stopProcess };

@@ -55,8 +55,6 @@ button { cursor: pointer; border: 0; background: none; }
 
 .btn.primary { background: var(--accent); color: var(--accent-ink); border-color: transparent; box-shadow: 0 6px 24px -6px rgba(185,164,255,0.55); }
 
-.btn.primary:hover { background: #D6FF73; }
-
 .btn.icon { width: 32px; padding: 0; justify-content: center; }
 
 .btn.sm { height: 26px; padding: 0 10px; font-size: 12px; border-radius: 8px; }

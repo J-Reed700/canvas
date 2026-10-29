@@ -15,10 +15,18 @@ export const VariationsModal: React.FC = () => {
   const varOpen = useStudioStore((s) => s.varOpen);
   const mutAmt = useStudioStore((s) => s.mutAmt);
   const varSeed = useStudioStore((s) => s.varSeed);
-  const look = useStudioStore((s) => s.editLook());
+  const look = useStudioStore((s) => (s.look ? s.editLook() : null));
+  const targetPrefix = useStudioStore((s) => {
+    const seg = s.editBlock ? s.ctx?.tl.segs.find((x) => x.id === s.editBlock) : null;
+    if (seg) return `Segment ${seg.i + 1} · `;
+    if (s.clipMode === 'custom' && s.editClip && s.selected.includes(s.editClip)) {
+      return `Clip ${s.selected.indexOf(s.editClip) + 1} · `;
+    }
+    return '';
+  });
   const engine = useStudioStore((s) => s.engine);
   const exportOpts = useStudioStore((s) => s.exportOpts);
-  const setLook = useStudioStore((s) => s.setLook);
+  const applyLook = useStudioStore((s) => s.applyLook);
 
   // Six mutations of the current look, shared by the live thumbnails and the click that applies one.
   const variations = useMemo(
@@ -63,7 +71,7 @@ export const VariationsModal: React.FC = () => {
       open={varOpen}
       onClose={closeModals}
       title="Variations"
-      subtitle={`Mutations of ${look?.name}, playing on your footage. Click one to keep it.`}
+      subtitle={`${targetPrefix}Mutations of ${look?.name}, playing on your footage. Click one to keep it.`}
       subtitleId="varSub"
       headerActions={
         <div className="mut-ctrl">
@@ -93,9 +101,7 @@ export const VariationsModal: React.FC = () => {
               key={k}
               onClick={() => {
                 if (l) {
-                  const s = store.getState();
-                  if (s.editBlock || s.editClip) s.applyLook(l);
-                  else setLook(l, { keepEdit: true });
+                  applyLook(l, { keepEdit: true });
                   closeModals();
                 }
               }}

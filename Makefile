@@ -39,7 +39,7 @@ endif
 
 # Real server + headless Chrome + one real export; skips itself without Chrome or ffmpeg.
 e2e: setup
-	node --test tests/e2e/*.test.mjs
+	node --test --test-concurrency=1 tests/e2e/*.test.mjs
 
 list: setup
 	$(VENV_PYTHON) -m downbeat --list

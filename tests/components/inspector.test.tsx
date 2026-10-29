@@ -156,6 +156,40 @@ describe('looks grid', () => {
     expect(lookCard(LOOKS[0].id).className).toContain('on');
   });
 
+  test('All uses in the inspector scope opens a generated clip look without changing the composition', () => {
+    resetStudio({ tab: 'looks', clipMode: 'cycle' });
+    const main = cloneLook(st().look!);
+    const before = st().selected.map((id) => cloneLook(st().clipLookOf(id)));
+    const segB = st().ctx!.tl.segs.find((seg) => seg.clipId === 'b')!;
+    update(() => st().selectBlock(segB.id));
+    renderStudio(<InspectorPanel />);
+    const scopes = screen.getByRole('group', { name: 'Apply effects to' });
+    fireEvent.click(within(scopes).getByText('All uses'));
+    expect(st().tab).toBe('looks');
+    expect(st().editClip).toBe('b');
+    expect(st().selected.map((id) => st().clipLookOf(id))).toEqual(before);
+    expect(lookCard(before[1].id).getAttribute('aria-pressed')).toBe('true');
+    fireEvent.click(lookCard('thermal'));
+    expect(st().clipLooks.b.id).toBe('thermal');
+    expect(st().look).toEqual(main);
+    expect(st().clipLookOf('c')).toEqual(before[2]);
+    fireEvent.click(within(scopes).getByText('Whole edit'));
+    expect(st().editClip).toBeNull();
+    expect(st().tab).toBe('looks');
+  });
+
+  test('Surprise me follows the visible clip target', () => {
+    resetStudio({ tab: 'looks' });
+    update(() => st().editClipLook('b', { tab: 'looks' }));
+    renderStudio(<LooksPane />);
+    const main = cloneLook(st().look!);
+    fireEvent.click(screen.getByText(/Surprise me/));
+    expect(st().look).toEqual(main);
+    expect(st().clipLooks.b.id).not.toBe(main.id);
+    expect(st().editClip).toBe('b');
+    expect(toastText()).toContain('Clip 2');
+  });
+
   test('Surprise me rolls a new look and Variations opens the variations sheet', () => {
     resetStudio({ tab: 'looks' });
     renderStudio(<LooksPane />);

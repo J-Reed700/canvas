@@ -592,8 +592,12 @@ def _promo_overlay(dest: str, width: int, height: int, title: str, out_now: bool
             small = max(0.45, scale * 0.52)
             cv2.putText(overlay, label, (2 * margin, top + max(30, round(card_h * 0.28))), font, small,
                         (110, 220, 255, 255), max(1, round(small * 2)), cv2.LINE_AA)
-        if not cv2.imwrite(path, overlay):
+        # Encoded here and written by Python: cv2.imwrite can't open paths with non-ASCII characters on Windows.
+        ok, png = cv2.imencode(".png", overlay)
+        if not ok:
             raise RuntimeError("Could not create the social promo title card")
+        with open(path, "wb") as f:
+            f.write(png.tobytes())
         return path
     except Exception:
         if os.path.exists(path):

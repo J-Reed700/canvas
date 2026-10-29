@@ -1,10 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { ROOT, sleep, python, missing, freePort, writeSong, makeClip, openBrowser } from '../browserHarness.mjs';
+import { ROOT, sleep, python, missing, freePort, writeSong, makeClip, openBrowser, removeDir, stopProcess } from '../browserHarness.mjs';
 
 if (process.env.DOWNBEAT_REQUIRE_E2E === '1' && missing.length) throw new Error(`The quality gate requires ${missing.join(', ')}`);
 
@@ -34,11 +34,9 @@ test('clip speed matches tempo in the browser, keeps cuts, and exports moving fo
   server.stderr.on('data', (data) => { serverErr = (serverErr + data).slice(-4000); });
   let browser;
   t.after(async () => {
-    browser?.ws.close();
-    browser?.proc.kill();
-    server.kill();
-    await sleep(300);
-    rmSync(tmp, { recursive: true, force: true });
+    await browser?.close();
+    await stopProcess(server);
+    await removeDir(tmp);
   });
   for (let i = 0; ; i++) {
     try { if ((await fetch(`http://127.0.0.1:${port}/api/status`)).ok) break; } catch {}

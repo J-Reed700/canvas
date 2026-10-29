@@ -4,7 +4,7 @@ import { fireEvent, within } from '@testing-library/react';
 import { Modals } from '../../downbeat/studio/src/components/Modals/Modals.tsx';
 import { FORMATS } from '../../downbeat/studio/src/lib/utils.ts';
 import { MODULES } from '../../downbeat/studio/src/engine/modules.ts';
-import { render, LOOKS, S, TRACKS, resetStudio, screen, st, update, withSong } from './studio.tsx';
+import { render, LOOKS, S, TRACKS, cloneLook, resetStudio, screen, st, update, withSong } from './studio.tsx';
 
 const sheet = () => document.getElementById('exportForm') as HTMLElement;
 const summary = () => {
@@ -192,6 +192,30 @@ describe('variations', () => {
     const cv = document.querySelector<HTMLCanvasElement>('#vars canvas')!;
     expect([cv.width, cv.height]).toEqual([384, 216]);
     expect(document.getElementById('vars')!.dataset.screen).toBe('landscape');
+  });
+
+  test("clip variations use that clip's look and leave other clips and the edit alone", () => {
+    const own = cloneLook(LOOKS[6]);
+    const other = cloneLook(LOOKS[8]);
+    resetStudio({
+      varOpen: true,
+      clipMode: 'custom',
+      editClip: 'b',
+      clipLooks: { b: own, c: other },
+      blocks: [{ id: 'g0', at: 0, clipId: 'a', in: 0, seed: 1 }],
+    });
+    const main = cloneLook(st().look!);
+    const blocks = st().blocks;
+    render(<Modals />);
+    expect(document.getElementById('varSub')!.textContent).toContain(`Clip 2 · Mutations of ${own.name}`);
+    const variation = cloneLook(st().varJobs[2].look);
+    fireEvent.click(varCards()[2]);
+    expect(st().clipLooks.b).toEqual(variation);
+    expect(st().look).toEqual(main);
+    expect(st().clipLooks.c).toEqual(other);
+    expect(st().blocks).toBe(blocks);
+    expect(st().editClip).toBe('b');
+    expect(st().varOpen).toBe(false);
   });
 
   test('Mutate again and the amount slider make new variations', () => {

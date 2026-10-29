@@ -11,7 +11,7 @@ import secrets
 import threading
 import time
 
-from .storage import read_json as _read_json, write_json as _write_json
+from .storage import read_json as _read_json, remove_file, write_json as _write_json
 
 _ID = re.compile(r"^[0-9a-f]{12}$")
 NAME_MAX = 80
@@ -137,7 +137,7 @@ class ProjectStore:
         path = self._path(pid)
         with _LOCK:
             if os.path.isfile(path):
-                os.remove(path)
+                remove_file(path)
 
     def _export_path(self, filename: str) -> str:
         name = os.path.basename(str(filename))
@@ -173,4 +173,4 @@ class ProjectStore:
             return
         with _LOCK:
             if os.path.isfile(path):
-                os.remove(path)
+                remove_file(path)
