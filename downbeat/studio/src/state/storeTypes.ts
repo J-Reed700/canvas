@@ -144,7 +144,7 @@ export interface StudioState {
   touch: () => void;
   rebuild: () => void;
   setLook: (l: Look, opts?: { keepEdit?: boolean }) => void;
-  applyLook: (l: Look) => void;
+  applyLook: (l: Look, opts?: { keepEdit?: boolean }) => void;
   stepLook: (d: number) => void;
   surprise: () => void;
   setTab: (tab: 'looks' | 'layers' | 'edit') => void;
@@ -159,7 +159,7 @@ export interface StudioState {
   uploadFiles: (files: File[]) => Promise<void>;
   autoFrame: () => Promise<void>;
   setClipMode: (k: string) => void;
-  editClipLook: (id: string | null) => void;
+  editClipLook: (id: string | null, opts?: { tab?: 'looks' | 'layers' | 'edit' }) => void;
   rollClips: () => void;
   /** Rolls everything the roll options allow, whatever the inspector targets. */
   rollAll: () => void;

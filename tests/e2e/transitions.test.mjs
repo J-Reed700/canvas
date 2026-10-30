@@ -1,9 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { chromePath, openBrowser, sleep } from '../browserHarness.mjs';
+import { chromePath, openBrowser, removeDir } from '../browserHarness.mjs';
 import { TRANSITIONS, VERT } from '../../downbeat/studio/src/engine/shaders.ts';
 
 test('all transitions render finite pixels and preserve both endpoints in portrait, square and landscape', {
@@ -11,7 +11,7 @@ test('all transitions render finite pixels and preserve both endpoints in portra
 }, async (t) => {
   const tmp = mkdtempSync(join(tmpdir(), 'downbeat-transitions-'));
   const browser = await openBrowser(join(tmp, 'chrome'));
-  t.after(async () => { browser.ws.close(); browser.proc.kill(); await sleep(300); rmSync(tmp, { recursive: true, force: true, maxRetries: 3 }); });
+  t.after(async () => { await browser.close(); await removeDir(tmp); });
   const result = await browser.run(`
     const transitions = ${JSON.stringify(Object.entries(TRANSITIONS).map(([id, transition]) => [id, transition.glsl]))};
     const canvas = document.createElement('canvas');

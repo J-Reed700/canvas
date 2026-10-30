@@ -16,15 +16,25 @@ from .._cache import FileResultCache, file_version
 from .library import Library, Track, is_audio_name, track_id
 from .payloads import clip_payload, clip_payloads
 from .projects import ProjectStore
-from .storage import write_json
+from .storage import remove_file, write_json
 from ..media.proxy import ProxyManager
 from ..media.source import IMAGE_EXTS, Source, probe
 
-PACKAGE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-PROJECT_ROOT = os.path.dirname(PACKAGE_DIR)
-OUT_DIR = os.path.join(PROJECT_ROOT, "out")
-STUDIO_DIR = os.path.join(PACKAGE_DIR, "studio")
-STUDIO_DIST_DIR = os.path.join(STUDIO_DIR, "dist")
+def _default_paths() -> tuple[str, str, str, str, str]:
+    if getattr(sys, "frozen", False) and hasattr(sys, "_MEIPASS"):
+        pkg = os.path.join(getattr(sys, "_MEIPASS"), "downbeat")
+        root = os.path.dirname(os.path.abspath(sys.executable))
+        default_out = os.path.join(os.path.expanduser("~"), "Movies" if sys.platform == "darwin" else "Videos", "Downbeat")
+    else:
+        pkg = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        root = os.path.dirname(pkg)
+        default_out = os.path.join(root, "out")
+    out = os.environ.get("DOWNBEAT_OUT_DIR") or default_out
+    studio = os.path.join(pkg, "studio")
+    return pkg, root, out, studio, os.path.join(studio, "dist")
+
+
+PACKAGE_DIR, PROJECT_ROOT, OUT_DIR, STUDIO_DIR, STUDIO_DIST_DIR = _default_paths()
 RAW_SESSION_IDLE_SECONDS = 15 * 60
 MAX_RAW_SESSIONS = 4
 _HIDDEN_LOCK = threading.Lock()
@@ -121,7 +131,7 @@ class StudioState:
         payload = {"clips": clip_payloads(clips, self.library.uploads, folders, self.proxies.status)}
         if not clips_only:
             payload.update(tracks=[t.to_dict() for t in tracks], renders=renders,
-                           folders=folders, can_pick=sys.platform == "darwin")
+                           folders=folders, can_pick=sys.platform in ("darwin", "win32"))
         return payload
 
     def begin_shutdown(self) -> list[str]:
@@ -298,7 +308,7 @@ class StudioState:
         except OSError:
             proxy = None
         if proxy and os.path.isfile(proxy):
-            os.remove(proxy)
+            remove_file(proxy)
         path = os.path.abspath(src.path)
         if os.path.dirname(path) == os.path.abspath(os.path.join(OUT_DIR, "uploads")):
             doomed = [path]
@@ -307,7 +317,7 @@ class StudioState:
                 doomed += [p for p in glob.glob(glob.escape(stem) + ".*") if os.path.splitext(p)[1].lower() in IMAGE_EXTS]
             for p in doomed:
                 if os.path.isfile(p):
-                    os.remove(p)
+                    remove_file(p)
             return True
         with _HIDDEN_LOCK:
             hidden = _hidden_clips()
@@ -365,12 +375,19 @@ class StudioState:
         if os.path.splitext(name)[1].lower() not in (".mp4", ".mov") or not os.path.isfile(path):
             raise FileNotFoundError(name)
         targets = self._export_files(path)
-        for p in targets:
-            os.remove(p)
+        self._remove_all(targets)
         self.projects.delete_export_edit(name)
         with self.lock:
             self.renders = [r for r in self.renders if r.get("filename") != name]
         return [os.path.basename(p) for p in targets]
+
+    @staticmethod
+    def _remove_all(targets: list[str]) -> None:
+        """Delete an export's files, the export itself last: if one is in use and can't go, the export
+        stays listed, and deleting it again finishes the job."""
+        for p in targets[1:] + targets[:1]:
+            if os.path.isfile(p):
+                remove_file(p)
 
     @staticmethod
     def _export_files(path: str) -> list[str]:
@@ -387,8 +404,7 @@ class StudioState:
         if os.path.splitext(name)[1].lower() not in (".mp4", ".mov"):
             return []
         targets = self._export_files(os.path.join(OUT_DIR, name))
-        for p in targets:
-            os.remove(p)
+        self._remove_all(targets)
         self.projects.delete_export_edit(name)
         with self.lock:
             self.renders = [r for r in self.renders if r.get("filename") != name]

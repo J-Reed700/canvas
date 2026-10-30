@@ -391,6 +391,13 @@ class TestExportPipeline(TempDirCase):
         delta = np.abs(frame[-80:].astype(np.int16) - base[-80:].astype(np.int16)).mean()
         self.assertGreater(delta, 5.0, "the title card visibly changes the bottom of the promo")
 
+        # cv2.imwrite can't write into a folder like this one on Windows; the card is written another way.
+        accented = os.path.join(self.tmp, "José 音楽", "promo-card.mp4")
+        os.makedirs(os.path.dirname(accented), exist_ok=True)
+        delivery.mux_promo(loop, self._sine_wav(10), accented, 1.0, 3, promo_title="New Single")
+        self.assertEqual(_video(_ffprobe(accented))["codec_name"], "h264")
+        self.assertEqual(os.listdir(os.path.dirname(accented)), ["promo-card.mp4"], "the title card image is cleaned up")
+
     def test_apple_formats_repeat_whole_loops_and_check_their_own_spec(self) -> None:
         dest = self._silent_loop("apple.mp4", "240x320", 4)
         result = delivery.deliver(dest, self._sine_wav(10), 0.0, 4.0, {"seam_ratio": 0.8, "max_flashes_per_sec": 0},

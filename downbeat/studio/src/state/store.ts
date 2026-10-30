@@ -295,7 +295,7 @@ export function createStudioRuntime(options: StudioOptions = {}) {
       s.rebuild();
     },
 
-    applyLook: (l: Look) => {
+    applyLook: (l: Look, opts: { keepEdit?: boolean } = {}) => {
       const s = get();
       if (!s.look) return;
       if (s.editBlock && s.ctx?.tl.segs.some((seg) => seg.id === s.editBlock)) {
@@ -313,13 +313,14 @@ export function createStudioRuntime(options: StudioOptions = {}) {
         history.rememberLook(l);
         const nextClipLooks = { ...s.clipLooks, [s.editClip]: cloneLook(l) };
         set({ clipLooks: nextClipLooks });
+        s.engine?.main?.reset();
         s.touch();
         s.rebuild();
         s.save();
         toast(`Clip ${no} → ${l.name}`);
         return;
       }
-      s.setLook(l);
+      s.setLook(l, opts);
       toast(l.name);
     },
 
@@ -330,7 +331,6 @@ export function createStudioRuntime(options: StudioOptions = {}) {
       const i = all.findIndex((l) => l.id === id);
       const l = all[(i + d + all.length) % all.length];
       s.applyLook(l);
-      toast(l.name);
     },
 
     surprise: () => roll.surprise(),
@@ -375,18 +375,20 @@ export function createStudioRuntime(options: StudioOptions = {}) {
 
         if (token !== trackTokenVal) return;
 
-        const savedOk = (initial || keepLoop) && s.loopStart >= 0 && s.loopStart < (feats.duration || 60) - 3;
-        let nextLoopStart = s.loopStart;
-        let nextBars = s.bars;
+        // Read the loop now, not from before the await: it may have been moved while the analysis ran.
+        const { loopStart, bars } = get();
+        const savedOk = (initial || keepLoop) && loopStart >= 0 && loopStart < (feats.duration || 60) - 3;
+        let nextLoopStart = loopStart;
+        let nextBars = bars;
 
         if (keepLoop) {
-          nextBars = feats.loop_bars || s.bars;
+          nextBars = feats.loop_bars || bars;
           // blocks are placed in beats, so they keep their places at a new tempo, but not in a new loop length
-          if (nextBars !== s.bars) set({ blocks: null });
+          if (nextBars !== bars) set({ blocks: null });
         }
         if (savedOk && keepLoop && feats.downbeats?.length) {
           nextLoopStart = feats.downbeats.reduce(
-            (a, d) => (Math.abs(d - s.loopStart) < Math.abs(a - s.loopStart) ? d : a),
+            (a, d) => (Math.abs(d - loopStart) < Math.abs(a - loopStart) ? d : a),
             feats.downbeats[0],
           );
         }
@@ -484,14 +486,18 @@ export function createStudioRuntime(options: StudioOptions = {}) {
       s.rebuild();
     },
 
-    editClipLook: (id: string | null) => {
+    editClipLook: (id: string | null, { tab = 'layers' }: { tab?: 'looks' | 'layers' | 'edit' } = {}) => {
       const s = get();
+      if (id && !s.selected.includes(id)) return;
       if (id && s.clipMode !== 'custom') s.setClipMode('custom');
-      const nextClipLooks = { ...s.clipLooks };
-      if (id && !nextClipLooks[id] && s.look) {
-        nextClipLooks[id] = cloneLook(s.look);
+      // Changing modes materializes generated looks. Read the new state so opening one
+      // clip preserves its look and the looks that were just kept for the other clips.
+      const current = get();
+      const nextClipLooks = { ...current.clipLooks };
+      if (id && !nextClipLooks[id] && current.look) {
+        nextClipLooks[id] = cloneLook(current.look);
       }
-      set({ editClip: id, editBlock: null, clipLooks: nextClipLooks, tab: 'layers' });
+      set({ editClip: id, editBlock: null, clipLooks: nextClipLooks, tab });
       s.touch();
       s.save();
     },

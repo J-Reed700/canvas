@@ -199,11 +199,18 @@ export const ExportsLibrary: React.FC = () => {
           <ArmedButton
             className="sm del"
             onConfirm={async () => {
+              const kept: RenderRecord[] = [];
+              let reason = '';
               for (const r of renders) {
-                await postJSON('/api/export/delete', { filename: r.filename });
+                const res = await postJSON('/api/export/delete', { filename: r.filename });
+                if (!res.ok) {
+                  kept.push(r);
+                  reason ||= res.error || '';
+                }
               }
-              store.setState({ renders: [], libraryItem: null });
-              toast('Deleted all exports');
+              // An export that couldn't be deleted stays listed, so the list still matches out/.
+              store.setState({ renders: kept, libraryItem: null });
+              toast(kept.length ? `Deleted ${renders.length - kept.length} of ${renders.length} exports. ${reason}`.trim() : 'Deleted all exports');
             }}
             label="Delete all"
             armedLabel="Delete all?"

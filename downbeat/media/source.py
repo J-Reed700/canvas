@@ -11,6 +11,7 @@ import cv2
 import numpy as np
 
 from .._cache import BoundedCache, file_version
+from ..server.storage import remove_file, replace_file
 from . import file_id
 
 
@@ -58,11 +59,11 @@ def still_to_clip(path: str) -> str:
         res = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
         if res.returncode != 0 or os.path.getsize(tmp) == 0:
             raise RuntimeError(f"could not read image: {res.stderr.strip()[-200:] or 'ffmpeg failed'}")
-        os.replace(tmp, dest)
+        replace_file(tmp, dest)
         return dest
     finally:
         if os.path.exists(tmp):
-            os.remove(tmp)
+            remove_file(tmp)
 
 
 def video_to_mp4(path: str, timeout: float = 900) -> str:
@@ -100,7 +101,7 @@ def video_to_mp4(path: str, timeout: float = 900) -> str:
                 dest, n = f"{base}-{n}.mp4", n + 1
     finally:
         if os.path.exists(tmp):
-            os.remove(tmp)
+            remove_file(tmp)
 
 
 def probe(path: str) -> Source:

@@ -11,6 +11,7 @@ import threading
 import uuid
 from typing import Any
 
+from ..server.storage import remove_file, replace_file
 from .encoder import ffmpeg_path, video_codec_args
 from .source import Source
 
@@ -175,7 +176,7 @@ class ProxyManager:
             with self._lock:
                 if self._closed:
                     raise RuntimeError("proxy manager shut down")
-                os.replace(tmp, dest)
+                replace_file(tmp, dest)
         finally:
             try:
                 if proc and (not hasattr(proc, "poll") or proc.poll() is None):
@@ -192,4 +193,4 @@ class ProxyManager:
                     if self._proc is proc:
                         self._proc = None
                 if os.path.exists(tmp):
-                    os.remove(tmp)
+                    remove_file(tmp)

@@ -46,9 +46,12 @@ export function createRollController(store: StudioStore, rememberLook: (look: Lo
 
   function surprise() {
     surpriseSeedVal = (surpriseSeedVal + 1) % 1e6;
-    const l = randomLook(surpriseSeedVal, store.getState().rollStyle);
-    store.getState().applyLook(l);
-    toast(`Surprise: ${l.name}`);
+    const s = store.getState();
+    const l = randomLook(surpriseSeedVal, s.rollStyle);
+    const t = remixTarget(s);
+    const where = t.kind === 'segment' ? ` · Seg ${t.segNo}` : t.kind === 'clip' ? ` · Clip ${t.clipNo}` : '';
+    s.applyLook(l);
+    toast(`Surprise: ${l.name}${where}`);
   }
 
   function rollClips() {

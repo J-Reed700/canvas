@@ -194,6 +194,23 @@ describe('exports browser', () => {
     expect(cards()).toHaveLength(4);
   });
 
+  test('Delete all keeps any export the server could not delete, and says why', async () => {
+    const fetch = serve({
+      'POST /api/export/delete': (_url: string, init: RequestInit) =>
+        JSON.parse(String(init.body)).filename === MIXED[1].filename
+          ? new Response(JSON.stringify({ ok: false, error: 'It is open in another program.' }), { status: 409 })
+          : { ok: true, removed: [] },
+    });
+    resetStudio({ renders: MIXED.slice(0, 3), libraryOpen: true });
+    renderStudio(<ExportsLibrary />);
+    fireEvent.click(screen.getByText('Delete all'));
+    fireEvent.click(screen.getByText('Delete all?'));
+    await waitFor(() => expect(toastText()).toBe('Deleted 2 of 3 exports. It is open in another program.'));
+    expect(posted(fetch, '/api/export/delete')).toHaveLength(3);
+    expect(st().renders.map((r) => r.filename)).toEqual([MIXED[1].filename]);
+    expect(cards()).toHaveLength(1);
+  });
+
   test('clicking outside the dialog closes it', () => {
     resetStudio({ renders: MIXED, libraryOpen: true });
     renderStudio(<ExportsLibrary />);

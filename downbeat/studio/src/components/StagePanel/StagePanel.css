@@ -31,7 +31,7 @@
   align-items: center;
   gap: 12px;
   min-width: 0;
-  height: 42px;
+  min-height: 42px;
   padding: 0 9px 0 12px;
   border-bottom: 1px solid var(--tl-border);
   background: #18191c;
@@ -97,6 +97,8 @@
 }
 
 .timeline.tl-panel #rhythmSeg::-webkit-scrollbar,
+.timeline.tl-panel .tl-loop-control::-webkit-scrollbar,
+.timeline.tl-panel .loopchips::-webkit-scrollbar,
 .timeline.tl-panel .tl-tools::-webkit-scrollbar {
   display: none;
 }
@@ -234,9 +236,9 @@
 
 @container tl (max-width: 720px) {
   .timeline.tl-panel .tl-head {
-    height: 64px;
+    min-height: 64px;
     grid-template-columns: 105px minmax(0, 1fr);
-    grid-template-rows: 24px 24px;
+    grid-template-rows: minmax(24px, auto) minmax(24px, auto);
     gap: 4px 8px;
     padding-top: 6px;
     padding-bottom: 6px;
@@ -244,6 +246,7 @@
 
   .timeline.tl-panel .loopchips {
     overflow-x: auto;
+    scrollbar-width: none;
     flex: 0 1 auto;
   }
 

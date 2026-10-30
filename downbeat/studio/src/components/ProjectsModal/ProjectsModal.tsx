@@ -85,11 +85,18 @@ export const ProjectsModal: React.FC = () => {
   // Opening a project or starting a new one replaces an edit that isn't in a project, so that asks first.
   const [confirm, setConfirm] = useState<{ what: string; run: () => Promise<unknown> } | null>(null);
 
+  const [wasOpen, setWasOpen] = useState(false);
+  if (open !== wasOpen) {
+    setWasOpen(open);
+    if (open) {
+      setName('');
+      setQ('');
+      setConfirm(null);
+    }
+  }
+
   useEffect(() => {
     if (!open) return;
-    setName('');
-    setQ('');
-    setConfirm(null);
     void projectController.refreshProjects();
   }, [open, projectController]);
 
@@ -105,7 +112,7 @@ export const ProjectsModal: React.FC = () => {
   };
   const replace = (what: string, run: () => Promise<unknown>) => (project ? go(run) : setConfirm({ what, run }));
   const suggestion = project ? `${project.name} copy` : [songName(tracks, trackId), lookName].filter(Boolean).join(' · ') || 'Untitled';
-  const save = () => go(() => projectController.saveAs(name.trim() || suggestion));
+  const save = (rawName: string) => go(() => projectController.saveAs(rawName.trim() || suggestion));
   const words = q.toLowerCase().split(/\s+/).filter(Boolean);
   const shown = projects.filter((p) => words.every((w) => `${p.name} ${metaOf(p, tracks)}`.toLowerCase().includes(w)));
 
@@ -139,7 +146,7 @@ export const ProjectsModal: React.FC = () => {
           className="proj-save"
           onSubmit={(e) => {
             e.preventDefault();
-            void save();
+            void save((e.currentTarget.elements[0] as HTMLInputElement).value);
           }}
         >
           <input

@@ -351,7 +351,8 @@ class TestExportFrames(TempDirCase):
         with self.assertRaisesRegex(RuntimeError, r"^ffprobe could not read bad\.mp4: .+"):
             frames.clip_info(bad)
         clip = self.ramp("ok.mp4", 8)
-        with mock.patch.object(frames, "ffmpeg_path", return_value="false"):
+        frames.clip_info(clip)
+        with mock.patch.object(frames.subprocess, "run", return_value=subprocess.CompletedProcess([], 1, b"", b"")):
             with self.assertRaisesRegex(RuntimeError, r"ffmpeg could not decode frames 2-7: no frames came out"):
                 frames.read_frames(clip, 2, 30)
 

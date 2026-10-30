@@ -10,6 +10,7 @@ import tempfile
 from typing import Any
 
 from .media.encoder import ENCODE_TIMEOUT, Encoder, ffmpeg_path, ffprobe_path, mux_audio_preview
+from .server.storage import remove_file
 
 # Spotify for Artists "Canvas" upload requirements (support.spotify.com, 2026).
 SPEC = {"min_seconds": 3.0, "max_seconds": 8.0, "aspect": 9 / 16, "min_height": 720, "listed_max_height": 1080}
@@ -44,7 +45,7 @@ def _run(cmd: list[str], *outputs: str, timeout: float = ENCODE_TIMEOUT) -> subp
     except Exception:
         for path in outputs:
             if path and os.path.exists(path):
-                os.remove(path)
+                remove_file(path)
         raise
 
 
@@ -52,7 +53,7 @@ def mux_annexb(h264_path: str, dest: str, fps: int) -> None:
     # Raw H.264 carries no reliable timestamps (the raw demuxer drifts after ~50 frames on
     # WebCodecs streams), so stamp every packet explicitly: frame N at N/fps, one frame long.
     # Safe because WebCodecs H.264 output has no B-frames (decode order == display order).
-    stamps = f"setts=pts=N/({fps}*TB):dts=N/({fps}*TB):duration=1/({fps}*TB)"
+    stamps = f"h264_metadata=video_full_range_flag=0,setts=pts=N/({fps}*TB):dts=N/({fps}*TB):duration=1/({fps}*TB)"
     try:
         _run(
             [
@@ -217,7 +218,7 @@ class ChunkSession(_ExportSession):
         finally:
             self.closed = True
             if os.path.exists(self.tmp):
-                os.remove(self.tmp)
+                remove_file(self.tmp)
 
     def abort(self) -> None:
         if not self.file.closed:
@@ -225,7 +226,7 @@ class ChunkSession(_ExportSession):
         self.closed = True
         for path in (self.tmp, self.dest):
             if path and os.path.exists(path):
-                os.remove(path)
+                remove_file(path)
 
 
 def _atom_order(path: str) -> list[str]:
@@ -391,7 +392,7 @@ def verify(path: str, stats: dict | None = None, fmt: str = "spotify") -> list[d
     codec_name = str(video.get("codec_name") or "")
     profile = str(video.get("profile") or "")
     pix_fmt = str(video.get("pix_fmt") or "")
-    is_h264 = codec_name == "h264" and pix_fmt == "yuv420p"
+    is_h264 = codec_name == "h264" and pix_fmt in ("yuv420p", "yuvj420p")
     is_prores_hq = codec_name == "prores" and ("HQ" in profile.upper() or video.get("codec_tag_string") == "apch")
     is_prores_4444 = codec_name == "prores" and ("4444" in profile or video.get("codec_tag_string") in ("ap4h", "ap4x"))
     apple_format = fmt in ("apple_tall", "apple_square")
@@ -592,8 +593,12 @@ def _promo_overlay(dest: str, width: int, height: int, title: str, out_now: bool
             small = max(0.45, scale * 0.52)
             cv2.putText(overlay, label, (2 * margin, top + max(30, round(card_h * 0.28))), font, small,
                         (110, 220, 255, 255), max(1, round(small * 2)), cv2.LINE_AA)
-        if not cv2.imwrite(path, overlay):
+        # Encoded here and written by Python: cv2.imwrite can't open paths with non-ASCII characters on Windows.
+        ok, png = cv2.imencode(".png", overlay)
+        if not ok:
             raise RuntimeError("Could not create the social promo title card")
+        with open(path, "wb") as f:
+            f.write(png.tobytes())
         return path
     except Exception:
         if os.path.exists(path):

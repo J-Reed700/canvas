@@ -1,7 +1,7 @@
 import './ExportSheet.css';
 import { useStudioStore, useStudioApi, useStudioRuntime } from '../../state/StudioContext.tsx';
 import React, { useRef, useMemo } from 'react';
-import { FORMATS, SIZES, fmt, fmtLength, siblingTracks, sourceLabel, toast } from '../../lib/utils.ts';
+import { FORMATS, SIZES, fmt, fmtLength, lastPart, siblingTracks, sourceLabel, toast } from '../../lib/utils.ts';
 
 export const ExportSheet: React.FC = () => {
   const store = useStudioApi();
@@ -26,7 +26,7 @@ export const ExportSheet: React.FC = () => {
 
   const batchTracks = useMemo(() => siblingTracks(tracks, trackId), [tracks, trackId]);
   const batchCur = tracks.find((t) => t.id === trackId);
-  const batchFolder = batchCur?.dir ? batchCur.dir.split('/').pop() : sourceLabel(batchCur?.source);
+  const batchFolder = batchCur?.dir ? lastPart(batchCur.dir) : sourceLabel(batchCur?.source);
 
   const currentFormat = exportOpts.format || 'spotify';
   const isSpotify = currentFormat === 'spotify';

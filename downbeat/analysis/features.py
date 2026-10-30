@@ -12,6 +12,7 @@ from .audio import (
     SR,
     _band,
     _beat_envelope,
+    _by_rows,
     _bpm_from_name,
     _decode_pcm,
     _flux,
@@ -75,8 +76,8 @@ def _track_features(path: str, bpm_override: float | None) -> dict:
     bass_e = _band(mag, freqs, *BANDS["bass"])
     snare_e = _band(mag, freqs, *BANDS["snare"])
     hats_e = _band(mag, freqs, *BANDS["hats"])
-    total = np.log1p(np.sqrt((mag * mag).mean(axis=1)) * 10.0)
-    centroid = (mag * freqs[None, :]).sum(axis=1) / np.maximum(1e-9, mag.sum(axis=1))
+    total = np.log1p(_by_rows(lambda m: np.sqrt((m * m).mean(axis=1)), mag) * 10.0)
+    centroid = _by_rows(lambda m: (m * freqs[None, :]).sum(axis=1) / np.maximum(1e-9, m.sum(axis=1)), mag)
 
     vocal_mask = (freqs >= 220.0) & (freqs <= 3200.0)
     vocal_mag = mag[:, vocal_mask]
@@ -119,7 +120,7 @@ def _track_features(path: str, bpm_override: float | None) -> dict:
     if bpm_override is not None:
         bpm = float(min(220.0, max(40.0, bpm_override)))
     else:
-        bpm = float(named_bpm) if named_bpm else estimate_bpm(y)
+        bpm = float(named_bpm) if named_bpm else (prof.tempo or estimate_bpm(y))
     phase = _fold(mixed, t_env, bpm)[1]
     period = 60.0 / bpm
     kt = t_env

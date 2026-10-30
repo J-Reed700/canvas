@@ -2,9 +2,12 @@
 from __future__ import annotations
 
 import colorsys
+import os
 
 import cv2
 import numpy as np
+
+from ..media.source import IMAGE_EXTS
 
 SAMPLES = 8
 WORK_WIDTH = 480
@@ -84,8 +87,12 @@ def extract_palette(path: str, k: int = 5) -> dict:
     """Extract release color palette, gradient, and primary hue."""
     pairs = _sample_pairs(path)
     frames = [p[0] for p in pairs[:4]] if pairs else []
-    if not frames:
-        still = cv2.imread(path)
+    if not frames and os.path.splitext(path)[1].lower() in IMAGE_EXTS:
+        # Read by Python and decoded here: cv2.imread can't open paths with non-ASCII characters on Windows.
+        try:
+            still = cv2.imdecode(np.fromfile(path, dtype=np.uint8), cv2.IMREAD_COLOR)
+        except (OSError, ValueError, cv2.error):
+            still = None
         if still is not None:
             frames = [still]
     if not frames:

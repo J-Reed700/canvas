@@ -28,8 +28,13 @@ isolation, test timeouts and coverage thresholds remain enforced.
 The performance gate also runs two garbage-collection regressions. Retired render contexts must be
 collectible while the current preview remains active, for both main-look and per-clip editing modes.
 
-`.github/workflows/quality.yml` runs the same gate on Ubuntu. That workflow has been added locally;
-a successful local run does not imply that a GitHub-hosted run has already executed.
+`.github/workflows/quality.yml` runs the same gate on Ubuntu and on Windows. Windows has its own
+file locking, path separators, process handling and ANGLE backend, and the browser suite only ran on
+macOS and Linux before; its first Windows run found folder labels that showed whole C:\ paths.
+The browser test files run one at a time: in parallel, two software-rendered GPU tests and the exports
+compete for the CPU, and load waits become a measure of the machine rather than of the studio.
+The harness reads large page results in slices, because Node's WebSocket client drops a compressed
+message over 4 MiB.
 Actions are pinned to commits resolved from their v7 tags. Inputs follow the official
 [checkout](https://github.com/actions/checkout), [setup-node](https://github.com/actions/setup-node),
 [setup-python](https://github.com/actions/setup-python) and

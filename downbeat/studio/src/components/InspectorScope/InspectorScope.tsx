@@ -43,7 +43,7 @@ export const InspectorScope: React.FC = () => {
       </div>
       <div className="scope-choices" role="group" aria-label="Apply effects to">
         <button type="button" title="Only the selected block on the timeline" aria-pressed={scope === 'segment'} disabled={!seg || s.exporting} onClick={() => seg && s.editBlockLook(seg.id)}>This appearance</button>
-        <button type="button" title={`Every appearance of source clip ${clipNo}`} aria-pressed={scope === 'clip'} disabled={!clipId || s.exporting} onClick={() => { s.editClipLook(clipId); s.setTab(s.tab); }}>All uses</button>
+        <button type="button" title={`Every appearance of source clip ${clipNo}`} aria-pressed={scope === 'clip'} disabled={!clipId || s.exporting} onClick={() => s.editClipLook(clipId, { tab: s.tab })}>All uses</button>
         <button type="button" aria-pressed={scope === 'main'} disabled={s.exporting} onClick={() => s.editBlockLook(null)}>Whole edit</button>
       </div>
       <div className="scope-foot" aria-live="polite">

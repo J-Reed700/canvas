@@ -7,11 +7,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { ROOT, sleep, python, missing, freePort, writeSong, makeClip, openBrowser } from '../browserHarness.mjs';
+import { ROOT, sleep, python, missing, freePort, writeSong, makeClip, openBrowser, removeDir, homeEnv, stopProcess } from '../browserHarness.mjs';
 
 if (process.env.DOWNBEAT_REQUIRE_E2E === '1' && missing.length) {
   throw new Error(`The quality gate requires ${missing.join(', ')}`);
@@ -65,16 +65,14 @@ test('the studio works end to end in a real browser', { skip: missing.length ? `
     'state.STATE = app.STATE = state.StudioState()',
     'app.serve_studio(port=int(sys.argv[2]), open_browser=False)',
   ].join('\n');
-  const server = spawn(python, ['-c', launcher, out, String(port)], { cwd: ROOT, env: { ...process.env, HOME: home }, stdio: ['ignore', 'ignore', 'pipe'] });
+  const server = spawn(python, ['-c', launcher, out, String(port)], { cwd: ROOT, env: homeEnv(home), stdio: ['ignore', 'ignore', 'pipe'] });
   let serverErr = '';
   server.stderr.on('data', (d) => { serverErr += d; });
   let browser;
   t.after(async () => {
-    browser?.ws.close();
-    browser?.proc.kill();
-    server.kill();
-    await sleep(300);
-    rmSync(tmp, { recursive: true, force: true });
+    await browser?.close();
+    await stopProcess(server);
+    await removeDir(tmp);
   });
   browser = await openBrowser(join(tmp, 'chrome'));
   for (let i = 0; ; i++) {
@@ -105,6 +103,7 @@ test('the studio works end to end in a real browser', { skip: missing.length ? `
           }
           return { hidden: document.hidden, viewport: [innerWidth, innerHeight],
             tab: state?.tab, exporting: state?.exporting, lastOut: !!state?.engine?.lastOut,
+            project: state?.project, projectsOpen: state?.projectsOpen, projectSync: state?.projectSync,
             contextLost: state?.engine?.gl.isContextLost(), scopeMode: document.querySelector('.scope-toolbar button.on')?.textContent,
             ancestors };
         `).catch((error) => ({ error: error.message }));
@@ -238,6 +237,40 @@ test('the studio works end to end in a real browser', { skip: missing.length ? `
     await until(() => !$('.lib-view') && $('.clip-card'), 2000, 'the grid');
     key('Escape');
     await until(() => !S.getState().clipsOpen, 2000, 'the browser to close');
+  `);
+
+  await step('Looks keeps generated clip effects and applies every look control to the selected target', `
+    const initial = S.getState().snapshot();
+    try {
+      S.getState().setClipMode('cycle');
+      S.getState().setTab('looks');
+      const clips = S.getState().selected;
+      const clip = clips[1];
+      const seg = S.getState().ctx.tl.segs.find((x) => x.clipId === clip);
+      S.getState().selectBlock(seg.id);
+      const before = clips.map((id) => JSON.stringify(S.getState().clipLookOf(id)));
+      const main = JSON.stringify(S.getState().look);
+      await until(() => $('#pane-looks') && $('.scope-target-copy').textContent.includes('Segment ' + (seg.i + 1)), 5000, 'segment scope');
+      await tap(byText('.scope-choices button', 'All uses'));
+      await until(() => S.getState().editClip === clip && $('#pane-looks'), 2000, 'clip looks');
+      if (clips.some((id, i) => JSON.stringify(S.getState().clipLookOf(id)) !== before[i])) throw new Error('opening a clip changed the composition');
+      const selected = $('[data-look-id="' + S.getState().clipLookOf(clip).id + '"]');
+      if (selected?.getAttribute('aria-pressed') !== 'true') throw new Error('the clip look is not highlighted');
+      await tap($('[data-look-id="thermal"]'));
+      if (S.getState().clipLooks[clip].id !== 'thermal') throw new Error('look applied to the wrong target');
+      key('ArrowRight');
+      await sleep(0);
+      if (S.getState().clipLooks[clip].id !== 'halftone') throw new Error('arrow shortcut changed the wrong look');
+      await tap($('#btnSurprise'));
+      await tap($('#btnVariations'));
+      const variation = await until(() => $('#vars .look'), 2000, 'clip variations');
+      if (!$('#varSub').textContent.startsWith('Clip 2')) throw new Error('variations lost the clip target');
+      await tap(variation);
+      if (JSON.stringify(S.getState().look) !== main) throw new Error('a clip look control changed the shared look');
+      if (JSON.stringify(S.getState().clipLookOf(clips[0])) !== before[0]) throw new Error('a clip look control changed another clip');
+      await tap(byText('.scope-choices button', 'Whole edit'));
+      if (S.getState().editClip !== null || !$('#pane-looks')) throw new Error('Whole edit left the gallery');
+    } finally { S.getState().applySnapshot(initial); }
   `);
 
   await step('every effect, transition and render pass compiles on this GPU', `
@@ -616,10 +649,11 @@ test('the studio works end to end in a real browser', { skip: missing.length ? `
   await step('saves the edit as a project, which keeps saving itself, and opens it again after a new one', `
     key('Escape');
     window.dispatchEvent(new KeyboardEvent('keydown', { key: 's', metaKey: true, bubbles: true }));
-    const name = await until(() => $('#projectsModal input[aria-label="Project name"]'), 2000, 'Projects to ask for a name');
+    const name = await until(() => $('#projectsModal input[aria-label="Project name"]'), 5000, 'Projects to ask for a name');
     setRange(name, 'E2E project');
+    await sleep(0);
     await tap(byText('#projectsModal button', 'Save as project'));
-    await until(() => S.getState().project?.name === 'E2E project' && !S.getState().projectsOpen, 5000, 'the project to save');
+    await until(() => S.getState().project?.name === 'E2E project' && !S.getState().projectsOpen, 15000, 'the project to save');
     if ($('#btnProjects .proj-name').textContent !== 'E2E project') throw new Error('top bar: ' + $('#btnProjects').textContent);
     const id = S.getState().project.id;
     const look = S.getState().look.name;
@@ -628,17 +662,17 @@ test('the studio works end to end in a real browser', { skip: missing.length ? `
     byText('#pane-edit .seg button', '4 bars').click();
     const file = async () => (await (await fetch('/api/projects/' + id)).json()).project;
     // the autosave lands a moment after the change
-    for (let i = 0; i < 50 && (await file()).data.bars !== 4; i++) await sleep(100);
+    for (let i = 0; i < 100 && (await file()).data.bars !== 4; i++) await sleep(100);
     if ((await file()).data.bars !== 4) throw new Error('the project file has ' + (await file()).data.bars + ' bars');
 
     await tap($('#btnProjects'));
-    await tap(await until(() => byText('#projectsModal button', 'New project'), 2000, 'New project'));
-    await until(() => S.getState().project === null && !S.getState().projectsOpen, 5000, 'a new edit');
+    await tap(await until(() => byText('#projectsModal button', 'New project'), 5000, 'New project'));
+    await until(() => S.getState().project === null && !S.getState().projectsOpen, 15000, 'a new edit');
     window.dispatchEvent(new KeyboardEvent('keydown', { key: 'o', metaKey: true, bubbles: true }));
-    await tap(await until(() => $('#projectsModal .proj-open[title="Open E2E project"]'), 2000, 'the project in the list'));
+    await tap(await until(() => $('#projectsModal .proj-open[title="Open E2E project"]'), 5000, 'the project in the list'));
     // the new edit isn't saved, so opening asks first
-    await tap(await until(() => byText('.proj-confirm button', 'Replace it'), 2000, 'the confirmation'));
-    await until(() => S.getState().project?.id === id && S.getState().bars === 4 && S.getState().look.name === look, 10000, 'the project to open');
+    await tap(await until(() => byText('.proj-confirm button', 'Replace it'), 5000, 'the confirmation'));
+    await until(() => S.getState().project?.id === id && S.getState().bars === 4 && S.getState().look.name === look, 15000, 'the project to open');
     window.__project = id;
   `);
 

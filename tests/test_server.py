@@ -67,7 +67,8 @@ class _ServerCase(unittest.TestCase):
             os.makedirs(d)
         cls.prepare()
         cls._patches = [
-            mock.patch.dict(os.environ, {"HOME": cls.home}),
+            # Windows finds ~ through USERPROFILE, so both point at the temp home.
+            mock.patch.dict(os.environ, {"HOME": cls.home, "USERPROFILE": cls.home}),
             mock.patch.object(state_mod, "OUT_DIR", cls.out),
             mock.patch.object(server_mod, "OUT_DIR", cls.out),
         ]
@@ -221,7 +222,7 @@ class TestServerRouting(_ServerCase):
         status, data = self.get_json("/api/state")
         self.assertEqual((status, sorted(data)), (200, ["can_pick", "clips", "folders", "renders", "tracks"]))
         self.assertEqual((data["clips"], data["tracks"], data["folders"]), ([], [], []))
-        self.assertEqual(data["can_pick"], sys.platform == "darwin")
+        self.assertEqual(data["can_pick"], sys.platform in ("darwin", "win32"))
         self.assertEqual(self.get_json("/api/state?only=clips"), (200, {"clips": []}))
 
     def test_unknown_ids_are_404(self) -> None:
@@ -276,6 +277,41 @@ class TestServerRouting(_ServerCase):
         self.assertEqual(sorted(data["removed"]), sorted(stem + s for s in (".mp4", "-audio.mp4", "-promo-15s.mp4", "-teaser.gif")))
         self.assertFalse(any(n.startswith(stem) for n in os.listdir(self.out)))
         self.assertNotIn(stem + ".mp4", [r["filename"] for r in self.get_json("/api/state")[1]["renders"]])
+
+    def test_an_export_another_program_has_open_stays_listed_until_it_can_go(self) -> None:
+        stem = "canvas-busy-120bpm-4.0s-720x1280-20261023-120000"
+        for suffix in (".mp4", "-audio.mp4"):
+            with open(os.path.join(self.out, stem + suffix), "wb") as f:
+                f.write(b"x")
+        with self.state.lock:
+            self.state._renders.insert(0, {"filename": stem + ".mp4"})
+
+        def in_use(path):
+            if path.endswith(stem + ".mp4"):
+                raise PermissionError(13, "The process cannot access the file", path)
+            os.remove(path)
+
+        with mock.patch.object(state_mod, "remove_file", side_effect=in_use):
+            status, data = self.post_json("/api/export/delete", {"filename": stem + ".mp4"})
+        self.assertEqual((status, data["ok"]), (409, False))
+        self.assertEqual(data["error"], f"{stem}.mp4 is open in another program. Close it and delete again.")
+        self.assertFalse(os.path.exists(os.path.join(self.out, stem + "-audio.mp4")), "companions go first")
+        self.assertIn(stem + ".mp4", [r["filename"] for r in self.get_json("/api/state")[1]["renders"]])
+        self.assertEqual(self.post_json("/api/export/delete", {"filename": stem + ".mp4"}),
+                         (200, {"ok": True, "removed": [stem + ".mp4"]}), "deleting again finishes the job")
+
+    def test_an_unexpected_failure_is_answered_and_the_server_keeps_going(self) -> None:
+        with mock.patch.object(self.state.library, "add_folder", side_effect=NotADirectoryError("not a folder")), \
+                contextlib.redirect_stderr(io.StringIO()) as log:
+            self.assertEqual(self.post_json("/api/library/folders", {"add": self.videos}),
+                             (500, {"ok": False, "error": "not a folder"}))
+        self.assertIn("NotADirectoryError", log.getvalue(), "the traceback is still logged")
+        self.assertEqual(self.get_json("/api/status")[0], 200)
+
+    def test_a_second_server_cannot_take_a_port_that_is_in_use(self) -> None:
+        # On Windows SO_REUSEADDR used to let both bind, so they split requests and the fallback never moved on.
+        with self.assertRaises(OSError):
+            server_mod.ReusableThreadingHTTPServer(("127.0.0.1", self.port), server_mod.StudioHandler).server_close()
 
     def test_projects_can_be_saved_listed_opened_renamed_and_deleted(self) -> None:
         edit = {"selected": ["a", "b"], "look": {"name": "Neon Tide", "layers": []}, "bars": 4}
@@ -458,10 +494,10 @@ class TestServerRouting(_ServerCase):
         self.addCleanup(self.post_json, "/api/library/folders", {"remove": music})
         self.assertEqual(self.get_json("/api/tracks")[1]["suggestions"], [])
 
-    @unittest.skipIf(sys.platform == "darwin", "on macOS this opens the folder chooser")
     def test_folder_chooser_needs_macos(self) -> None:
-        status, data = self.post_json("/api/library/pick_folder")
-        self.assertEqual((status, data["ok"]), (501, False))
+        with mock.patch.object(server_mod.sys, "platform", "linux"):
+            status, data = self.post_json("/api/library/pick_folder")
+            self.assertEqual((status, data["ok"]), (501, False))
 
     def test_reveal_only_looks_inside_out(self) -> None:
         status, data = self.post_json("/api/reveal", {"filename": "../../etc/missing-file.mp4"})
@@ -474,6 +510,9 @@ class TestServerRouting(_ServerCase):
         with mock.patch.object(server_mod.sys, "platform", "darwin"), mock.patch.object(server_mod.subprocess, "Popen") as popen:
             self.assertEqual(self.post_json("/api/reveal", {"filename": "shown.mp4"}), (200, {"ok": True}))
         popen.assert_called_once_with(["open", "-R", os.path.join(os.path.abspath(self.out), "shown.mp4")])
+        with mock.patch.object(server_mod.sys, "platform", "win32"), mock.patch.object(server_mod.subprocess, "Popen") as popen:
+            self.assertEqual(self.post_json("/api/reveal", {"filename": "shown.mp4"}), (200, {"ok": True}))
+        popen.assert_called_once_with(["explorer", f"/select,{os.path.normpath(os.path.join(os.path.abspath(self.out), 'shown.mp4'))}"])
         with mock.patch.object(server_mod.sys, "platform", "linux"), mock.patch.object(server_mod.subprocess, "Popen") as popen:
             self.assertFalse(self.post_json("/api/reveal", {"filename": "shown.mp4"})[1]["ok"])
         popen.assert_not_called()
@@ -622,7 +661,7 @@ class TestServeStudio(unittest.TestCase):
         thread = threading.Thread(target=server_mod.serve_studio, kwargs={"port": port, "open_browser": open_browser}, daemon=True)
         thread.start()
         for _ in range(100):
-            if f":{port}" in self.out.getvalue() or "Could not" in self.out.getvalue():
+            if "running at http://" in self.out.getvalue() or "Could not" in self.out.getvalue():
                 break
             threading.Event().wait(0.02)
         return thread

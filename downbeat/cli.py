@@ -4,6 +4,7 @@ from __future__ import annotations
 import argparse
 import os
 import random
+import sys
 import time
 
 from . import __version__
@@ -129,6 +130,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("videos", nargs="*", help="input MP4s (omit to launch Studio UI)")
     ap.add_argument("-o", "--out", default=None, help="output .mp4 (default: out/sample-canvas.mp4)")
     ap.add_argument("--studio", action="store_true", help="launch Studio UI in browser")
+    ap.add_argument("--app", action="store_true", help="launch Studio UI in a standalone desktop window")
     ap.add_argument("--port", type=int, default=8765, help="port for Studio UI (default: 8765)")
     ap.add_argument("--no-browser", action="store_true", help="do not auto-open browser when starting Studio")
     ap.add_argument("--audio", default=None, help="optional WAV/MP3 track for audio sync")
@@ -217,6 +219,11 @@ def main(argv: list[str] | None = None) -> int:
         )
         print(recipe.describe())
         return 0
+
+    if args.app or (getattr(sys, "frozen", False) and not args.videos and not args.studio):
+        from .desktop import serve_desktop
+
+        return serve_desktop(port=args.port)
 
     if args.studio or not args.videos:
         from .server.app import serve_studio

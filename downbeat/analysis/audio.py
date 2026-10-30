@@ -6,6 +6,7 @@ import math
 import os
 import re
 import subprocess
+from collections.abc import Callable, Iterator
 
 import numpy as np
 
@@ -15,6 +16,9 @@ from ..media import file_id
 
 SR = 22050
 ONSET_HOP = 256
+# Songs are analyzed whole up to this length; a longer file (a DJ mix, say) is analyzed from its start.
+MAX_ANALYSIS_SECONDS = 1200.0
+FFT_ROWS = 1024  # STFT frames per batch, so a long song's FFT temporaries stay a few MB
 BANDS = {
     "kick": (30.0, 120.0),
     "bass": (120.0, 320.0),
@@ -37,6 +41,7 @@ class AudioProfile:
     detected_bpm: int
     best_start_sec: float
     waveform_peaks: list[float]  # 96 bars in [0, 1] for UI display
+    tempo: float = 0.0  # the unrounded estimate, so track_features needn't search for it again
 
     def to_dict(self) -> dict:
         return {
@@ -65,7 +70,7 @@ _PCM_CACHE = BoundedCache(16, max_bytes=128 << 20, weigh=lambda y: y.nbytes)
 _PROFILE_CACHE = BoundedCache(64)
 
 
-def _decode_pcm(path: str, max_seconds: float = 180.0) -> np.ndarray:
+def _decode_pcm(path: str, max_seconds: float = MAX_ANALYSIS_SECONDS) -> np.ndarray:
     """Decode audio file to 22050Hz mono float32 numpy array via ffmpeg."""
     path = os.path.abspath(os.path.expanduser(path))
     if not math.isfinite(max_seconds) or not 0 < max_seconds <= 1800:
@@ -144,18 +149,28 @@ def _smooth_envelope(arr: np.ndarray, attack: float = 0.45, release: float = 0.8
     return out
 
 
-def _stft_mag(y: np.ndarray, hop: float, n_fft: int) -> np.ndarray:
-    """Chunked STFT magnitude to limit peak memory on long tracks."""
+def _stft_blocks(y: np.ndarray, hop: float, n_fft: int) -> Iterator[tuple[int, np.ndarray]]:
+    """Centered STFT magnitudes as (first frame, FFT_ROWS frames) blocks, in order."""
     n = max(1, int(y.size // hop))
     padded = np.pad(y, (n_fft // 2, n_fft // 2))
     starts = np.round(np.arange(n) * hop).astype(np.int64)
     window = np.hanning(n_fft).astype(np.float32)
     view = np.lib.stride_tricks.sliding_window_view(padded, n_fft)
-    out = np.empty((n, n_fft // 2 + 1), dtype=np.float32)
-    for c in range(0, n, 1024):
-        sl = starts[c : c + 1024]
-        out[c : c + sl.size] = np.abs(np.fft.rfft(view[sl] * window, axis=1))
+    for c in range(0, n, FFT_ROWS):
+        yield c, np.abs(np.fft.rfft(view[starts[c : c + FFT_ROWS]] * window, axis=1)).astype(np.float32, copy=False)
+
+
+def _stft_mag(y: np.ndarray, hop: float, n_fft: int) -> np.ndarray:
+    """Chunked STFT magnitude to limit peak memory on long tracks."""
+    out = np.empty((max(1, int(y.size // hop)), n_fft // 2 + 1), dtype=np.float32)
+    for c, block in _stft_blocks(y, hop, n_fft):
+        out[c : c + block.shape[0]] = block
     return out
+
+
+def _by_rows(fn: Callable[[np.ndarray], np.ndarray], a: np.ndarray) -> np.ndarray:
+    """fn applied to FFT_ROWS rows at a time, so its temporaries never span a whole song."""
+    return np.concatenate([fn(a[i : i + FFT_ROWS]) for i in range(0, max(1, a.shape[0]), FFT_ROWS)])
 
 
 def _band(mag: np.ndarray, freqs: np.ndarray, lo: float, hi: float) -> np.ndarray:
@@ -166,12 +181,18 @@ def _band(mag: np.ndarray, freqs: np.ndarray, lo: float, hi: float) -> np.ndarra
 
 def _onset_envelope(y: np.ndarray) -> tuple[np.ndarray, np.ndarray, float]:
     """High-rate (approx 86 Hz) full-band and kick-band onset strength."""
-    mag = _stft_mag(y, ONSET_HOP, 1024)
     freqs = np.fft.rfftfreq(1024, d=1.0 / SR)
-    logmag = np.log1p(mag * 10.0)
-    full = _flux(logmag, axis=0).mean(axis=1)
-    kick = _flux(_band(mag, freqs, *BANDS["kick"]))
-    return full.astype(np.float32), kick.astype(np.float32), SR / ONSET_HOP
+    full, kick = [], []
+    prev = None  # the last log-magnitude frame of the previous block, for the flux across the boundary
+    # Streamed block by block: at this rate a whole-song magnitude matrix is ~100 MB per 10 minutes,
+    # before its log and flux copies.
+    for _, mag in _stft_blocks(y, ONSET_HOP, 1024):
+        logmag = np.log1p(mag * 10.0)
+        before = np.concatenate((logmag[:1] if prev is None else prev, logmag[:-1]))
+        full.append(np.maximum(0.0, logmag - before).mean(axis=1))
+        kick.append(_band(mag, freqs, *BANDS["kick"]))
+        prev = logmag[-1:]
+    return np.concatenate(full).astype(np.float32), _flux(np.concatenate(kick)).astype(np.float32), SR / ONSET_HOP
 
 
 def _fold(w: np.ndarray, t: np.ndarray, bpm: float) -> tuple[float, float]:
@@ -220,13 +241,15 @@ def _analyze_track(path: str) -> AudioProfile:
     peaks = np.sqrt(np.mean(trimmed * trimmed, axis=1))
     peaks_norm = _normalize_curve(peaks, 5.0, 99.0)
 
-    best_bpm = int(round(estimate_bpm(y)))
+    tempo = estimate_bpm(y)
+    best_bpm = int(round(tempo))
     hop = 256
     n_fft = 1024
     n_hops = max(1, (y.size - n_fft) // hop)
     fps_env = SR / hop
     frames = np.lib.stride_tricks.sliding_window_view(y, n_fft)[::hop][:n_hops]
-    low_energy = np.abs(np.fft.rfft(frames * np.hanning(n_fft).astype(np.float32), axis=1))[:, 1:12].mean(axis=1)
+    window = np.hanning(n_fft).astype(np.float32)
+    low_energy = _by_rows(lambda f: np.abs(np.fft.rfft(f * window, axis=1))[:, 1:12].mean(axis=1), frames)
 
     hint = _bpm_from_name(name)
     if hint is not None:
@@ -249,6 +272,7 @@ def _analyze_track(path: str) -> AudioProfile:
         detected_bpm=best_bpm,
         best_start_sec=best_start_sec,
         waveform_peaks=peaks_norm.tolist(),
+        tempo=tempo,
     )
     return prof
 

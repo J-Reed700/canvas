@@ -5,6 +5,7 @@ import os
 import json
 import shutil
 import subprocess
+import sys
 import tempfile
 import threading
 import time
@@ -12,7 +13,7 @@ import unittest
 import wave
 from unittest import mock
 
-from downbeat.server import library
+from downbeat.server import library, storage
 from helpers import HAS_FFMPEG, ROOT
 
 
@@ -35,6 +36,63 @@ class TestLibraryHelpers(unittest.TestCase):
                     lib.remove_folder(tmp)
             self.assertEqual(lib.folders(), [tmp])
             self.assertEqual(os.listdir(tmp), [".library.json"], 'failed writes leave no temporary file')
+
+    def test_saves_and_deletes_wait_briefly_for_a_file_another_handle_has_open(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "prefs.json")
+            real_replace = os.replace
+            attempts = []
+
+            def busy_twice(src, dst):
+                attempts.append(dst)
+                if len(attempts) <= 2:
+                    raise PermissionError(13, "Access is denied", dst)
+                real_replace(src, dst)
+
+            with mock.patch.object(storage, "RETRY_IN_USE", True), \
+                    mock.patch("downbeat.server.storage.os.replace", side_effect=busy_twice):
+                storage.write_json(path, {"folders": ["a"]})
+            self.assertEqual((len(attempts), storage.read_json(path)), (3, {"folders": ["a"]}))
+
+            denied = PermissionError(13, "Access is denied", path)
+            with mock.patch.object(storage, "RETRY_IN_USE", True), mock.patch.object(storage, "LOCK_RETRY_SECONDS", 0.05), \
+                    mock.patch("downbeat.server.storage.os.remove", side_effect=denied) as remove:
+                with self.assertRaises(PermissionError):
+                    storage.remove_file(path)
+            self.assertGreater(remove.call_count, 1, "a file that stays in use is given up on after the wait")
+            with mock.patch.object(storage, "RETRY_IN_USE", False), \
+                    mock.patch("downbeat.server.storage.os.remove", side_effect=denied) as remove:
+                with self.assertRaises(PermissionError):
+                    storage.remove_file(path)
+            self.assertEqual(remove.call_count, 1, "off Windows a permission error is real, so there's no wait")
+            self.assertEqual(sorted(os.listdir(tmp)), ["prefs.json"], "failed attempts leave no temporary file")
+
+    @unittest.skipUnless(sys.platform == "win32", "only Windows refuses to replace a file that's open")
+    def test_a_save_on_windows_succeeds_while_a_reader_briefly_has_the_file_open(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "prefs.json")
+            storage.write_json(path, {"v": 1})
+            reader = open(path, encoding="utf-8")
+            closing = threading.Timer(0.15, reader.close)
+            closing.start()
+            try:
+                storage.write_json(path, {"v": 2})
+            finally:
+                closing.join()
+                reader.close()
+            self.assertEqual(storage.read_json(path), {"v": 2})
+
+    def test_a_file_being_read_can_still_be_deleted(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "export.mp4")
+            with open(path, "wb") as f:
+                f.write(b"frames" * 100)
+            with storage.open_shared(path) as playing:
+                storage.remove_file(path)
+                self.assertFalse(os.path.exists(path))
+                self.assertEqual(playing.read(), b"frames" * 100, "the open reader keeps its data")
+            with self.assertRaises(FileNotFoundError):
+                storage.open_shared(path)
 
     def test_concurrent_folder_additions_keep_both_changes(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -120,9 +178,14 @@ class TestLibraryHelpers(unittest.TestCase):
 
     def test_folder_chooser_returns_the_path_or_none(self) -> None:
         done = subprocess.CompletedProcess
-        with mock.patch.object(library.subprocess, "run", return_value=done([], 0, "/Users/me/Music/\n", "")) as run:
+        with mock.patch.object(library.sys, "platform", "darwin"), \
+             mock.patch.object(library.subprocess, "run", return_value=done([], 0, "/Users/me/Music/\n", "")) as run:
             self.assertEqual(library.pick_folder_dialog(), "/Users/me/Music/")
         self.assertEqual(run.call_args.args[0][0], "osascript")
+        with mock.patch.object(library.sys, "platform", "win32"), \
+             mock.patch.object(library.subprocess, "run", return_value=done([], 0, "C:\\Users\\me\\Videos\n", "")) as run:
+            self.assertEqual(library.pick_folder_dialog(), "C:\\Users\\me\\Videos")
+        self.assertEqual(run.call_args.args[0][0], "powershell")
         with mock.patch.object(library.subprocess, "run", return_value=done([], 1, "", "User canceled")):
             self.assertIsNone(library.pick_folder_dialog())
         with mock.patch.object(library.subprocess, "run", return_value=done([], 0, "  \n", "")):

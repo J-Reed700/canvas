@@ -5,10 +5,13 @@ import os
 import select
 import shutil
 import subprocess
+import sys
 import tempfile
 import threading
 import time
 from typing import Any
+
+from ..server.storage import remove_file
 
 DEFAULT_FPS: float = 30.0
 DEFAULT_W: int = 1080
@@ -28,20 +31,23 @@ ENCODE_TIMEOUT = 300.0
 WRITE_TIMEOUT = 60.0
 
 
+def _tool_path(name: str) -> str:
+    extra = [p for p in (os.environ.get("DOWNBEAT_FFMPEG_DIR"), getattr(sys, "_MEIPASS", None)) if p]
+    exe = shutil.which(name, path=os.pathsep.join(extra)) if extra else None
+    exe = exe or shutil.which(name)
+    if not exe:
+        raise RuntimeError(f"{name} not found on PATH")
+    return exe
+
+
 def ffmpeg_path() -> str:
     """Return path to ffmpeg binary or raise RuntimeError if not found."""
-    exe = shutil.which("ffmpeg")
-    if not exe:
-        raise RuntimeError("ffmpeg not found on PATH")
-    return exe
+    return _tool_path("ffmpeg")
 
 
 def ffprobe_path() -> str:
     """Return path to ffprobe binary or raise RuntimeError if not found."""
-    exe = shutil.which("ffprobe")
-    if not exe:
-        raise RuntimeError("ffprobe not found on PATH")
-    return exe
+    return _tool_path("ffprobe")
 
 
 def has_videotoolbox() -> bool:
@@ -327,7 +333,7 @@ class Encoder:
                 self._closed = True
                 self._stderr.close()
                 if os.path.exists(self.path):
-                    os.remove(self.path)
+                    remove_file(self.path)
 
     def close(self) -> None:
         with self._lock:
@@ -396,5 +402,5 @@ def mux_audio_preview(
         subprocess.run(cmd, check=True, capture_output=True, timeout=ENCODE_TIMEOUT)
     except Exception:
         if os.path.exists(out_mp4_path):
-            os.remove(out_mp4_path)
+            remove_file(out_mp4_path)
         raise

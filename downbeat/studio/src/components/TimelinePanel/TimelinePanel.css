@@ -256,6 +256,7 @@
     display: flex;
     justify-content: flex-end;
     overflow-x: auto;
+    scrollbar-width: none;
   }
 
   .tl-panel .tl-rhythm-control {

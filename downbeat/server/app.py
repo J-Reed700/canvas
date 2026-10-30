@@ -5,11 +5,13 @@ import json
 import math
 import mimetypes
 import os
+import socket
 import subprocess
 import sys
 import tempfile
 import threading
 import time
+import traceback
 import urllib.parse
 import urllib.request
 import webbrowser
@@ -37,6 +39,7 @@ from .state import (
     _export_dest,
     _finish_export,
 )
+from .storage import open_shared
 
 STATIC_TYPES = {
     ".html": "text/html; charset=utf-8",
@@ -146,7 +149,7 @@ class StudioHandler(BaseHTTPRequestHandler):
             self.send_header("Cache-Control", "no-cache")
         self.end_headers()
         # stream in 1 MB chunks so 100+ MB proxies never sit in memory
-        with open(path, "rb") as f:
+        with open_shared(path) as f:
             f.seek(start)
             remaining = length
             while remaining > 0:
@@ -237,7 +240,31 @@ class StudioHandler(BaseHTTPRequestHandler):
         else:
             self.send_error(HTTPStatus.NOT_FOUND)
 
+    def send_response(self, code: int, message: str | None = None) -> None:
+        self._responded = True
+        super().send_response(code, message)
+
+    def _answer(self, handle: Callable[[], None]) -> None:
+        """Run one request, answering an unexpected failure with JSON instead of a dropped connection."""
+        self._responded = False
+        try:
+            handle()
+        except (ConnectionError, TimeoutError):
+            raise  # the client is gone, so there's no one to answer
+        except Exception as exc:
+            if self._responded:
+                raise  # the status line is out; all that's left is to close the connection
+            traceback.print_exc()
+            self.close_connection = True  # part of the request body may still be unread
+            self._send_json({"ok": False, "error": str(exc) or type(exc).__name__}, status=500)
+
     def do_GET(self) -> None:
+        self._answer(self._handle_get)
+
+    def do_POST(self) -> None:
+        self._answer(self._handle_post)
+
+    def _handle_get(self) -> None:
         if not self._trusted():
             self.send_error(HTTPStatus.FORBIDDEN, "Untrusted host or origin")
             return
@@ -410,7 +437,7 @@ class StudioHandler(BaseHTTPRequestHandler):
             "clips": snapshot["clips"],
             "folders": snapshot["folders"],
             "suggestions": STATE.library.suggestions(),
-            "can_pick": sys.platform == "darwin",
+            "can_pick": sys.platform in ("darwin", "win32"),
         }
 
     def _post_library_folders(self, body: bytes) -> None:
@@ -427,8 +454,8 @@ class StudioHandler(BaseHTTPRequestHandler):
         self._send_json({**self._library_payload(rescan=True), "added": added})
 
     def _post_pick_folder(self) -> None:
-        if sys.platform != "darwin":
-            self._send_json({"ok": False, "error": "The folder chooser needs macOS. Type the folder's path instead."}, status=501)
+        if sys.platform not in ("darwin", "win32"):
+            self._send_json({"ok": False, "error": "The folder chooser needs macOS or Windows. Type the folder's path instead."}, status=501)
             return
         picked = pick_folder_dialog()
         added = STATE.library.add_folder(picked) if picked else None
@@ -489,7 +516,7 @@ class StudioHandler(BaseHTTPRequestHandler):
         ctype = mimetypes.guess_type(safe_path)[0] or "video/mp4"
         self._serve_file(safe_path, ctype)
 
-    def do_POST(self) -> None:
+    def _handle_post(self) -> None:
         if not self._trusted():
             self.send_error(HTTPStatus.FORBIDDEN, "Untrusted host or origin")
             return
@@ -746,7 +773,7 @@ class StudioHandler(BaseHTTPRequestHandler):
                     if not isinstance(ending, dict):
                         raise ValueError("export completion metadata must be a JSON object")
                     meta["stats"] = ending.get("stats") or meta.get("stats")
-                    self._send_json({"ok": True, "render": _finish_export(session.dest, meta)})
+                    reply, status = {"ok": True, "render": _finish_export(session.dest, meta)}, 200
                 except Exception as exc:
                     try:
                         session.abort()
@@ -755,11 +782,13 @@ class StudioHandler(BaseHTTPRequestHandler):
                     # A failed export must not turn up in Exports after a restart, even
                     # when finish removed the primary before a companion failed.
                     STATE.discard_export(os.path.basename(session.dest))
-                    self._send_json({"ok": False, "error": str(exc)}, status=500)
+                    reply, status = {"ok": False, "error": str(exc)}, 500
                 finally:
                     # Encoding and companion delivery still consume resources after the last upload.
                     # Keep this slot occupied until they finish, not merely until /end is received.
                     STATE.pop_raw_session(sid, entry)
+            # Reply only once the slot is free, so a client can start its next export straight away.
+            self._send_json(reply, status=status)
         finally:
             STATE.drop_raw_session_lock(sid, lock)
 
@@ -770,6 +799,12 @@ class StudioHandler(BaseHTTPRequestHandler):
         except FileNotFoundError:
             # Already gone is the outcome the caller wanted.
             self._send_json({"ok": True, "removed": []})
+            return
+        except PermissionError as exc:
+            # Windows: another program (a player, Explorer's preview) still has one of the files open.
+            busy = os.path.basename(exc.filename or "") or "A file"
+            self._send_json({"ok": False, "error": f"{busy} is open in another program. Close it and delete again."},
+                            status=409)
             return
         self._send_json({"ok": True, "removed": removed})
 
@@ -806,6 +841,9 @@ class StudioHandler(BaseHTTPRequestHandler):
         path = src.path if src else os.path.abspath(os.path.join(OUT_DIR, os.path.basename(str(data.get("filename", "")))))
         if os.path.isfile(path) and sys.platform == "darwin":
             subprocess.Popen(["open", "-R", path])
+            self._send_json({"ok": True})
+        elif os.path.isfile(path) and sys.platform == "win32":
+            subprocess.Popen(["explorer", f"/select,{os.path.normpath(path)}"])
             self._send_json({"ok": True})
         else:
             self._send_json({"ok": False, "path": path})
@@ -872,8 +910,16 @@ class StudioHandler(BaseHTTPRequestHandler):
 
 
 class ReusableThreadingHTTPServer(ThreadingHTTPServer):
-    allow_reuse_address = True
+    # On Windows SO_REUSEADDR lets a second server bind a port that's already listening, so the two
+    # would split requests and the fallback to the next port would never happen. Exclusive use there
+    # gives the POSIX behavior: a restart can reuse the port, but a running server keeps it.
+    allow_reuse_address = sys.platform != "win32"
     daemon_threads = True
+
+    def server_bind(self) -> None:
+        if sys.platform == "win32":
+            self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
+        super().server_bind()
 
     def get_request(self):
         request, client_address = super().get_request()
