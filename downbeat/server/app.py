@@ -437,7 +437,7 @@ class StudioHandler(BaseHTTPRequestHandler):
             "clips": snapshot["clips"],
             "folders": snapshot["folders"],
             "suggestions": STATE.library.suggestions(),
-            "can_pick": sys.platform == "darwin",
+            "can_pick": sys.platform in ("darwin", "win32"),
         }
 
     def _post_library_folders(self, body: bytes) -> None:
@@ -454,8 +454,8 @@ class StudioHandler(BaseHTTPRequestHandler):
         self._send_json({**self._library_payload(rescan=True), "added": added})
 
     def _post_pick_folder(self) -> None:
-        if sys.platform != "darwin":
-            self._send_json({"ok": False, "error": "The folder chooser needs macOS. Type the folder's path instead."}, status=501)
+        if sys.platform not in ("darwin", "win32"):
+            self._send_json({"ok": False, "error": "The folder chooser needs macOS or Windows. Type the folder's path instead."}, status=501)
             return
         picked = pick_folder_dialog()
         added = STATE.library.add_folder(picked) if picked else None
@@ -841,6 +841,9 @@ class StudioHandler(BaseHTTPRequestHandler):
         path = src.path if src else os.path.abspath(os.path.join(OUT_DIR, os.path.basename(str(data.get("filename", "")))))
         if os.path.isfile(path) and sys.platform == "darwin":
             subprocess.Popen(["open", "-R", path])
+            self._send_json({"ok": True})
+        elif os.path.isfile(path) and sys.platform == "win32":
+            subprocess.Popen(["explorer", f"/select,{os.path.normpath(path)}"])
             self._send_json({"ok": True})
         else:
             self._send_json({"ok": False, "path": path})

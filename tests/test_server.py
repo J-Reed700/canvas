@@ -222,7 +222,7 @@ class TestServerRouting(_ServerCase):
         status, data = self.get_json("/api/state")
         self.assertEqual((status, sorted(data)), (200, ["can_pick", "clips", "folders", "renders", "tracks"]))
         self.assertEqual((data["clips"], data["tracks"], data["folders"]), ([], [], []))
-        self.assertEqual(data["can_pick"], sys.platform == "darwin")
+        self.assertEqual(data["can_pick"], sys.platform in ("darwin", "win32"))
         self.assertEqual(self.get_json("/api/state?only=clips"), (200, {"clips": []}))
 
     def test_unknown_ids_are_404(self) -> None:
@@ -494,10 +494,10 @@ class TestServerRouting(_ServerCase):
         self.addCleanup(self.post_json, "/api/library/folders", {"remove": music})
         self.assertEqual(self.get_json("/api/tracks")[1]["suggestions"], [])
 
-    @unittest.skipIf(sys.platform == "darwin", "on macOS this opens the folder chooser")
     def test_folder_chooser_needs_macos(self) -> None:
-        status, data = self.post_json("/api/library/pick_folder")
-        self.assertEqual((status, data["ok"]), (501, False))
+        with mock.patch.object(server_mod.sys, "platform", "linux"):
+            status, data = self.post_json("/api/library/pick_folder")
+            self.assertEqual((status, data["ok"]), (501, False))
 
     def test_reveal_only_looks_inside_out(self) -> None:
         status, data = self.post_json("/api/reveal", {"filename": "../../etc/missing-file.mp4"})
@@ -510,6 +510,9 @@ class TestServerRouting(_ServerCase):
         with mock.patch.object(server_mod.sys, "platform", "darwin"), mock.patch.object(server_mod.subprocess, "Popen") as popen:
             self.assertEqual(self.post_json("/api/reveal", {"filename": "shown.mp4"}), (200, {"ok": True}))
         popen.assert_called_once_with(["open", "-R", os.path.join(os.path.abspath(self.out), "shown.mp4")])
+        with mock.patch.object(server_mod.sys, "platform", "win32"), mock.patch.object(server_mod.subprocess, "Popen") as popen:
+            self.assertEqual(self.post_json("/api/reveal", {"filename": "shown.mp4"}), (200, {"ok": True}))
+        popen.assert_called_once_with(["explorer", f"/select,{os.path.normpath(os.path.join(os.path.abspath(self.out), 'shown.mp4'))}"])
         with mock.patch.object(server_mod.sys, "platform", "linux"), mock.patch.object(server_mod.subprocess, "Popen") as popen:
             self.assertFalse(self.post_json("/api/reveal", {"filename": "shown.mp4"})[1]["ok"])
         popen.assert_not_called()

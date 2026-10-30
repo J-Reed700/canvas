@@ -178,9 +178,14 @@ class TestLibraryHelpers(unittest.TestCase):
 
     def test_folder_chooser_returns_the_path_or_none(self) -> None:
         done = subprocess.CompletedProcess
-        with mock.patch.object(library.subprocess, "run", return_value=done([], 0, "/Users/me/Music/\n", "")) as run:
+        with mock.patch.object(library.sys, "platform", "darwin"), \
+             mock.patch.object(library.subprocess, "run", return_value=done([], 0, "/Users/me/Music/\n", "")) as run:
             self.assertEqual(library.pick_folder_dialog(), "/Users/me/Music/")
         self.assertEqual(run.call_args.args[0][0], "osascript")
+        with mock.patch.object(library.sys, "platform", "win32"), \
+             mock.patch.object(library.subprocess, "run", return_value=done([], 0, "C:\\Users\\me\\Videos\n", "")) as run:
+            self.assertEqual(library.pick_folder_dialog(), "C:\\Users\\me\\Videos")
+        self.assertEqual(run.call_args.args[0][0], "powershell")
         with mock.patch.object(library.subprocess, "run", return_value=done([], 1, "", "User canceled")):
             self.assertIsNone(library.pick_folder_dialog())
         with mock.patch.object(library.subprocess, "run", return_value=done([], 0, "  \n", "")):

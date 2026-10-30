@@ -53,7 +53,7 @@ def mux_annexb(h264_path: str, dest: str, fps: int) -> None:
     # Raw H.264 carries no reliable timestamps (the raw demuxer drifts after ~50 frames on
     # WebCodecs streams), so stamp every packet explicitly: frame N at N/fps, one frame long.
     # Safe because WebCodecs H.264 output has no B-frames (decode order == display order).
-    stamps = f"setts=pts=N/({fps}*TB):dts=N/({fps}*TB):duration=1/({fps}*TB)"
+    stamps = f"h264_metadata=video_full_range_flag=0,setts=pts=N/({fps}*TB):dts=N/({fps}*TB):duration=1/({fps}*TB)"
     try:
         _run(
             [
@@ -392,7 +392,7 @@ def verify(path: str, stats: dict | None = None, fmt: str = "spotify") -> list[d
     codec_name = str(video.get("codec_name") or "")
     profile = str(video.get("profile") or "")
     pix_fmt = str(video.get("pix_fmt") or "")
-    is_h264 = codec_name == "h264" and pix_fmt == "yuv420p"
+    is_h264 = codec_name == "h264" and pix_fmt in ("yuv420p", "yuvj420p")
     is_prores_hq = codec_name == "prores" and ("HQ" in profile.upper() or video.get("codec_tag_string") == "apch")
     is_prores_4444 = codec_name == "prores" and ("4444" in profile or video.get("codec_tag_string") in ("ap4h", "ap4x"))
     apple_format = fmt in ("apple_tall", "apple_square")

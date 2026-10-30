@@ -13,6 +13,7 @@ from __future__ import annotations
 import dataclasses
 import os
 import subprocess
+import sys
 import tempfile
 import threading
 
@@ -199,12 +200,30 @@ def playable_path(track: Track, cache_dir: str, keep: int = 20) -> str:
 
 
 def pick_folder_dialog() -> str | None:
-    """Open the macOS folder chooser on this Mac. Returns the chosen path, or None if cancelled."""
-    script = [
-        "-e", "activate",
-        "-e", 'POSIX path of (choose folder with prompt "Choose the folder your videos and songs are in" default location (path to home folder))',
-    ]
-    res = subprocess.run(["osascript", *script], capture_output=True, text=True)
+    """Open the system folder chooser on macOS or Windows. Returns the chosen path, or None if cancelled."""
+    if sys.platform == "win32":
+        ps = (
+            "Add-Type -AssemblyName System.Windows.Forms; "
+            "$f = New-Object System.Windows.Forms.FolderBrowserDialog; "
+            "$f.Description = 'Choose the folder your videos and songs are in'; "
+            "$f.SelectedPath = [Environment]::GetFolderPath('UserProfile'); "
+            "$top = New-Object System.Windows.Forms.Form -Property @{TopMost = $true}; "
+            "if ($f.ShowDialog($top) -eq [System.Windows.Forms.DialogResult]::OK) { "
+            "[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; Write-Output $f.SelectedPath }"
+        )
+        res = subprocess.run(
+            ["powershell", "-NoProfile", "-Sta", "-Command", ps],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        )
+    else:
+        script = [
+            "-e", "activate",
+            "-e", 'POSIX path of (choose folder with prompt "Choose the folder your videos and songs are in" default location (path to home folder))',
+        ]
+        res = subprocess.run(["osascript", *script], capture_output=True, text=True)
     if res.returncode != 0:
         return None
     return res.stdout.strip() or None

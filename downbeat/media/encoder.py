@@ -5,6 +5,7 @@ import os
 import select
 import shutil
 import subprocess
+import sys
 import tempfile
 import threading
 import time
@@ -30,20 +31,23 @@ ENCODE_TIMEOUT = 300.0
 WRITE_TIMEOUT = 60.0
 
 
+def _tool_path(name: str) -> str:
+    extra = [p for p in (os.environ.get("DOWNBEAT_FFMPEG_DIR"), getattr(sys, "_MEIPASS", None)) if p]
+    exe = shutil.which(name, path=os.pathsep.join(extra)) if extra else None
+    exe = exe or shutil.which(name)
+    if not exe:
+        raise RuntimeError(f"{name} not found on PATH")
+    return exe
+
+
 def ffmpeg_path() -> str:
     """Return path to ffmpeg binary or raise RuntimeError if not found."""
-    exe = shutil.which("ffmpeg")
-    if not exe:
-        raise RuntimeError("ffmpeg not found on PATH")
-    return exe
+    return _tool_path("ffmpeg")
 
 
 def ffprobe_path() -> str:
     """Return path to ffprobe binary or raise RuntimeError if not found."""
-    exe = shutil.which("ffprobe")
-    if not exe:
-        raise RuntimeError("ffprobe not found on PATH")
-    return exe
+    return _tool_path("ffprobe")
 
 
 def has_videotoolbox() -> bool:

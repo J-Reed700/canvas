@@ -20,11 +20,21 @@ from .storage import remove_file, write_json
 from ..media.proxy import ProxyManager
 from ..media.source import IMAGE_EXTS, Source, probe
 
-PACKAGE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-PROJECT_ROOT = os.path.dirname(PACKAGE_DIR)
-OUT_DIR = os.path.join(PROJECT_ROOT, "out")
-STUDIO_DIR = os.path.join(PACKAGE_DIR, "studio")
-STUDIO_DIST_DIR = os.path.join(STUDIO_DIR, "dist")
+def _default_paths() -> tuple[str, str, str, str, str]:
+    if getattr(sys, "frozen", False) and hasattr(sys, "_MEIPASS"):
+        pkg = os.path.join(getattr(sys, "_MEIPASS"), "downbeat")
+        root = os.path.dirname(os.path.abspath(sys.executable))
+        default_out = os.path.join(os.path.expanduser("~"), "Movies" if sys.platform == "darwin" else "Videos", "Downbeat")
+    else:
+        pkg = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        root = os.path.dirname(pkg)
+        default_out = os.path.join(root, "out")
+    out = os.environ.get("DOWNBEAT_OUT_DIR") or default_out
+    studio = os.path.join(pkg, "studio")
+    return pkg, root, out, studio, os.path.join(studio, "dist")
+
+
+PACKAGE_DIR, PROJECT_ROOT, OUT_DIR, STUDIO_DIR, STUDIO_DIST_DIR = _default_paths()
 RAW_SESSION_IDLE_SECONDS = 15 * 60
 MAX_RAW_SESSIONS = 4
 _HIDDEN_LOCK = threading.Lock()
@@ -121,7 +131,7 @@ class StudioState:
         payload = {"clips": clip_payloads(clips, self.library.uploads, folders, self.proxies.status)}
         if not clips_only:
             payload.update(tracks=[t.to_dict() for t in tracks], renders=renders,
-                           folders=folders, can_pick=sys.platform == "darwin")
+                           folders=folders, can_pick=sys.platform in ("darwin", "win32"))
         return payload
 
     def begin_shutdown(self) -> list[str]:
