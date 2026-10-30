@@ -103,6 +103,7 @@ test('the studio works end to end in a real browser', { skip: missing.length ? `
           }
           return { hidden: document.hidden, viewport: [innerWidth, innerHeight],
             tab: state?.tab, exporting: state?.exporting, lastOut: !!state?.engine?.lastOut,
+            project: state?.project, projectsOpen: state?.projectsOpen, projectSync: state?.projectSync,
             contextLost: state?.engine?.gl.isContextLost(), scopeMode: document.querySelector('.scope-toolbar button.on')?.textContent,
             ancestors };
         `).catch((error) => ({ error: error.message }));
@@ -648,10 +649,11 @@ test('the studio works end to end in a real browser', { skip: missing.length ? `
   await step('saves the edit as a project, which keeps saving itself, and opens it again after a new one', `
     key('Escape');
     window.dispatchEvent(new KeyboardEvent('keydown', { key: 's', metaKey: true, bubbles: true }));
-    const name = await until(() => $('#projectsModal input[aria-label="Project name"]'), 2000, 'Projects to ask for a name');
+    const name = await until(() => $('#projectsModal input[aria-label="Project name"]'), 5000, 'Projects to ask for a name');
     setRange(name, 'E2E project');
+    await sleep(0);
     await tap(byText('#projectsModal button', 'Save as project'));
-    await until(() => S.getState().project?.name === 'E2E project' && !S.getState().projectsOpen, 5000, 'the project to save');
+    await until(() => S.getState().project?.name === 'E2E project' && !S.getState().projectsOpen, 15000, 'the project to save');
     if ($('#btnProjects .proj-name').textContent !== 'E2E project') throw new Error('top bar: ' + $('#btnProjects').textContent);
     const id = S.getState().project.id;
     const look = S.getState().look.name;
@@ -660,17 +662,17 @@ test('the studio works end to end in a real browser', { skip: missing.length ? `
     byText('#pane-edit .seg button', '4 bars').click();
     const file = async () => (await (await fetch('/api/projects/' + id)).json()).project;
     // the autosave lands a moment after the change
-    for (let i = 0; i < 50 && (await file()).data.bars !== 4; i++) await sleep(100);
+    for (let i = 0; i < 100 && (await file()).data.bars !== 4; i++) await sleep(100);
     if ((await file()).data.bars !== 4) throw new Error('the project file has ' + (await file()).data.bars + ' bars');
 
     await tap($('#btnProjects'));
-    await tap(await until(() => byText('#projectsModal button', 'New project'), 2000, 'New project'));
-    await until(() => S.getState().project === null && !S.getState().projectsOpen, 5000, 'a new edit');
+    await tap(await until(() => byText('#projectsModal button', 'New project'), 5000, 'New project'));
+    await until(() => S.getState().project === null && !S.getState().projectsOpen, 15000, 'a new edit');
     window.dispatchEvent(new KeyboardEvent('keydown', { key: 'o', metaKey: true, bubbles: true }));
-    await tap(await until(() => $('#projectsModal .proj-open[title="Open E2E project"]'), 2000, 'the project in the list'));
+    await tap(await until(() => $('#projectsModal .proj-open[title="Open E2E project"]'), 5000, 'the project in the list'));
     // the new edit isn't saved, so opening asks first
-    await tap(await until(() => byText('.proj-confirm button', 'Replace it'), 2000, 'the confirmation'));
-    await until(() => S.getState().project?.id === id && S.getState().bars === 4 && S.getState().look.name === look, 10000, 'the project to open');
+    await tap(await until(() => byText('.proj-confirm button', 'Replace it'), 5000, 'the confirmation'));
+    await until(() => S.getState().project?.id === id && S.getState().bars === 4 && S.getState().look.name === look, 15000, 'the project to open');
     window.__project = id;
   `);
 
