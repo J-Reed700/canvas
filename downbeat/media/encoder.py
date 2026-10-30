@@ -10,6 +10,8 @@ import threading
 import time
 from typing import Any
 
+from ..server.storage import remove_file
+
 DEFAULT_FPS: float = 30.0
 DEFAULT_W: int = 1080
 DEFAULT_H: int = 1920
@@ -327,7 +329,7 @@ class Encoder:
                 self._closed = True
                 self._stderr.close()
                 if os.path.exists(self.path):
-                    os.remove(self.path)
+                    remove_file(self.path)
 
     def close(self) -> None:
         with self._lock:
@@ -396,5 +398,5 @@ def mux_audio_preview(
         subprocess.run(cmd, check=True, capture_output=True, timeout=ENCODE_TIMEOUT)
     except Exception:
         if os.path.exists(out_mp4_path):
-            os.remove(out_mp4_path)
+            remove_file(out_mp4_path)
         raise

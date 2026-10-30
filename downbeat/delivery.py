@@ -10,6 +10,7 @@ import tempfile
 from typing import Any
 
 from .media.encoder import ENCODE_TIMEOUT, Encoder, ffmpeg_path, ffprobe_path, mux_audio_preview
+from .server.storage import remove_file
 
 # Spotify for Artists "Canvas" upload requirements (support.spotify.com, 2026).
 SPEC = {"min_seconds": 3.0, "max_seconds": 8.0, "aspect": 9 / 16, "min_height": 720, "listed_max_height": 1080}
@@ -44,7 +45,7 @@ def _run(cmd: list[str], *outputs: str, timeout: float = ENCODE_TIMEOUT) -> subp
     except Exception:
         for path in outputs:
             if path and os.path.exists(path):
-                os.remove(path)
+                remove_file(path)
         raise
 
 
@@ -217,7 +218,7 @@ class ChunkSession(_ExportSession):
         finally:
             self.closed = True
             if os.path.exists(self.tmp):
-                os.remove(self.tmp)
+                remove_file(self.tmp)
 
     def abort(self) -> None:
         if not self.file.closed:
@@ -225,7 +226,7 @@ class ChunkSession(_ExportSession):
         self.closed = True
         for path in (self.tmp, self.dest):
             if path and os.path.exists(path):
-                os.remove(path)
+                remove_file(path)
 
 
 def _atom_order(path: str) -> list[str]:
